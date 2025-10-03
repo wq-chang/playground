@@ -1,0 +1,240 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+
+env:
+  GO_VERSION: "1.25"
+  NODE_VERSION: "24"
+  GOLANGCI_LINT_VERSION: "v2.5.0"
+  GOTESTSUM_VERSION: "1.13.0"
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      go_modules: ${{ steps.detect.outputs.go_modules }}
+      react_modules: ${{ steps.detect.outputs.react_modules }}
+      has_go_changes: ${{ steps.detect.outputs.has_go_changes }}
+      has_react_changes: ${{ steps.detect.outputs.has_react_changes }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 2 # Fetch last 2 commits for comparison
+
+      - name: Detect changed modules
+        id: detect
+        run: |
+          # Compare with the previous commit (HEAD~1)
+          BASE_SHA="HEAD~1"
+          CURRENT_SHA="HEAD"
+
+          # Get all changed files compared to last commit
+          CHANGED_FILES=$(git diff --name-only $BASE_SHA $CURRENT_SHA)
+
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+          echo ""
+
+          # Detect changed Go modules (check if go.mod or any Go file changed in module)
+          CHANGED_GO_MODULES=""
+          for dir in */; do
+            if [ -f "${dir}go.mod" ]; then
+              # Check if any file in this directory changed
+              if echo "$CHANGED_FILES" | grep -q "^${dir}"; then
+                CHANGED_GO_MODULES="$CHANGED_GO_MODULES ./${dir%/}"
+              fi
+            fi
+          done
+
+          # Detect changed React modules (check if package.json or any file changed in module)
+          CHANGED_REACT_MODULES=""
+          for dir in */; do
+            if [ -f "${dir}package.json" ]; then
+              # Check if any file in this directory changed
+              if echo "$CHANGED_FILES" | grep -q "^${dir}"; then
+                CHANGED_REACT_MODULES="$CHANGED_REACT_MODULES ./${dir%/}"
+              fi
+            fi
+          done
+
+          # Export outputs
+          if [ -z "$CHANGED_GO_MODULES" ]; then
+            echo "No Go modules changed"
+            echo "go_modules=" >> $GITHUB_OUTPUT
+            echo "has_go_changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "Changed Go modules: $CHANGED_GO_MODULES"
+            echo "go_modules=$CHANGED_GO_MODULES" >> $GITHUB_OUTPUT
+            echo "has_go_changes=true" >> $GITHUB_OUTPUT
+          fi
+
+          if [ -z "$CHANGED_REACT_MODULES" ]; then
+            echo "No React modules changed"
+            echo "react_modules=" >> $GITHUB_OUTPUT
+            echo "has_react_changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "Changed React modules: $CHANGED_REACT_MODULES"
+            echo "react_modules=$CHANGED_REACT_MODULES" >> $GITHUB_OUTPUT
+            echo "has_react_changes=true" >> $GITHUB_OUTPUT
+          fi
+
+  test-go-modules:
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_go_changes == 'true'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install golangci-lint
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin ${{ env.GOLANGCI_LINT_VERSION }}
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+
+      - name: Run golangci-lint on changed Go modules
+        run: |
+          MODULES="${{ needs.detect-changes.outputs.go_modules }}"
+          EXIT_CODE=0
+
+          for module in $MODULES; do
+            echo "::group::Linting Go module: $module"
+            cd $module
+            
+            # Run golangci-lint if config exists, otherwise use defaults
+            if golangci-lint run --timeout=5m ./...; then
+              echo "✅ Linting passed for $module"
+            else
+              echo "❌ Linting failed for $module"
+              EXIT_CODE=1
+            fi
+            
+            cd $GITHUB_WORKSPACE
+            echo "::endgroup::"
+          done
+
+          exit $EXIT_CODE
+
+      - name: Install gotestsum
+        run: |
+          curl -sSfL https://github.com/gotestyourself/gotestsum/releases/download/v${{ env.GOTESTSUM_VERSION }}/gotestsum_${{ env.GOTESTSUM_VERSION }}_linux_amd64.tar.gz | tar -xz -C /tmp
+          sudo mv /tmp/gotestsum /usr/local/bin/gotestsum
+          chmod +x /usr/local/bin/gotestsum
+
+      - name: Run tests on changed Go modules
+        run: |
+          MODULES="${{ needs.detect-changes.outputs.go_modules }}"
+          EXIT_CODE=0
+
+          for module in $MODULES; do
+            echo "::group::Testing Go module: $module"
+            cd $module
+
+            # Download dependencies
+            go mod download
+
+            # Run tests with gotestsum
+            if gotestsum --format testname -- -v ./...; then
+              echo "✅ Tests passed for $module"
+            else
+              echo "❌ Tests failed for $module"
+              EXIT_CODE=1
+            fi
+
+            cd $GITHUB_WORKSPACE
+            echo "::endgroup::"
+          done
+
+          exit $EXIT_CODE
+
+  test-react-modules:
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_react_changes == 'true'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Run tests on changed React modules
+        run: |
+          MODULES="${{ needs.detect-changes.outputs.react_modules }}"
+          EXIT_CODE=0
+
+          for module in $MODULES; do
+            echo "::group::Testing React module: $module"
+            cd $module
+
+            # Check if package.json has a test script
+            if ! grep -q '"test"' package.json; then
+              echo "⚠️ No test script found in package.json, skipping"
+              cd $GITHUB_WORKSPACE
+              echo "::endgroup::"
+              continue
+            fi
+
+            # Install dependencies
+            npm ci
+
+            # Run tests
+            if npm test -- --passWithNoTests; then
+              echo "✅ Tests passed for $module"
+            else
+              echo "❌ Tests failed for $module"
+              EXIT_CODE=1
+            fi
+
+            cd $GITHUB_WORKSPACE
+            echo "::endgroup::"
+          done
+
+          exit $EXIT_CODE
+
+  summary:
+    runs-on: ubuntu-latest
+    needs: [detect-changes, test-go-modules, test-react-modules]
+    if: always()
+    steps:
+      - name: Generate summary
+        run: |
+          echo "## Test Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ needs.detect-changes.outputs.has_go_changes }}" == "true" ]; then
+            echo "### Go Modules Tested" >> $GITHUB_STEP_SUMMARY
+            echo "${{ needs.detect-changes.outputs.go_modules }}" | tr ' ' '\n' | sed 's/^/- /' >> $GITHUB_STEP_SUMMARY
+            if [ "${{ needs.test-go-modules.result }}" == "success" ]; then
+              echo "✅ All Go tests passed" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "❌ Some Go tests failed" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "### Go Modules" >> $GITHUB_STEP_SUMMARY
+            echo "- No Go modules changed" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ needs.detect-changes.outputs.has_react_changes }}" == "true" ]; then
+            echo "### React Modules Tested" >> $GITHUB_STEP_SUMMARY
+            echo "${{ needs.detect-changes.outputs.react_modules }}" | tr ' ' '\n' | sed 's/^/- /' >> $GITHUB_STEP_SUMMARY
+            if [ "${{ needs.test-react-modules.result }}" == "success" ]; then
+              echo "✅ All React tests passed" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "❌ Some React tests failed" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "### React Modules" >> $GITHUB_STEP_SUMMARY
+            echo "- No React modules changed" >> $GITHUB_STEP_SUMMARY
+          fi
