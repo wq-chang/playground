@@ -22,16 +22,25 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
         with:
-          fetch-depth: 2 # Fetch last 2 commits for comparison
+          fetch-depth: 10
 
       - name: Detect changed modules
         id: detect
         run: |
-          # Compare with the previous commit (HEAD~1)
-          BASE_SHA="HEAD~1"
-          CURRENT_SHA="HEAD"
+          # Determine base commit based on event type
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            # For PRs, compare against the base branch
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+            CURRENT_SHA="${{ github.event.pull_request.head.sha }}"
+          else
+            # For pushes, compare against the previous state
+            BASE_SHA="${{ github.event.before }}"
+            CURRENT_SHA="${{ github.sha }}"
+          fi
 
-          # Get all changed files compared to last commit
+          echo "Comparing $BASE_SHA...$CURRENT_SHA"
+
+          # Get all changed files
           CHANGED_FILES=$(git diff --name-only $BASE_SHA $CURRENT_SHA)
 
           echo "Changed files:"
@@ -201,7 +210,7 @@ jobs:
 
           exit $EXIT_CODE
 
-  summary:
+  ci-summary:
     runs-on: ubuntu-latest
     needs: [detect-changes, test-go-modules, test-react-modules]
     if: always()
@@ -213,7 +222,7 @@ jobs:
 
           if [ "${{ needs.detect-changes.outputs.has_go_changes }}" == "true" ]; then
             echo "### Go Modules Tested" >> $GITHUB_STEP_SUMMARY
-            echo "${{ needs.detect-changes.outputs.go_modules }}" | tr ' ' '\n' | sed 's/^/- /' >> $GITHUB_STEP_SUMMARY
+            echo "${{ needs.detect-changes.outputs.go_modules }}" | tr ' ' '\n' | grep -v '^$' | sed 's/^/- /' >> $GITHUB_STEP_SUMMARY
             if [ "${{ needs.test-go-modules.result }}" == "success" ]; then
               echo "✅ All Go tests passed" >> $GITHUB_STEP_SUMMARY
             else
@@ -228,7 +237,7 @@ jobs:
 
           if [ "${{ needs.detect-changes.outputs.has_react_changes }}" == "true" ]; then
             echo "### React Modules Tested" >> $GITHUB_STEP_SUMMARY
-            echo "${{ needs.detect-changes.outputs.react_modules }}" | tr ' ' '\n' | sed 's/^/- /' >> $GITHUB_STEP_SUMMARY
+            echo "${{ needs.detect-changes.outputs.react_modules }}" | tr ' ' '\n' | grep -v '^$' | sed 's/^/- /' >> $GITHUB_STEP_SUMMARY
             if [ "${{ needs.test-react-modules.result }}" == "success" ]; then
               echo "✅ All React tests passed" >> $GITHUB_STEP_SUMMARY
             else
