@@ -56,7 +56,7 @@ jobs:
           echo "$CHANGED_FILES"
           echo ""
 
-          # Detect changed Go modules (check if go.mod or any Go file changed in module)
+          # Detect directly changed Go modules
           CHANGED_GO_MODULES=""
           for dir in */; do
             if [ -f "${dir}go.mod" ]; then
@@ -67,7 +67,25 @@ jobs:
             fi
           done
 
-          # Detect changed React modules (check if package.json or any file changed in module)
+          # Check if go-library changed
+          GO_LIBRARY_CHANGED=false
+          if echo "$CHANGED_GO_MODULES" | grep -q "./go-library"; then
+            GO_LIBRARY_CHANGED=true
+            echo "⚠️ go-library has changes - will test all Go modules"
+          fi
+
+          # If go-library changed, add all Go modules
+          if [ "$GO_LIBRARY_CHANGED" == "true" ]; then
+            # Clears the previous list
+            CHANGED_GO_MODULES=""
+            for dir in */; do
+              if [ -f "${dir}go.mod" ]; then
+                CHANGED_GO_MODULES="$CHANGED_GO_MODULES ./${dir%/}"
+              fi
+            done
+          fi
+
+          # Detect changed React modules
           CHANGED_REACT_MODULES=""
           for dir in */; do
             if [ -f "${dir}package.json" ]; then
