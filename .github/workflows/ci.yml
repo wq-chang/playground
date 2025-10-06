@@ -132,13 +132,11 @@ jobs:
           MODULES="${{ needs.detect-changes.outputs.go_modules }}"
           EXIT_CODE=0
 
-          echo "::group::Downloading dependencies"
-          # Download dependencies
+          echo "Downloading dependencies"
           (cd ${GO_MOD_DIR} && go mod download)
-          echo "::endgroup::"
 
           for module in $MODULES; do
-            echo "::group::Building Go module: $module"
+            echo "Building Go module: $module"
             cd $module
 
             # Build the module
@@ -150,7 +148,6 @@ jobs:
             fi
 
             cd $GITHUB_WORKSPACE
-            echo "::endgroup::"
           done
 
           exit $EXIT_CODE
@@ -166,7 +163,7 @@ jobs:
           EXIT_CODE=0
 
           for module in $MODULES; do
-            echo "::group::Linting Go module: $module"
+            echo "Linting Go module: $module"
             cd $module
             
             # Run golangci-lint if config exists, otherwise use defaults
@@ -178,7 +175,6 @@ jobs:
             fi
             
             cd $GITHUB_WORKSPACE
-            echo "::endgroup::"
           done
 
           exit $EXIT_CODE
@@ -196,7 +192,7 @@ jobs:
 
           for module in $MODULES; do
             (
-              echo "::group::Testing Go module: $module"
+              echo "Testing Go module: $module"
               cd $module
 
               # Run tests with gotestsum
@@ -208,7 +204,6 @@ jobs:
               fi
 
               cd $GITHUB_WORKSPACE
-              echo "::endgroup::"
             )
           done
 
@@ -233,14 +228,13 @@ jobs:
           EXIT_CODE=0
 
           for module in $MODULES; do
-            echo "::group::Testing React module: $module"
+            echo "Testing React module: $module"
             cd $module
 
             # Check if package.json has a test script
             if ! grep -q '"test"' package.json; then
               echo "⚠️ No test script found in package.json, skipping"
               cd $GITHUB_WORKSPACE
-              echo "::endgroup::"
               continue
             fi
 
@@ -256,7 +250,6 @@ jobs:
             fi
 
             cd $GITHUB_WORKSPACE
-            echo "::endgroup::"
           done
 
           exit $EXIT_CODE
