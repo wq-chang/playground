@@ -231,18 +231,11 @@ jobs:
             echo "Testing React module: $module"
             cd $module
 
-            # Check if package.json has a test script
-            if ! grep -q '"test"' package.json; then
-              echo "⚠️ No test script found in package.json, skipping"
-              cd $GITHUB_WORKSPACE
-              continue
-            fi
-
             # Install dependencies
             npm ci
 
             # Run tests
-            if npm test -- --passWithNoTests; then
+            if npm test -- run --passWithNoTests; then
               echo "✅ Tests passed for $module"
             else
               echo "❌ Tests failed for $module"

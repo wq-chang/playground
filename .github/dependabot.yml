@@ -25,3 +25,16 @@ updates:
     commit-message:
       prefix: "chore"
       include: "scope"
+
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "daily"
+      time: "09:00"
+      timezone: "UTC"
+    labels:
+      - "dependencies"
+      - "react"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
