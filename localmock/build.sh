@@ -1,6 +1,6 @@
 #!/bin/bash
 
-BUILD_DIR="../api-auth-verifier-lambda"
+BUILD_DIR="../go-services/api-auth-verifier-lambda"
 OUTPUT="bootstrap"
 
 # Build with explicit output path

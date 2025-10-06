@@ -1,13 +1,13 @@
 package handler
 
 import (
+	"api-auth-verifier/internal/config"
 	"context"
 	"errors"
-	testutil "go-library/testutils"
 	"strings"
 	"testing"
 
-	"api-auth-verifier/internal/config"
+	testutil "go-services/go-library/testutils"
 
 	"github.com/aws/aws-lambda-go/events"
 )

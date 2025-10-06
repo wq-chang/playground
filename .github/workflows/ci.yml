@@ -56,30 +56,25 @@ jobs:
           echo "$CHANGED_FILES"
           echo ""
 
-          # Detect directly changed Go modules
-          CHANGED_GO_MODULES=""
-          for dir in */; do
-            if [ -f "${dir}go.mod" ]; then
-              # Check if any file in this directory changed
-              if echo "$CHANGED_FILES" | grep -q "^${dir}"; then
-                CHANGED_GO_MODULES="$CHANGED_GO_MODULES ./${dir%/}"
-              fi
-            fi
-          done
-
-          # Check if go-library changed
-          GO_LIBRARY_CHANGED=false
-          if echo "$CHANGED_GO_MODULES" | grep -q "./go-library"; then
-            GO_LIBRARY_CHANGED=true
-            echo "⚠️ go-library has changes - will test all Go modules"
+          # Check if library changed
+          LIBRARY_CHANGED=false
+          if echo "$CHANGED_FILES" | grep -q "^go-services/library/"; then
+            echo "⚠️ Go library changed - will test all Go modules"
+            LIBRARY_CHANGED=true
           fi
 
-          # If go-library changed, add all Go modules
-          if [ "$GO_LIBRARY_CHANGED" == "true" ]; then
-            # Clears the previous list
-            CHANGED_GO_MODULES=""
-            for dir in */; do
-              if [ -f "${dir}go.mod" ]; then
+          # Detect Go modules (go-services/subdirectory)
+          CHANGED_GO_MODULES=""
+
+          if [ "$LIBRARY_CHANGED" = true ]; then
+            # If library changed, include all modules
+            for dir in go-services/*/; do
+              CHANGED_GO_MODULES="$CHANGED_GO_MODULES ./${dir%/}"
+            done
+          else
+            # Only include directly changed modules
+            for dir in go-services/*/; do
+              if echo "$CHANGED_FILES" | grep -q "^${dir}"; then
                 CHANGED_GO_MODULES="$CHANGED_GO_MODULES ./${dir%/}"
               fi
             done

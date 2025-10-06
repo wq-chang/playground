@@ -2,12 +2,12 @@ package main
 
 import (
 	"context"
-	"go-library/auth"
 	"log/slog"
 	"os"
 
-	"api-auth-verifier/internal/config"
-	"api-auth-verifier/internal/handler"
+	"go-services/api-auth-verifier-lambda/internal/config"
+	"go-services/api-auth-verifier-lambda/internal/handler"
+	"go-services/go-library/auth"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"

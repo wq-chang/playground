@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"strings"
 
-	"api-auth-verifier/internal/config"
+	"go-services/api-auth-verifier-lambda/internal/config"
 
 	"github.com/aws/aws-lambda-go/events"
 )
