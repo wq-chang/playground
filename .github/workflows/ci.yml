@@ -56,9 +56,9 @@ jobs:
           echo "$CHANGED_FILES"
           echo ""
 
-          # Check if library changed
+          # Check if library, go.mod, or go.sum changed
           LIBRARY_CHANGED=false
-          if echo "$CHANGED_FILES" | grep -q "^go-services/library/"; then
+          if echo "$CHANGED_FILES" | grep -qE "^go-services/(library/|go\.mod$|go\.sum$)"; then
             echo "⚠️ Go library changed - will test all Go modules"
             LIBRARY_CHANGED=true
           fi
