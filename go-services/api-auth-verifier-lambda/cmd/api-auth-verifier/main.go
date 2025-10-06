@@ -7,7 +7,7 @@ import (
 
 	"go-services/api-auth-verifier-lambda/internal/config"
 	"go-services/api-auth-verifier-lambda/internal/handler"
-	"go-services/go-library/auth"
+	"go-services/library/auth"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
