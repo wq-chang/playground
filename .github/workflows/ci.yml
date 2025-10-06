@@ -11,6 +11,7 @@ env:
   NODE_VERSION: "24"
   GOLANGCI_LINT_VERSION: "v2.5.0"
   GOTESTSUM_VERSION: "1.13.0"
+  GO_MOD_DIR: "go-services"
 
 jobs:
   detect-changes:
@@ -58,7 +59,7 @@ jobs:
 
           # Check if library, go.mod, or go.sum changed
           LIBRARY_CHANGED=false
-          if echo "$CHANGED_FILES" | grep -qE "^go-services/(library/|go\.mod$|go\.sum$)"; then
+          if echo "$CHANGED_FILES" | grep -qE "^${GO_MOD_DIR}/(library/|go\.mod$|go\.sum$)"; then
             echo "⚠️ Go library changed - will test all Go modules"
             LIBRARY_CHANGED=true
           fi
@@ -68,12 +69,12 @@ jobs:
 
           if [ "$LIBRARY_CHANGED" = true ]; then
             # If library changed, include all modules
-            for dir in go-services/*/; do
+            for dir in ${GO_MOD_DIR}/*/; do
               CHANGED_GO_MODULES="$CHANGED_GO_MODULES ./${dir%/}"
             done
           else
             # Only include directly changed modules
-            for dir in go-services/*/; do
+            for dir in ${GO_MOD_DIR}/*/; do
               if echo "$CHANGED_FILES" | grep -q "^${dir}"; then
                 CHANGED_GO_MODULES="$CHANGED_GO_MODULES ./${dir%/}"
               fi
@@ -131,12 +132,14 @@ jobs:
           MODULES="${{ needs.detect-changes.outputs.go_modules }}"
           EXIT_CODE=0
 
+          echo "::group::Downloading dependencies"
+          # Download dependencies
+          (cd ${GO_MOD_DIR} && go mod download)
+          echo "::endgroup::"
+
           for module in $MODULES; do
             echo "::group::Building Go module: $module"
             cd $module
-
-            # Download dependencies
-            go mod download
 
             # Build the module
             if go build -v ./...; then
@@ -192,19 +195,21 @@ jobs:
           EXIT_CODE=0
 
           for module in $MODULES; do
-            echo "::group::Testing Go module: $module"
-            cd $module
+            (
+              echo "::group::Testing Go module: $module"
+              cd $module
 
-            # Run tests with gotestsum
-            if gotestsum --format testname -- -v ./...; then
-              echo "✅ Tests passed for $module"
-            else
-              echo "❌ Tests failed for $module"
-              EXIT_CODE=1
-            fi
+              # Run tests with gotestsum
+              if gotestsum --format testname -- -v ./...; then
+                echo "✅ Tests passed for $module"
+              else
+                echo "❌ Tests failed for $module"
+                EXIT_CODE=1
+              fi
 
-            cd $GITHUB_WORKSPACE
-            echo "::endgroup::"
+              cd $GITHUB_WORKSPACE
+              echo "::endgroup::"
+            )
           done
 
           exit $EXIT_CODE
