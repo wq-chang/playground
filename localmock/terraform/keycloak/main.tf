@@ -6,7 +6,7 @@ terraform {
     }
   }
 
-  required_version = "~> 1.12"
+  required_version = "~> 1.13"
 }
 
 variable "keycloak_client_secret" {

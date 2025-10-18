@@ -1,18 +1,18 @@
 services:
-  localstack:
-    container_name: localstack
-    image: localstack/localstack:4.9.1
-    ports:
-      - "127.0.0.1:4566:4566" # LocalStack Gateway
-      - "127.0.0.1:4510-4559:4510-4559" # external services port range
-    environment:
-      # LocalStack configuration: https://docs.localstack.cloud/references/configuration/
-      - DEBUG=0
-    volumes:
-      - "./volume/localstack:/var/lib/localstack"
-      - "/var/run/docker.sock:/var/run/docker.sock"
-    networks:
-      - playground
+  # localstack:
+  #   container_name: localstack
+  #   image: localstack/localstack:4.9.1
+  #   ports:
+  #     - "127.0.0.1:4566:4566" # LocalStack Gateway
+  #     - "127.0.0.1:4510-4559:4510-4559" # external services port range
+  #   environment:
+  #     # LocalStack configuration: https://docs.localstack.cloud/references/configuration/
+  #     - DEBUG=0
+  #   volumes:
+  #     - "./volume/localstack:/var/lib/localstack"
+  #     - "/var/run/docker.sock:/var/run/docker.sock"
+  #   networks:
+  #     - playground
 
   postgres-keycloak:
     container_name: "postgres-keycloak"
@@ -81,6 +81,16 @@ services:
       - playground
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+  nats:
+    container_name: nats
+    image: nats:2.12.0-alpine
+    command: ["-js", "--http_port", "8222"]
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    networks:
+      - playground
 
 networks:
   playground:
