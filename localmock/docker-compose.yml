@@ -30,7 +30,7 @@ services:
 
   keycloak:
     container_name: keycloak
-    image: keycloak/keycloak:26.4
+    build: ../keycloak-custom
     command: ["start-dev"]
     environment:
       KC_DB: postgres
@@ -44,6 +44,8 @@ services:
       KEYCLOAK_ADMIN_PASSWORD: admin
       KC_HEALTH_ENABLED: "true"
       KC_LOG_LEVEL: info
+
+      KC_SPI_EVENTS_LISTENER_USER_EVENT_LISTENER_NATS_URL: nats://nats:4222
     ports:
       - "7777:8080"
     networks:
@@ -51,7 +53,7 @@ services:
 
   pgadmin:
     container_name: pgadmin
-    image: dpage/pgadmin4:9.8.0
+    image: dpage/pgadmin4:9.9
     user: root
     environment:
       PGADMIN_DEFAULT_EMAIL: admin@admin.com
@@ -63,34 +65,17 @@ services:
     networks:
       - playground
 
-  caddy:
-    container_name: caddy
-    image: caddy:2.10.2-alpine
-    cap_add:
-      - NET_ADMIN
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
-      - "2080:2080"
-    volumes:
-      - ./caddy/conf:/etc/caddy
-      - ./volume/caddy_data:/data
-      - ./volume/caddy_config:/config
-    networks:
-      - playground
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-
   nats:
     container_name: nats
-    image: nats:2.12.0-alpine
-    command: ["-js", "--http_port", "8222"]
+    image: nats:2.12.1-alpine
+    command: ["-js", "-sd", "/data", "--http_port", "8222"]
     ports:
       - "4222:4222"
       - "8222:8222"
     networks:
       - playground
+    volumes:
+      - ./volume/nats-data:/data
 
 networks:
   playground:

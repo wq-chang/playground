@@ -1,7 +1,3 @@
-resource "keycloak_realm" "playground_realm" {
-  realm                = "playground"
-  registration_allowed = true
-}
 
 variable "keycloak_bff_client_secret" {
   description = "Bff client secret"
@@ -29,5 +25,4 @@ resource "keycloak_openid_client" "bff_client" {
   client_secret_wo         = var.keycloak_bff_client_secret
   client_secret_wo_version = "1"
   standard_flow_enabled    = true
-  valid_redirect_uris      = ["http://localhost:7778/auth/callback"]
 }
