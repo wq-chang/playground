@@ -44,6 +44,11 @@ package-lock.json
 yarn.lock
 
 # ====================
+# TypeScript build info files
+# ====================
+*.tsbuildinfo
+
+# ====================
 # Terraform
 # ====================
 *.tfstate
