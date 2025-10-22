@@ -6,9 +6,9 @@ import (
 )
 
 type Config struct {
-	KeycloakUrl   string
+	KeycloakURL   string
 	KeycloakRealm string
-	JwksUrl       string
+	JwksURL       string
 }
 
 func NewConfig() (*Config, error) {
@@ -19,11 +19,11 @@ func NewConfig() (*Config, error) {
 		return nil, fmt.Errorf("KEYCLOAK_URL or KEYCLOAK_REALM env variable is/are empty")
 	}
 
-	jwksUrl := fmt.Sprintf("%s/realms/%s/protocol/openid-connect/certs", keycloakURL, keycloakRealm)
+	jwksURL := fmt.Sprintf("%s/realms/%s/protocol/openid-connect/certs", keycloakURL, keycloakRealm)
 
 	return &Config{
-		KeycloakUrl:   keycloakURL,
+		KeycloakURL:   keycloakURL,
 		KeycloakRealm: keycloakRealm,
-		JwksUrl:       jwksUrl,
+		JwksURL:       jwksURL,
 	}, nil
 }

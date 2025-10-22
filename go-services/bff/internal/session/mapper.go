@@ -1,12 +1,7 @@
 package session
 
 func ToSessionDTO(session Session) SessionModel {
-	return SessionModel{
-		AccessToken:  session.AccessToken,
-		RefreshToken: session.RefreshToken,
-		IDToken:      session.IDToken,
-		ExpiresAt:    session.ExpiresAt,
-	}
+	return SessionModel(session)
 }
 
 func ToSession(createSessionCommand CreateSessionCommand) Session {

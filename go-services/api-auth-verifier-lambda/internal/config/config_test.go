@@ -34,11 +34,11 @@ func TestNewConfig(t *testing.T) {
 			t.Fatalf("expected no error, got %v", err)
 		}
 		expectedJwks := "http://localhost:8080/realms/myrealm/protocol/openid-connect/certs"
-		if cfg.JwksUrl != expectedJwks {
-			t.Errorf("expected jwks url %s, got %s", expectedJwks, cfg.JwksUrl)
+		if cfg.JwksURL != expectedJwks {
+			t.Errorf("expected jwks url %s, got %s", expectedJwks, cfg.JwksURL)
 		}
-		if cfg.KeycloakUrl != "http://localhost:8080" {
-			t.Errorf("expected KeycloakUrl %s, got %s", "http://localhost:8080", cfg.KeycloakUrl)
+		if cfg.KeycloakURL != "http://localhost:8080" {
+			t.Errorf("expected KeycloakUrl %s, got %s", "http://localhost:8080", cfg.KeycloakURL)
 		}
 		if cfg.KeycloakRealm != "myrealm" {
 			t.Errorf("expected KeycloakRealm %s, got %s", "myrealm", cfg.KeycloakRealm)

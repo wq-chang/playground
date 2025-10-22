@@ -20,7 +20,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	validator, err := auth.NewTokenValidator(cfg.JwksUrl)
+	validator, err := auth.NewTokenValidator(cfg.JwksURL)
 	if err != nil {
 		slog.Error("fatal error creating validator: ", "error", err)
 		os.Exit(1)

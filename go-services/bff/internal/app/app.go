@@ -22,11 +22,6 @@ func NewApp(ctx context.Context) (*App, error) {
 		return nil, fmt.Errorf("failed to initialize config: %w", err)
 	}
 
-	// repository, err := newRepository(ctx, cfg)
-	// if err != nil {
-	// 	return nil, fmt.Errorf("failed to initialize repositories: %w", err)
-	// }
-
 	service, err := newService(ctx, log, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize services: %w", err)

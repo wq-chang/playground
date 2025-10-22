@@ -33,7 +33,7 @@ func TestHandlerRequest(t *testing.T) {
 		{
 			name:      "missing Authorization header",
 			headers:   map[string]string{},
-			validator: &mockValidator{},
+			validator: &mockValidator{valid: false, err: nil},
 			wantCode:  401,
 			wantBody:  "missing Authorization header",
 			wantLog:   "",
@@ -41,7 +41,7 @@ func TestHandlerRequest(t *testing.T) {
 		{
 			name:      "invalid Authorization header format",
 			headers:   map[string]string{"Authorization": "Foo token"},
-			validator: &mockValidator{},
+			validator: &mockValidator{valid: false, err: nil},
 			wantCode:  401,
 			wantBody:  "invalid Authorization header format",
 			wantLog:   "",
@@ -49,7 +49,7 @@ func TestHandlerRequest(t *testing.T) {
 		{
 			name:      "validation error",
 			headers:   map[string]string{"Authorization": "Bearer sometoken"},
-			validator: &mockValidator{err: errors.New("jwks fetch failed")},
+			validator: &mockValidator{valid: false, err: errors.New("jwks fetch failed")},
 			wantCode:  500,
 			wantBody:  "failed to validate token",
 			wantLog:   "token validation failed",
@@ -86,7 +86,7 @@ func TestHandlerRequest(t *testing.T) {
 			resp, _ := HandlerRequest(
 				context.Background(),
 				log,
-				&config.Config{},
+				&config.Config{KeycloakURL: "KeycloakUrl", KeycloakRealm: "KeycloakRealm", JwksURL: "JwskUrl"},
 				events.APIGatewayProxyRequest{Headers: tt.headers},
 				tt.validator,
 			)
