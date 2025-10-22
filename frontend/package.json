@@ -11,8 +11,8 @@
     "test": "vitest"
   },
   "dependencies": {
-    "@mantine/core": "^8.3.3",
-    "@mantine/hooks": "^8.2.8",
+    "@mantine/core": "^8.3.5",
+    "@mantine/hooks": "^8.3.5",
     "@tanstack/react-router": "^1.132.41",
     "keycloak-js": "^26.2.0",
     "lucide-react": "^0.544.0",
