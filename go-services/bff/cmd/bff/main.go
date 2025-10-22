@@ -21,8 +21,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	crossOriginProtectionMiddleware, err :=
-		middleware.CrossOriginProtection(appl.Log, appl.Config.FrontendBaseURL)
+	cors, err := middleware.CORS(appl.Log, appl.Config.FrontendBaseURL)
 	if err != nil {
 		slog.Error("failed to initialize cors middleware", "err", err)
 		os.Exit(1)
@@ -32,8 +31,7 @@ func main() {
 	chain := middleware.NewChain()
 	chain.Add(
 		middleware.Logging(appl.Log),
-		middleware.CORS(appl.Config.FrontendBaseURL),
-		crossOriginProtectionMiddleware,
+		cors,
 		middleware.RequireJSON,
 		middleware.Recover(appl.Log),
 	)
