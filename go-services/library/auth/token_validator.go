@@ -3,7 +3,6 @@ package auth
 import (
 	"fmt"
 
-	"github.com/MicahParks/keyfunc/v3"
 	"github.com/golang-jwt/jwt/v5"
 )
 
@@ -21,18 +20,11 @@ type TokenValidator struct {
 	jwks tokenKeyfunc
 }
 
-// NewTokenValidator creates a new TokenValidator by initializing a JWKS
-// client from the given configuration. The JWKS is retrieved from the
-// provider's endpoint (e.g., Keycloak).
-func NewTokenValidator(jwksUrl string) (*TokenValidator, error) {
-	jwks, err := keyfunc.NewDefault([]string{jwksUrl})
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize key: %w", err)
-	}
-
+// NewTokenValidator creates a new TokenValidator
+func NewTokenValidator(jwks tokenKeyfunc) *TokenValidator {
 	return &TokenValidator{
 		jwks: jwks,
-	}, nil
+	}
 }
 
 // Validate parses and validates a JWT string using the configured JWKS.

@@ -76,3 +76,11 @@ func NewBadGateway(msg string, code ErrorCode) error {
 func WrapBadGateway(msg string, code ErrorCode, err error) error {
 	return Wrap(msg, code, http.StatusBadGateway, err)
 }
+
+func NewUnavailable(msg string, code ErrorCode) error {
+	return New(msg, code, http.StatusServiceUnavailable, errors.New(msg))
+}
+
+func WrapUnavailable(msg string, code ErrorCode, err error) error {
+	return Wrap(msg, code, http.StatusServiceUnavailable, err)
+}

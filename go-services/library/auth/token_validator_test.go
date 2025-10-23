@@ -1,10 +1,12 @@
-package auth
+package auth_test
 
 import (
 	"crypto/rand"
 	"crypto/rsa"
 	"testing"
 	"time"
+
+	"go-services/library/auth"
 
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -44,14 +46,13 @@ func generateFakeKeycloakToken(t *testing.T) (string, *rsa.PublicKey) {
 
 func TestValidate_KeycloakToken(t *testing.T) {
 	token, pubKey := generateFakeKeycloakToken(t)
-
-	validator := &TokenValidator{
-		jwks: mockKeyfunc{
-			keyfunc: func(token *jwt.Token) (any, error) {
-				return pubKey, nil
-			},
+	mockedJWKS := mockKeyfunc{
+		keyfunc: func(token *jwt.Token) (any, error) {
+			return pubKey, nil
 		},
 	}
+
+	validator := auth.NewTokenValidator(mockedJWKS)
 
 	valid, err := validator.Validate(token)
 	if err != nil {
