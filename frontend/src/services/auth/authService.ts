@@ -39,7 +39,7 @@ export const login = async () => {
   useAuthStore
     .getState()
     .setAuth(
-      keycloak.authenticated ?? false,
+      keycloak.authenticated,
       keycloak.token ?? null,
       keycloak.refreshToken ?? null,
     );

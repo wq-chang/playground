@@ -3,16 +3,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 let authService: typeof import('@/services/auth/authService');
 
-const { initMock, loginMock, logoutMock, setAuthMock, removeAuthMock } =
-  vi.hoisted(() => {
-    return {
-      initMock: vi.fn().mockResolvedValue(true),
-      loginMock: vi.fn(),
-      logoutMock: vi.fn(),
-      setAuthMock: vi.fn(),
-      removeAuthMock: vi.fn(),
-    };
-  });
+const initMock = vi.fn().mockResolvedValue(true);
+const loginMock = vi.fn();
+const logoutMock = vi.fn();
+const setAuthMock = vi.fn();
+const removeAuthMock = vi.fn();
 
 vi.mock('@/stores/authStore', () => {
   return {
@@ -27,14 +22,16 @@ vi.mock('@/stores/authStore', () => {
 
 vi.mock('keycloak-js', () => {
   return {
-    default: vi.fn().mockImplementation(() => ({
-      init: initMock,
-      login: loginMock,
-      logout: logoutMock,
-      token: 'fake-token',
-      refreshToken: 'fake-refresh-token',
-      authenticated: true,
-    })),
+    default: vi.fn(
+      class {
+        init = initMock;
+        login = loginMock;
+        logout = logoutMock;
+        token = 'fake-token';
+        refreshToken = 'fake-refresh-token';
+        authenticated = true;
+      },
+    ),
   };
 });
 
