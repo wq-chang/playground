@@ -7,7 +7,7 @@ import (
 	"go-services/library/testutil"
 )
 
-func TestFakeLogger(t *testing.T) {
+func TestTestLogger(t *testing.T) {
 	testLogger := testutil.NewTestLogger(t)
 
 	testLogger.Logger.Info("hello", "key", "value")
@@ -18,7 +18,7 @@ func TestFakeLogger(t *testing.T) {
 	testLogger.AssertLastLevel(slog.LevelInfo)
 }
 
-func TestFakeLoggerMultipleLevels(t *testing.T) {
+func TestTestLoggerMultipleLevels(t *testing.T) {
 	testLogger := testutil.NewTestLogger(t)
 
 	testLogger.Logger.Debug("debug message")
@@ -50,7 +50,7 @@ func TestFakeLoggerMultipleLevels(t *testing.T) {
 	testLogger.AssertLevelCount(slog.LevelError, 1)
 }
 
-func TestFakeLoggerReset(t *testing.T) {
+func TestTestLoggerReset(t *testing.T) {
 	testLogger := testutil.NewTestLogger(t)
 
 	testLogger.Logger.Info("first message")
@@ -73,7 +73,7 @@ func TestFakeLoggerReset(t *testing.T) {
 	testLogger.AssertLogCount(1)
 }
 
-func TestFakeLoggerNoTimestamp(t *testing.T) {
+func TestTestLoggerNoTimestamp(t *testing.T) {
 	testLogger := testutil.NewTestLogger(t)
 
 	testLogger.Logger.Debug("debug msg")
@@ -84,7 +84,7 @@ func TestFakeLoggerNoTimestamp(t *testing.T) {
 	testLogger.AssertNotContains("time=")
 }
 
-func TestFakeLoggerHelperMethods(t *testing.T) {
+func TestTestLoggerHelperMethods(t *testing.T) {
 	testLogger := testutil.NewTestLogger(t)
 
 	// Test empty on fresh logger
@@ -119,7 +119,7 @@ func TestFakeLoggerHelperMethods(t *testing.T) {
 	testLogger.AssertNotEmpty()
 }
 
-func TestFakeLoggerLevelsSlice(t *testing.T) {
+func TestTestLoggerLevelsSlice(t *testing.T) {
 	testLogger := testutil.NewTestLogger(t)
 
 	testLogger.Logger.Info("first")
@@ -136,7 +136,7 @@ func TestFakeLoggerLevelsSlice(t *testing.T) {
 	testLogger.AssertLevelAt(3, slog.LevelDebug)
 }
 
-func TestFakeLoggerResetPreservesLogger(t *testing.T) {
+func TestTestLoggerResetPreservesLogger(t *testing.T) {
 	testLogger := testutil.NewTestLogger(t)
 
 	testLogger.Logger.Info("before reset")

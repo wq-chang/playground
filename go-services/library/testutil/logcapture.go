@@ -6,9 +6,16 @@ import (
 	"slices"
 )
 
+// LogCapture is a helper for capturing and inspecting logs in tests.
+//
+// It records log output and the levels of emitted log entries,
+// allowing tests to assert on message content or severity.
+//
+// LogCapture is not concurrency-safe and is intended for single-threaded
+// use within unit tests.
 type LogCapture struct {
-	Buf    *bytes.Buffer
-	Levels []slog.Level
+	Buf    *bytes.Buffer // An in-memory buffer that stores the raw log output.
+	Levels []slog.Level  // A slice of recorded log levels in order of emission.
 }
 
 // String returns the logged content as a string

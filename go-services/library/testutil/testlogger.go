@@ -6,14 +6,49 @@ import (
 	"testing"
 )
 
-// TestLogger wraps LogCapture with test assertions
+// TestLogger wraps LogCapture and provides assertion helpers
+// for verifying log output and levels during tests.
+//
+// It is designed for use with Go’s testing package, enabling
+// expressive and reliable logging assertions.
+//
+// Typical workflow:
+//  1. Create a TestLogger using NewTestLogger(t).
+//  2. Use the returned slog.Logger for your code under test.
+//  3. Use the provided Assert* methods to check the logged output.
+//
+// Example:
+//
+//	tl := testutil.NewTestLogger(t)
+//	log := tl.Logger
+//
+//	log.Info("initialized service")
+//	log.Error("failed to connect")
+//
+//	tl.AssertHasLevel(slog.LevelError)
+//	tl.AssertContains("failed to connect")
+//	tl.AssertLevelCount(slog.LevelInfo, 1)
 type TestLogger struct {
-	Logger  *slog.Logger
-	Capture *LogCapture
-	t       *testing.T
+	Logger  *slog.Logger // The logger instance used in tests; emits logs into the in-memory buffer.
+	Capture *LogCapture  // Captures log output and levels for later inspection or assertions.
+	t       *testing.T   // The testing context, used to report assertion failures.
 }
 
-// NewTestLogger creates a new test logger with assertion helpers
+// NewTestLogger creates a new TestLogger with a configured slog.Logger.
+//
+// The returned logger writes to an in-memory buffer and tracks
+// emitted log levels for later inspection. The logger uses a
+// TextHandler configured to:
+//   - Disable time and source attributes for stable test output.
+//   - Record log levels in the Capture.Levels slice.
+//
+// Example:
+//
+//	tl := testutil.NewTestLogger(t)
+//	log := tl.Logger
+//
+//	log.Warn("deprecated call")
+//	tl.AssertLastLevel(slog.LevelWarn)
 func NewTestLogger(t *testing.T) *TestLogger {
 	t.Helper()
 
@@ -23,7 +58,6 @@ func NewTestLogger(t *testing.T) *TestLogger {
 		Levels: make([]slog.Level, 0),
 	}
 
-	// Use a TextHandler but disable time and level formatting
 	handler := slog.NewTextHandler(buf,
 		&slog.HandlerOptions{
 			AddSource: false,
@@ -52,8 +86,8 @@ func NewTestLogger(t *testing.T) *TestLogger {
 // AssertEmpty asserts that no logs were written
 func (tl *TestLogger) AssertEmpty() {
 	tl.t.Helper()
-	if !tl.Capture.IsEmpty() {
-		tl.t.Errorf("expected no log output but got: %s", tl.Capture.String())
+	if got := tl.Capture.String(); !tl.Capture.IsEmpty() {
+		tl.t.Errorf("got log output %q, want none", got)
 	}
 }
 
@@ -61,31 +95,31 @@ func (tl *TestLogger) AssertEmpty() {
 func (tl *TestLogger) AssertNotEmpty() {
 	tl.t.Helper()
 	if tl.Capture.IsEmpty() {
-		tl.t.Error("expected log output but none was written")
+		tl.t.Error("got no log output, want at least one log entry")
 	}
 }
 
 // AssertContains asserts that the log output contains the given substring
 func (tl *TestLogger) AssertContains(substring string) {
 	tl.t.Helper()
-	if !tl.Capture.Contains(substring) {
-		tl.t.Errorf("log output missing %q\nGot: %s", substring, tl.Capture.String())
+	if got := tl.Capture.String(); !tl.Capture.Contains(substring) {
+		tl.t.Errorf("got log output %q, want it to contain %q", got, substring)
 	}
 }
 
 // AssertNotContains asserts that the log output does not contain the given substring
 func (tl *TestLogger) AssertNotContains(substring string) {
 	tl.t.Helper()
-	if tl.Capture.Contains(substring) {
-		tl.t.Errorf("log output should not contain %q\nGot: %s", substring, tl.Capture.String())
+	if got := tl.Capture.String(); tl.Capture.Contains(substring) {
+		tl.t.Errorf("got log output %q, want it not to contain %q", got, substring)
 	}
 }
 
 // AssertLastLevel asserts that the most recent log has the specified level
 func (tl *TestLogger) AssertLastLevel(level slog.Level) {
 	tl.t.Helper()
-	if tl.Capture.LastLevel() != level {
-		tl.t.Errorf("last log level = %v, want %v", tl.Capture.LastLevel(), level)
+	if got, want := tl.Capture.LastLevel(), level; got != want {
+		tl.t.Errorf("last log level = %v, want %v", got, want)
 	}
 }
 
@@ -93,41 +127,41 @@ func (tl *TestLogger) AssertLastLevel(level slog.Level) {
 func (tl *TestLogger) AssertHasLevel(level slog.Level) {
 	tl.t.Helper()
 	if !tl.Capture.HasLevel(level) {
-		tl.t.Errorf("expected to have log with level %v", level)
+		tl.t.Errorf("got no log with level %v, want at least one", level)
 	}
 }
 
 // AssertLogCount asserts the total number of logs written
 func (tl *TestLogger) AssertLogCount(count int) {
 	tl.t.Helper()
-	if tl.Capture.LogCount() != count {
-		tl.t.Errorf("expected %d logs, got %d", count, tl.Capture.LogCount())
+	if got, want := tl.Capture.LogCount(), count; got != want {
+		tl.t.Errorf("got %d logs, want %d", got, want)
 	}
 }
 
 // AssertLevelCount asserts the number of logs at a specific level
 func (tl *TestLogger) AssertLevelCount(level slog.Level, count int) {
 	tl.t.Helper()
-	actual := tl.Capture.LevelCount(level)
-	if actual != count {
-		tl.t.Errorf("expected %d logs at level %v, got %d", count, level, actual)
+	if got, want := tl.Capture.LevelCount(level), count; got != want {
+		tl.t.Errorf("got %d logs at level %v, want %d", got, level, want)
 	}
 }
 
 // AssertLevelAt asserts the log level at a specific index
 func (tl *TestLogger) AssertLevelAt(index int, level slog.Level) {
 	tl.t.Helper()
-	actual, ok := tl.Capture.LevelAt(index)
+	got, ok := tl.Capture.LevelAt(index)
+	want := level
 	if !ok {
-		tl.t.Errorf("expected log at index %d but none exists", index)
+		tl.t.Errorf("no log at index %d, want level %v", index, want)
 		return
 	}
-	if actual != level {
-		tl.t.Errorf("log[%d] level = %v, want %v", index, actual, level)
+	if got != want {
+		tl.t.Errorf("log[%d] level = %v, want %v", index, got, want)
 	}
 }
 
-// Reset clears the captured logs
+// Reset clears the captured log buffer and level history for reuse
 func (tl *TestLogger) Reset() {
 	tl.Capture.Reset()
 }
