@@ -38,3 +38,17 @@ updates:
     commit-message:
       prefix: "chore"
       include: "scope"
+
+  - package-ecosystem: "maven"
+    directory: "/keycloak-custom/keycloak-user-event-listener"
+    schedule:
+      interval: "daily"
+      time: "09:00"
+      timezone: "UTC"
+    labels:
+      - "dependencies"
+      - "java"
+      - "keycloak"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
