@@ -1,4 +1,4 @@
-package middleware
+package middleware_test
 
 import (
 	"log/slog"
@@ -6,13 +6,15 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+
+	"go-services/bff/internal/api/middleware"
 )
 
 func TestCORS(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	trustedOrigin := "https://example.com"
 
-	corsMiddleware, err := CORS(log, trustedOrigin)
+	corsMiddleware, err := middleware.CORS(log, trustedOrigin)
 	if err != nil {
 		t.Fatalf("failed to create CORS middleware: %v", err)
 	}
@@ -28,7 +30,7 @@ func TestCORS(t *testing.T) {
 
 	handler := corsMiddleware(testHandler)
 
-	expectedHeaders := map[string]string{
+	wantHeaders := map[string]string{
 		"Access-Control-Allow-Origin":      trustedOrigin,
 		"Access-Control-Allow-Methods":     "GET, POST, PUT, PATCH, DELETE, OPTIONS",
 		"Access-Control-Allow-Headers":     "Content-Type, Authorization",
@@ -38,36 +40,36 @@ func TestCORS(t *testing.T) {
 	tests := map[string]struct {
 		method         string
 		origin         string
-		expectedStatus int
-		expectedBody   string
+		wantStatus     int
+		wantBody       string
 		shouldCallNext bool
 	}{
 		"GET request with trusted origin": {
 			method:         http.MethodGet,
 			origin:         trustedOrigin,
-			expectedStatus: http.StatusOK,
-			expectedBody:   "OK",
+			wantStatus:     http.StatusOK,
+			wantBody:       "OK",
 			shouldCallNext: true,
 		},
 		"OPTIONS preflight request": {
 			method:         http.MethodOptions,
 			origin:         trustedOrigin,
-			expectedStatus: http.StatusNoContent,
-			expectedBody:   "",
+			wantStatus:     http.StatusNoContent,
+			wantBody:       "",
 			shouldCallNext: false,
 		},
 		"POST request with trusted origin": {
 			method:         http.MethodPost,
 			origin:         trustedOrigin,
-			expectedStatus: http.StatusOK,
-			expectedBody:   "OK",
+			wantStatus:     http.StatusOK,
+			wantBody:       "OK",
 			shouldCallNext: true,
 		},
 		"GET request without origin header": {
 			method:         http.MethodGet,
 			origin:         "",
-			expectedStatus: http.StatusOK,
-			expectedBody:   "OK",
+			wantStatus:     http.StatusOK,
+			wantBody:       "OK",
 			shouldCallNext: true,
 		},
 	}
@@ -83,22 +85,22 @@ func TestCORS(t *testing.T) {
 			rr := httptest.NewRecorder()
 			handler.ServeHTTP(rr, req)
 
-			if rr.Code != tt.expectedStatus {
-				t.Errorf("expected status %d, got %d", tt.expectedStatus, rr.Code)
+			if rr.Code != tt.wantStatus {
+				t.Errorf("got status %d, want %d", rr.Code, tt.wantStatus)
 			}
 
-			for key, expected := range expectedHeaders {
-				if actual := rr.Header().Get(key); actual != expected {
-					t.Errorf("header %s: expected %q, got %q", key, expected, actual)
+			for key, want := range wantHeaders {
+				if got := rr.Header().Get(key); got != want {
+					t.Errorf("header %s: got %q, want %q", key, got, want)
 				}
 			}
 
-			if body := rr.Body.String(); body != tt.expectedBody {
-				t.Errorf("expected body %q, got %q", tt.expectedBody, body)
+			if got := rr.Body.String(); got != tt.wantBody {
+				t.Errorf("got body %q, want %q", got, tt.wantBody)
 			}
 
-			if handlerCalled != tt.shouldCallNext {
-				t.Errorf("handler called = %v, expected %v", handlerCalled, tt.shouldCallNext)
+			if got := handlerCalled; got != tt.shouldCallNext {
+				t.Errorf("handler called = %v, want %v", got, tt.shouldCallNext)
 			}
 		})
 	}

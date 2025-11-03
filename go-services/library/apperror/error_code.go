@@ -17,10 +17,12 @@ const (
 	CodeAccountLocked ErrorCode = "ACCOUNT_LOCKED"
 
 	// 4xx Client Errors - Resource
-	CodeNotFound        ErrorCode = "NOT_FOUND"
-	CodeDuplicateRecord ErrorCode = "DUPLICATE_RECORD"
-	CodeConflict        ErrorCode = "CONFLICT"
-	CodeTooManyRequests ErrorCode = "TOO_MANY_REQUESTS"
+	CodeNotFound             ErrorCode = "NOT_FOUND"
+	CodeDuplicateRecord      ErrorCode = "DUPLICATE_RECORD"
+	CodeConflict             ErrorCode = "CONFLICT"
+	CodeTooManyRequests      ErrorCode = "TOO_MANY_REQUESTS"
+	CodeUnsupportedMediaType ErrorCode = "UNSUPPORTED_MEDIA_TYPE"
+	CodeNotAcceptable        ErrorCode = "NOT_ACCEPTABLE"
 
 	// 5xx Server Errors - General
 	CodeInternalError      ErrorCode = "INTERNAL_ERROR"

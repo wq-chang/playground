@@ -30,10 +30,10 @@ func main() {
 
 	chain := middleware.NewChain()
 	chain.Add(
+		middleware.Recover(appl.Log),
 		middleware.Logging(appl.Log),
 		cors,
-		middleware.RequireJSON,
-		middleware.Recover(appl.Log),
+		middleware.RequireJSON(appl.Log),
 	)
 
 	mux := http.NewServeMux()

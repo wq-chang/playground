@@ -10,14 +10,14 @@ import (
 
 // SendJSON writes a success JSON response.
 func SendJSON(w http.ResponseWriter, status int, data any) error {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", ContentTypeJSON)
 	w.WriteHeader(status)
 	return json.NewEncoder(w).Encode(SuccessResponse{Success: true, Data: data})
 }
 
 // SendError writes a structured JSON error response.
 func SendError(w http.ResponseWriter, status int, code apperror.ErrorCode, message string) error {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", ContentTypeJSON)
 	w.WriteHeader(status)
 
 	return json.NewEncoder(w).Encode(ErrorResponse{
