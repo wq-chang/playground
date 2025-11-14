@@ -23,7 +23,7 @@
   "devDependencies": {
     "@eslint/js": "^9.38.0",
     "@ianvs/prettier-plugin-sort-imports": "^4.7.0",
-    "@tanstack/router-devtools": "^1.135.2",
+    "@tanstack/router-devtools": "^1.136.1",
     "@tanstack/router-plugin": "^1.135.2",
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.4",
