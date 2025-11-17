@@ -16,7 +16,7 @@
     <mockito.version>5.20.0</mockito.version>
     <assertj.version>3.27.6</assertj.version>
     <plugin.compiler.version>3.14.1</plugin.compiler.version>
-    <plugin.jar.version>3.4.2</plugin.jar.version>
+    <plugin.jar.version>3.5.0</plugin.jar.version>
     <plugin.shade.version>3.6.1</plugin.shade.version>
   </properties>
   <dependencyManagement>
