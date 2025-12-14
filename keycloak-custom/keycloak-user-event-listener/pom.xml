@@ -13,7 +13,7 @@
     <keycloak.version>26.4.5</keycloak.version>
     <nats.version>2.24.0</nats.version>
     <junit.version>6.0.1</junit.version>
-    <mockito.version>5.20.0</mockito.version>
+    <mockito.version>5.21.0</mockito.version>
     <assertj.version>3.27.6</assertj.version>
     <plugin.compiler.version>3.14.1</plugin.compiler.version>
     <plugin.jar.version>3.5.0</plugin.jar.version>
