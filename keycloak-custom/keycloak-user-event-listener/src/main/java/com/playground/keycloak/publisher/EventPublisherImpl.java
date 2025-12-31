@@ -21,7 +21,7 @@ public class EventPublisherImpl implements EventPublisher {
   }
 
   @Override
-  public void publish(EventMessage<?> message) {
+  public void publish(EventMessage message) {
     String subject = "USER_EVENT." + message.userId();
     String payload;
 
@@ -70,7 +70,7 @@ public class EventPublisherImpl implements EventPublisher {
     }
   }
 
-  private void handlePublishFailure(EventMessage<?> message, Exception e) {
+  private void handlePublishFailure(EventMessage message, Exception e) {
     // TODO: write to a file
   }
 }

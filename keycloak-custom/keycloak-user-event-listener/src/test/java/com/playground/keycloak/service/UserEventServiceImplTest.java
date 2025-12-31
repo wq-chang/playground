@@ -3,7 +3,6 @@ package com.playground.keycloak.service;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -12,8 +11,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.playground.keycloak.dto.EventMessage;
-import com.playground.keycloak.dto.UserEvent;
+import com.playground.keycloak.dto.UpdatedDetails;
 import com.playground.keycloak.enums.KeycloakEventType;
+import com.playground.keycloak.enums.KeycloakOperation;
 import com.playground.keycloak.publisher.EventPublisher;
 import com.playground.keycloak.util.EventLogger;
 import java.util.HashMap;
@@ -37,7 +37,7 @@ class UserEventServiceImplTest {
   @Mock private EventPublisher publisher;
   @Mock private Event event;
   @Mock private AdminEvent adminEvent;
-  @Captor private ArgumentCaptor<EventMessage<?>> eventMessageCaptor;
+  @Captor private ArgumentCaptor<EventMessage> eventMessageCaptor;
   private UserEventServiceImpl userEventService;
 
   @BeforeEach
@@ -51,8 +51,12 @@ class UserEventServiceImplTest {
     String userId = "user-123";
     EventType eventType = EventType.UPDATE_PROFILE;
     Map<String, String> details = new HashMap<>();
-    details.put("username", "testuser");
-    details.put("ip", "192.168.1.1");
+    String updatedFirstName = "test first name";
+    String updatedLastName = "test last name";
+    String updatedEmail = "test email";
+    details.put("updated_first_name", updatedFirstName);
+    details.put("updated_last_name", updatedLastName);
+    details.put("updated_email", updatedEmail);
 
     when(event.getUserId()).thenReturn(userId);
     when(event.getType()).thenReturn(eventType);
@@ -65,15 +69,17 @@ class UserEventServiceImplTest {
     verify(eventLogger).logEvent(eq("UPDATE_PROFILE"), eq(event));
     verify(publisher).publish(eventMessageCaptor.capture());
 
-    EventMessage<?> capturedMessage = eventMessageCaptor.getValue();
-    assertEquals(KeycloakEventType.USER_EVENT, capturedMessage.keycloakEventType());
+    EventMessage capturedMessage = eventMessageCaptor.getValue();
+    assertEquals(KeycloakEventType.USER_EVENT, capturedMessage.eventType());
+    assertEquals(KeycloakOperation.UPDATE, capturedMessage.operationType());
     assertEquals(userId, capturedMessage.userId());
-    assertNotNull(capturedMessage.data());
-    assertTrue(capturedMessage.data() instanceof UserEvent);
-
-    UserEvent userEventData = (UserEvent) capturedMessage.data();
-    assertEquals(eventType, userEventData.eventType());
-    assertEquals(details, userEventData.details());
+    UpdatedDetails updatedDetails = capturedMessage.updatedDetails();
+    assertNotNull(updatedDetails);
+    assertEquals(updatedFirstName, updatedDetails.firstName());
+    assertNotNull(updatedDetails);
+    assertEquals(updatedLastName, updatedDetails.lastName());
+    assertNotNull(updatedDetails);
+    assertEquals(updatedEmail, updatedDetails.email());
   }
 
   @Test
@@ -86,7 +92,6 @@ class UserEventServiceImplTest {
 
     when(event.getUserId()).thenReturn(userId);
     when(event.getType()).thenReturn(eventType);
-    when(event.getDetails()).thenReturn(details);
 
     // Act
     userEventService.handleUserEvent(event);
@@ -104,7 +109,7 @@ class UserEventServiceImplTest {
 
     when(event.getUserId()).thenReturn(userId);
     when(event.getType()).thenReturn(eventType);
-    when(event.getDetails()).thenReturn(null);
+    when(event.getDetails()).thenReturn(new HashMap<>());
 
     // Act
     userEventService.handleUserEvent(event);
@@ -113,11 +118,14 @@ class UserEventServiceImplTest {
     verify(eventLogger).logEvent(eq("UPDATE_EMAIL"), eq(event));
     verify(publisher).publish(eventMessageCaptor.capture());
 
-    EventMessage<?> capturedMessage = eventMessageCaptor.getValue();
-    assertEquals(KeycloakEventType.USER_EVENT, capturedMessage.keycloakEventType());
-
-    UserEvent userEventData = (UserEvent) capturedMessage.data();
-    assertNull(userEventData.details());
+    EventMessage capturedMessage = eventMessageCaptor.getValue();
+    assertEquals(KeycloakEventType.USER_EVENT, capturedMessage.eventType());
+    assertEquals(KeycloakOperation.UPDATE, capturedMessage.operationType());
+    UpdatedDetails updatedDetails = capturedMessage.updatedDetails();
+    assertNotNull(updatedDetails);
+    assertNull(updatedDetails.firstName());
+    assertNull(updatedDetails.lastName());
+    assertNull(updatedDetails.email());
   }
 
   @Test
@@ -136,15 +144,11 @@ class UserEventServiceImplTest {
     verify(eventLogger).logAdminEvent(eq("CREATE"), eq(adminEvent));
     verify(publisher).publish(eventMessageCaptor.capture());
 
-    EventMessage<?> capturedMessage = eventMessageCaptor.getValue();
-    assertEquals(KeycloakEventType.ADMIN_EVENT, capturedMessage.keycloakEventType());
+    EventMessage capturedMessage = eventMessageCaptor.getValue();
+    assertEquals(KeycloakEventType.ADMIN_EVENT, capturedMessage.eventType());
+    assertEquals(KeycloakOperation.CREATE, capturedMessage.operationType());
     assertEquals(resourceId, capturedMessage.userId());
-    assertNotNull(capturedMessage.data());
-    assertTrue(capturedMessage.data() instanceof com.playground.keycloak.dto.AdminEvent);
-
-    com.playground.keycloak.dto.AdminEvent adminEventData =
-        (com.playground.keycloak.dto.AdminEvent) capturedMessage.data();
-    assertEquals(operationType, adminEventData.operationType());
+    assertNull(capturedMessage.updatedDetails());
   }
 
   @Test
@@ -180,13 +184,11 @@ class UserEventServiceImplTest {
     verify(eventLogger).logAdminEvent(eq("DELETE"), eq(adminEvent));
     verify(publisher).publish(eventMessageCaptor.capture());
 
-    EventMessage<?> capturedMessage = eventMessageCaptor.getValue();
-    assertEquals(KeycloakEventType.ADMIN_EVENT, capturedMessage.keycloakEventType());
+    EventMessage capturedMessage = eventMessageCaptor.getValue();
+    assertEquals(KeycloakEventType.ADMIN_EVENT, capturedMessage.eventType());
+    assertEquals(KeycloakOperation.DELETE, capturedMessage.operationType());
     assertEquals(resourceId, capturedMessage.userId());
-
-    com.playground.keycloak.dto.AdminEvent adminEventData =
-        (com.playground.keycloak.dto.AdminEvent) capturedMessage.data();
-    assertEquals(operationType, adminEventData.operationType());
+    assertNull(capturedMessage.updatedDetails());
   }
 
   @Test
@@ -206,7 +208,6 @@ class UserEventServiceImplTest {
 
     when(event.getUserId()).thenReturn(userId);
     when(event.getType()).thenReturn(eventType);
-    when(event.getDetails()).thenReturn(new HashMap<>());
 
     // Act
     userEventService.handleUserEvent(event);
