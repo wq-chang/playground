@@ -8,19 +8,23 @@ on:
 
 env:
   GO_VERSION: "1.25"
+  JAVA_VERSION: "21"
   NODE_VERSION: "24"
   GOLANGCI_LINT_VERSION: "v2.6.1"
   GOTESTSUM_VERSION: "1.13.0"
   GO_MOD_DIR: "go-services"
+  JAVA_ROOT_DIR: "keycloak-custom"
 
 jobs:
   detect-changes:
     runs-on: ubuntu-latest
     outputs:
-      go_modules: ${{ steps.detect.outputs.go_modules }}
-      react_modules: ${{ steps.detect.outputs.react_modules }}
       has_go_changes: ${{ steps.detect.outputs.has_go_changes }}
+      go_modules: ${{ steps.detect.outputs.go_modules }}
+      has_java_changes: ${{ steps.detect.outputs.has_java_changes }}
+      java_modules: ${{ steps.detect.outputs.java_modules }}
       has_react_changes: ${{ steps.detect.outputs.has_react_changes }}
+      react_modules: ${{ steps.detect.outputs.react_modules }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -81,6 +85,18 @@ jobs:
             done
           fi
 
+          # Detect changed Java/Maven modules in keycloak-custom/
+          CHANGED_JAVA_MODULES=""
+          for dir in ${JAVA_ROOT_DIR}/*/; do
+            if [ -f "${dir}pom.xml" ]; then
+              # Check if any file in this Maven project changed
+              if echo "$CHANGED_FILES" | grep -q "^${dir}"; then
+                CHANGED_JAVA_MODULES="$CHANGED_JAVA_MODULES ./${dir%/}"
+              fi
+            fi
+          done
+
+
           # Detect changed React modules
           CHANGED_REACT_MODULES=""
           for dir in */; do
@@ -101,6 +117,16 @@ jobs:
             echo "Changed Go modules: $CHANGED_GO_MODULES"
             echo "go_modules=$CHANGED_GO_MODULES" >> $GITHUB_OUTPUT
             echo "has_go_changes=true" >> $GITHUB_OUTPUT
+          fi
+
+          if [ -z "$CHANGED_JAVA_MODULES" ]; then
+            echo "No Java modules changed"
+            echo "java_modules=" >> $GITHUB_OUTPUT
+            echo "has_java_changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "Changed Java modules: $CHANGED_JAVA_MODULES"
+            echo "java_modules=$CHANGED_JAVA_MODULES" >> $GITHUB_OUTPUT
+            echo "has_java_changes=true" >> $GITHUB_OUTPUT
           fi
 
           if [ -z "$CHANGED_REACT_MODULES" ]; then
@@ -209,6 +235,45 @@ jobs:
 
           exit $EXIT_CODE
 
+  test-java-modules:
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_java_changes == 'true'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: "temurin"
+          java-version: "21"
+          cache: "maven"
+
+      - name: Run tests on changed Java modules
+        run: |
+          MODULES="${{ needs.detect-changes.outputs.java_modules }}"
+          EXIT_CODE=0
+
+          for module in $MODULES; do
+            (
+              echo "Testing Java module: $module"
+              cd $module
+
+              # Run tests with gotestsum
+              if mvn test; then
+                echo "✅ Tests passed for $module"
+              else
+                echo "❌ Tests failed for $module"
+                EXIT_CODE=1
+              fi
+
+              cd $GITHUB_WORKSPACE
+            )
+          done
+
+          exit $EXIT_CODE
+
   test-react-modules:
     runs-on: ubuntu-latest
     needs: detect-changes
@@ -249,7 +314,8 @@ jobs:
 
   post:
     runs-on: ubuntu-latest
-    needs: [detect-changes, test-go-modules, test-react-modules]
+    needs:
+      [detect-changes, test-go-modules, test-java-modules, test-react-modules]
     if: always()
     steps:
       - name: Generate summary
@@ -265,6 +331,21 @@ jobs:
           else
             echo "### Go Modules" >> $GITHUB_STEP_SUMMARY
             echo "- No Go modules changed" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ needs.detect-changes.outputs.has_java_changes }}" == "true" ]; then
+            echo "### Go Modules Tested" >> $GITHUB_STEP_SUMMARY
+            echo "${{ needs.detect-changes.outputs.java_modules }}" | tr ' ' '\n' | grep -v '^$' | sed 's/^/- /' >> $GITHUB_STEP_SUMMARY
+            if [ "${{ needs.test-java-modules.result }}" == "success" ]; then
+              echo "✅ All Java tests passed" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "❌ Some Java tests failed" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "### Java Modules" >> $GITHUB_STEP_SUMMARY
+            echo "- No Java modules changed" >> $GITHUB_STEP_SUMMARY
           fi
 
           echo "" >> $GITHUB_STEP_SUMMARY
