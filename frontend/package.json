@@ -13,7 +13,7 @@
   "dependencies": {
     "@mantine/core": "^8.3.10",
     "@mantine/hooks": "^8.3.5",
-    "@tanstack/react-router": "^1.143.6",
+    "@tanstack/react-router": "^1.144.0",
     "keycloak-js": "^26.2.2",
     "lucide-react": "^0.561.0",
     "react": "^19.2.3",
