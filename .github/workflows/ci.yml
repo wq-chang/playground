@@ -261,7 +261,7 @@ jobs:
               cd $module
 
               # Run tests with gotestsum
-              if mvn -B test; then
+              if mvn -B -ntp test; then
                 echo "✅ Tests passed for $module"
               else
                 echo "❌ Tests failed for $module"
