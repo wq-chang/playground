@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"go-services/bff/internal/api/middleware"
+	"go-services/library/assert"
 )
 
 func TestCORS(t *testing.T) {
@@ -85,23 +86,15 @@ func TestCORS(t *testing.T) {
 			rr := httptest.NewRecorder()
 			handler.ServeHTTP(rr, req)
 
-			if rr.Code != tt.wantStatus {
-				t.Errorf("got status %d, want %d", rr.Code, tt.wantStatus)
-			}
+			assert.Equal(t, rr.Code, tt.wantStatus, "wrong status code")
 
 			for key, want := range wantHeaders {
-				if got := rr.Header().Get(key); got != want {
-					t.Errorf("header %s: got %q, want %q", key, got, want)
-				}
+				got := rr.Header().Get(key)
+				assert.Equal(t, got, want, "wrong header value for header %s", key)
 			}
 
-			if got := rr.Body.String(); got != tt.wantBody {
-				t.Errorf("got body %q, want %q", got, tt.wantBody)
-			}
-
-			if got := handlerCalled; got != tt.shouldCallNext {
-				t.Errorf("handler called = %v, want %v", got, tt.shouldCallNext)
-			}
+			assert.Equal(t, rr.Body.String(), tt.wantBody, "wrong response body")
+			assert.Equal(t, handlerCalled, tt.shouldCallNext, "called next handler")
 		})
 	}
 }

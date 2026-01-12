@@ -15,9 +15,9 @@ type App struct {
 	Handler *Handler
 }
 
-func NewApp(ctx context.Context) (*App, error) {
+func New(ctx context.Context) (*App, error) {
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	cfg, err := config.NewConfig()
+	cfg, err := config.New()
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize config: %w", err)
 	}

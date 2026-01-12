@@ -26,7 +26,7 @@ type Config struct {
 	NatsKVSessionBucketName string
 }
 
-func NewConfig() (*Config, error) {
+func New() (*Config, error) {
 	const (
 		keycloakBaseURLKey         = "KEYCLOAK_BASE_URL"
 		keycloakRealmKey           = "KEYCLOAK_REALM"

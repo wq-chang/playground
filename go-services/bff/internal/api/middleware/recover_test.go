@@ -4,9 +4,9 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
+	"go-services/library/assert"
 	"go-services/library/testutil"
 )
 
@@ -33,12 +33,19 @@ func TestRecoverMiddleware(t *testing.T) {
 
 		resBody := rec.Body.String()
 
-		logger.AssertLevelCount(slog.LevelError, 1)
-		logger.AssertContains("panic recovered")
-		logger.AssertContains("something went wrong")
-		if !strings.Contains(resBody, "internal server error") {
-			t.Errorf("got %q, want it to contain %q", resBody, "internal server error")
-		}
+		logger.AssertLevelCount(
+			slog.LevelError,
+			1,
+			"should have error level after recovered from panic",
+		)
+		logger.AssertContains("panic recovered", "should have log indicating recovered from panic")
+		logger.AssertContains("something went wrong", "generic recovered error message")
+		assert.StringContains(
+			t,
+			resBody,
+			"internal server error",
+			"want error resonse return a generic body",
+		)
 	})
 
 	t.Run("should not trigger recovery for normal requests", func(t *testing.T) {
@@ -61,7 +68,7 @@ func TestRecoverMiddleware(t *testing.T) {
 			t.Errorf("got status = %d, want %d", http.StatusOK, rec.Code)
 		}
 
-		logger.AssertLevelCount(slog.LevelError, 0)
-		logger.AssertEmpty()
+		logger.AssertLevelCount(slog.LevelError, 0, "error log level for normal request")
+		logger.AssertEmpty("log should be empty for normal request")
 	})
 }

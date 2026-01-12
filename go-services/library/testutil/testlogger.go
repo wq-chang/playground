@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"log/slog"
 	"testing"
+
+	"go-services/library/assert"
 )
 
 // TestLogger wraps LogCapture and provides assertion helpers
@@ -84,81 +86,63 @@ func NewTestLogger(t *testing.T) *TestLogger {
 }
 
 // AssertEmpty asserts that no logs were written
-func (tl *TestLogger) AssertEmpty() {
+func (tl *TestLogger) AssertEmpty(msg string, msgArgs ...any) {
 	tl.t.Helper()
-	if got := tl.Capture.String(); !tl.Capture.IsEmpty() {
-		tl.t.Errorf("got log output %q, want none", got)
-	}
+	assert.Zero(tl.t, tl.Capture.String(), msg, msgArgs...)
 }
 
 // AssertNotEmpty asserts that at least one log was written
-func (tl *TestLogger) AssertNotEmpty() {
+func (tl *TestLogger) AssertNotEmpty(msg string, msgArgs ...any) {
 	tl.t.Helper()
-	if tl.Capture.IsEmpty() {
-		tl.t.Error("got no log output, want at least one log entry")
-	}
+	assert.NotZero(tl.t, tl.Capture.String(), msg, msgArgs...)
 }
 
 // AssertContains asserts that the log output contains the given substring
-func (tl *TestLogger) AssertContains(substring string) {
+func (tl *TestLogger) AssertContains(substring string, msg string, msgArgs ...any) {
 	tl.t.Helper()
-	if got := tl.Capture.String(); !tl.Capture.Contains(substring) {
-		tl.t.Errorf("got log output %q, want it to contain %q", got, substring)
-	}
+	assert.StringContains(tl.t, tl.Capture.String(), substring, msg, msgArgs...)
+}
+
+// AssertContains asserts that the log output contains all the given substrings
+func (tl *TestLogger) AssertContainsAll(substrings []string, msg string, msgArgs ...any) {
+	tl.t.Helper()
+	assert.StringContainsAll(tl.t, tl.Capture.String(), substrings, msg, msgArgs...)
 }
 
 // AssertNotContains asserts that the log output does not contain the given substring
-func (tl *TestLogger) AssertNotContains(substring string) {
+func (tl *TestLogger) AssertNotContains(substring string, msg string, msgArgs ...any) {
 	tl.t.Helper()
-	if got := tl.Capture.String(); tl.Capture.Contains(substring) {
-		tl.t.Errorf("got log output %q, want it not to contain %q", got, substring)
-	}
+	assert.StringNotContains(tl.t, tl.Capture.String(), substring, msg, msgArgs...)
 }
 
 // AssertLastLevel asserts that the most recent log has the specified level
-func (tl *TestLogger) AssertLastLevel(level slog.Level) {
+func (tl *TestLogger) AssertLastLevel(level slog.Level, msg string, msgArgs ...any) {
 	tl.t.Helper()
-	if got, want := tl.Capture.LastLevel(), level; got != want {
-		tl.t.Errorf("last log level = %v, want %v", got, want)
-	}
+	assert.Equal(tl.t, tl.Capture.LastLevel().String(), level.String(), msg, msgArgs...)
 }
 
 // AssertHasLevel asserts that at least one log has the specified level
-func (tl *TestLogger) AssertHasLevel(level slog.Level) {
+func (tl *TestLogger) AssertHasLevel(level slog.Level, msg string, msgArgs ...any) {
 	tl.t.Helper()
-	if !tl.Capture.HasLevel(level) {
-		tl.t.Errorf("got no log with level %v, want at least one", level)
-	}
+	assert.SliceContains(tl.t, tl.Capture.Levels, level, msg, msgArgs...)
 }
 
 // AssertLogCount asserts the total number of logs written
-func (tl *TestLogger) AssertLogCount(count int) {
+func (tl *TestLogger) AssertLogCount(count int, msg string, msgArgs ...any) {
 	tl.t.Helper()
-	if got, want := tl.Capture.LogCount(), count; got != want {
-		tl.t.Errorf("got %d logs, want %d", got, want)
-	}
+	assert.Equal(tl.t, tl.Capture.LogCount(), count, msg, msgArgs...)
 }
 
 // AssertLevelCount asserts the number of logs at a specific level
-func (tl *TestLogger) AssertLevelCount(level slog.Level, count int) {
+func (tl *TestLogger) AssertLevelCount(level slog.Level, count int, msg string, msgArgs ...any) {
 	tl.t.Helper()
-	if got, want := tl.Capture.LevelCount(level), count; got != want {
-		tl.t.Errorf("got %d logs at level %v, want %d", got, level, want)
-	}
+	assert.Equal(tl.t, tl.Capture.LevelCount(level), count, msg, msgArgs...)
 }
 
 // AssertLevelAt asserts the log level at a specific index
-func (tl *TestLogger) AssertLevelAt(index int, level slog.Level) {
+func (tl *TestLogger) AssertLevelAt(index int, level slog.Level, msg string, msgArgs ...any) {
 	tl.t.Helper()
-	got, ok := tl.Capture.LevelAt(index)
-	want := level
-	if !ok {
-		tl.t.Errorf("no log at index %d, want level %v", index, want)
-		return
-	}
-	if got != want {
-		tl.t.Errorf("log[%d] level = %v, want %v", index, got, want)
-	}
+	assert.SliceIndex(tl.t, tl.Capture.Levels, index, level, msg, msgArgs...)
 }
 
 // Reset clears the captured log buffer and level history for reuse

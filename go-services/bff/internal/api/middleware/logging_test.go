@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"go-services/bff/internal/api/middleware"
+	"go-services/library/assert"
 	"go-services/library/testutil"
 )
 
@@ -104,21 +105,14 @@ func TestLoggingMiddleware(t *testing.T) {
 				}
 			}()
 
-			if res.StatusCode != tt.expectedStatus {
-				t.Errorf("expected status %d, got %d", tt.expectedStatus, res.StatusCode)
-			}
+			assert.Equal(t, res.StatusCode, tt.expectedStatus, "wrong status code")
 
 			logOutput := logger.Capture.String()
 
 			if tt.expectInLog == nil {
-				if logOutput != "" {
-					t.Errorf("expected no logs for OPTIONS request, got:\n%s", logOutput)
-				}
-				return
-			}
-
-			for _, expected := range tt.expectInLog {
-				logger.AssertContains(expected)
+				assert.Equal(t, logOutput, "", "expected no logs for OPTIONS request, got:\n%s", logOutput)
+			} else {
+				logger.AssertContainsAll(tt.expectInLog, "logs")
 			}
 		})
 	}

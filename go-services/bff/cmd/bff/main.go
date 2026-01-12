@@ -15,7 +15,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	appl, err := app.NewApp(ctx)
+	appl, err := app.New(ctx)
 	if err != nil {
 		slog.Error("failed to initialize app", "err", err)
 		os.Exit(1)
@@ -23,7 +23,7 @@ func main() {
 
 	cors, err := middleware.CORS(appl.Log, appl.Config.FrontendBaseURL)
 	if err != nil {
-		slog.Error("failed to initialize cors middleware", "err", err)
+		appl.Log.Error("failed to initialize cors middleware", "err", err)
 		os.Exit(1)
 	}
 	errMw := middleware.Error(appl.Log)

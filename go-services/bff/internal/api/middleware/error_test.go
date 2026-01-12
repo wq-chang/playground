@@ -9,6 +9,7 @@ import (
 
 	"go-services/bff/internal/api/middleware"
 	"go-services/library/apperror"
+	"go-services/library/assert"
 	"go-services/library/testutil"
 )
 
@@ -116,21 +117,21 @@ func TestError(t *testing.T) {
 			wrappedHandler(rec, req)
 
 			// Check status code
-			if rec.Code != tt.wantStatusCode {
-				t.Errorf("got status code %d, want %d", rec.Code, tt.wantStatusCode)
-			}
+			assert.Equal(t, rec.Code, tt.wantStatusCode, "response status code")
 
 			// Check if log was written
 			if tt.wantLogged {
-				testLogger.AssertNotEmpty()
-				testLogger.AssertLastLevel(tt.wantLogLevel)
+				testLogger.AssertNotEmpty("logs")
+				testLogger.AssertLastLevel(tt.wantLogLevel, "log level")
 
 				// Check log contents
-				for _, want := range tt.wantLogContains {
-					testLogger.AssertContains(want)
-				}
+				testLogger.AssertContainsAll(
+					tt.wantLogContains,
+					"logs for level %s",
+					tt.wantLogLevel.String(),
+				)
 			} else {
-				testLogger.AssertEmpty()
+				testLogger.AssertEmpty("logs")
 			}
 		})
 	}
@@ -156,8 +157,8 @@ func TestErrorBoundary499(t *testing.T) {
 
 	wrappedHandler(rec, req)
 
-	testLogger.AssertLastLevel(slog.LevelWarn)
-	testLogger.AssertContains("client error")
+	testLogger.AssertLastLevel(slog.LevelWarn, "log level")
+	testLogger.AssertContains("client error", "log message")
 }
 
 func TestErrorBoundary500(t *testing.T) {
@@ -175,9 +176,9 @@ func TestErrorBoundary500(t *testing.T) {
 
 	wrappedHandler(rec, req)
 
-	testLogger.AssertLastLevel(slog.LevelError)
-	testLogger.AssertContains("handler error")
-	testLogger.AssertContains("path=/api/resource/123")
+	testLogger.AssertLastLevel(slog.LevelError, "log level")
+	testLogger.AssertContains("handler error", "log message")
+	testLogger.AssertContains("path=/api/resource/123", "request url path")
 }
 
 func TestErrorMultipleCalls(t *testing.T) {
@@ -198,12 +199,12 @@ func TestErrorMultipleCalls(t *testing.T) {
 	}
 
 	// Check that 3 logs were written
-	testLogger.AssertLogCount(3)
-	testLogger.AssertLevelCount(slog.LevelWarn, 3)
+	testLogger.AssertLogCount(3, "log count")
+	testLogger.AssertLevelCount(slog.LevelWarn, 3, "warn level count")
 
 	// Check each log level individually
 	for i := range 3 {
-		testLogger.AssertLevelAt(i, slog.LevelWarn)
+		testLogger.AssertLevelAt(i, slog.LevelWarn, "log level")
 	}
 }
 
@@ -251,14 +252,14 @@ func TestErrorMixedLevels(t *testing.T) {
 	}
 
 	// Check total log count
-	testLogger.AssertLogCount(3)
+	testLogger.AssertLogCount(3, "log count")
 
 	// Check level counts
-	testLogger.AssertLevelCount(slog.LevelWarn, 2)
-	testLogger.AssertLevelCount(slog.LevelError, 1)
+	testLogger.AssertLevelCount(slog.LevelWarn, 2, "warn level count")
+	testLogger.AssertLevelCount(slog.LevelError, 1, "error level count")
 
 	// Verify each log level
-	testLogger.AssertLevelAt(0, slog.LevelWarn)
-	testLogger.AssertLevelAt(1, slog.LevelError)
-	testLogger.AssertLevelAt(2, slog.LevelWarn)
+	testLogger.AssertLevelAt(0, slog.LevelWarn, "log level for first request")
+	testLogger.AssertLevelAt(1, slog.LevelError, "log level for second request")
+	testLogger.AssertLevelAt(2, slog.LevelWarn, "log level for third request")
 }
