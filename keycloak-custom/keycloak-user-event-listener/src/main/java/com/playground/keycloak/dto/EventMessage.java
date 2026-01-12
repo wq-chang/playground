@@ -5,6 +5,6 @@ import com.playground.keycloak.enums.KeycloakOperation;
 
 public record EventMessage(
     KeycloakEventType eventType,
-    KeycloakOperation operationType,
+    KeycloakOperation operation,
     String userId,
     UpdatedDetails updatedDetails) {}

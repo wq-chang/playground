@@ -53,9 +53,11 @@ class UserEventServiceImplTest {
     Map<String, String> details = new HashMap<>();
     String updatedFirstName = "test first name";
     String updatedLastName = "test last name";
+    String updatedUsername = "test username";
     String updatedEmail = "test email";
     details.put("updated_first_name", updatedFirstName);
     details.put("updated_last_name", updatedLastName);
+    details.put("updated_username", updatedUsername);
     details.put("updated_email", updatedEmail);
 
     when(event.getUserId()).thenReturn(userId);
@@ -71,14 +73,13 @@ class UserEventServiceImplTest {
 
     EventMessage capturedMessage = eventMessageCaptor.getValue();
     assertEquals(KeycloakEventType.USER_EVENT, capturedMessage.eventType());
-    assertEquals(KeycloakOperation.UPDATE, capturedMessage.operationType());
+    assertEquals(KeycloakOperation.UPDATE, capturedMessage.operation());
     assertEquals(userId, capturedMessage.userId());
     UpdatedDetails updatedDetails = capturedMessage.updatedDetails();
     assertNotNull(updatedDetails);
     assertEquals(updatedFirstName, updatedDetails.firstName());
-    assertNotNull(updatedDetails);
     assertEquals(updatedLastName, updatedDetails.lastName());
-    assertNotNull(updatedDetails);
+    assertEquals(updatedUsername, updatedDetails.username());
     assertEquals(updatedEmail, updatedDetails.email());
   }
 
@@ -120,11 +121,12 @@ class UserEventServiceImplTest {
 
     EventMessage capturedMessage = eventMessageCaptor.getValue();
     assertEquals(KeycloakEventType.USER_EVENT, capturedMessage.eventType());
-    assertEquals(KeycloakOperation.UPDATE, capturedMessage.operationType());
+    assertEquals(KeycloakOperation.UPDATE, capturedMessage.operation());
     UpdatedDetails updatedDetails = capturedMessage.updatedDetails();
     assertNotNull(updatedDetails);
     assertNull(updatedDetails.firstName());
     assertNull(updatedDetails.lastName());
+    assertNull(updatedDetails.username());
     assertNull(updatedDetails.email());
   }
 
@@ -146,7 +148,7 @@ class UserEventServiceImplTest {
 
     EventMessage capturedMessage = eventMessageCaptor.getValue();
     assertEquals(KeycloakEventType.ADMIN_EVENT, capturedMessage.eventType());
-    assertEquals(KeycloakOperation.CREATE, capturedMessage.operationType());
+    assertEquals(KeycloakOperation.CREATE, capturedMessage.operation());
     assertEquals(resourceId, capturedMessage.userId());
     assertNull(capturedMessage.updatedDetails());
   }
@@ -186,7 +188,7 @@ class UserEventServiceImplTest {
 
     EventMessage capturedMessage = eventMessageCaptor.getValue();
     assertEquals(KeycloakEventType.ADMIN_EVENT, capturedMessage.eventType());
-    assertEquals(KeycloakOperation.DELETE, capturedMessage.operationType());
+    assertEquals(KeycloakOperation.DELETE, capturedMessage.operation());
     assertEquals(resourceId, capturedMessage.userId());
     assertNull(capturedMessage.updatedDetails());
   }

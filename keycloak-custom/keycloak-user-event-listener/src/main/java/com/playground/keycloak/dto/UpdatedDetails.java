@@ -1,3 +1,3 @@
 package com.playground.keycloak.dto;
 
-public record UpdatedDetails(String firstName, String lastName, String email) {}
+public record UpdatedDetails(String firstName, String lastName, String username, String email) {}

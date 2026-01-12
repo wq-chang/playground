@@ -49,9 +49,10 @@ public class UserEventServiceImpl implements UserEventService {
   private UpdatedDetails mapToUpdatedDetails(Map<String, String> details) {
     String updatedFirstName = details.getOrDefault("updated_first_name", null);
     String updatedLastName = details.getOrDefault("updated_last_name", null);
+    String updatedUsername = details.getOrDefault("updated_username", null);
     String updatedEmail = details.getOrDefault("updated_email", null);
 
-    return new UpdatedDetails(updatedFirstName, updatedLastName, updatedEmail);
+    return new UpdatedDetails(updatedFirstName, updatedLastName, updatedUsername, updatedEmail);
   }
 
   private EventMessage mapToUserEventMsg(AdminEvent event) {
