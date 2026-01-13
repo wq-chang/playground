@@ -33,7 +33,7 @@ func Equal[T comparable](t *testing.T, got T, want T, msg string, msgArgs ...any
 
 func DeepEqual[T any](t *testing.T, got T, want T, msg string, msgArgs ...any) {
 	t.Helper()
-	if diff := cmp.Diff(got, want); diff != "" {
+	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("%s\nmismatch (-want +got):\n%s", fmt.Sprintf(msg, msgArgs...), diff)
 	}
 }
