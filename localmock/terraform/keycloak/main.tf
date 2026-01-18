@@ -2,7 +2,7 @@ terraform {
   required_providers {
     keycloak = {
       source  = "keycloak/keycloak"
-      version = "~> 5.0"
+      version = ">= 5.5.0"
     }
   }
 
@@ -16,6 +16,7 @@ variable "keycloak_client_secret" {
 }
 
 provider "keycloak" {
+  realm         = "playground"
   client_id     = "terraform"
   client_secret = var.keycloak_client_secret
   url           = "http://localhost:7777"

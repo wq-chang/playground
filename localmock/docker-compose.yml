@@ -24,7 +24,7 @@ services:
       POSTGRES_USER: backend
       POSTGRES_PASSWORD: password
     volumes:
-      - "./volume/postgres-backend:/var/lib/postgresql"
+      - pg_backend_data:/var/lib/postgresql
     networks:
       - playground
 
@@ -38,7 +38,7 @@ services:
       POSTGRES_USER: keycloak
       POSTGRES_PASSWORD: password
     volumes:
-      - "./volume/postgres-keycloak:/var/lib/postgresql"
+      - pg_keycloak_data:/var/lib/postgresql
     networks:
       - playground
 
@@ -54,8 +54,8 @@ services:
       KC_HOSTNAME: localhost
       KC_HOSTNAME_PORT: 7080
       KC_HOSTNAME_STRICT_BACKCHANNEL: "true"
-      KEYCLOAK_ADMIN: admin
-      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
       KC_HEALTH_ENABLED: "true"
       KC_LOG_LEVEL: info
 
@@ -75,7 +75,7 @@ services:
     ports:
       - "5050:80"
     volumes:
-      - ./volume/pgadmin:/var/lib/pgadmin
+      - pgadmin_data:/var/lib/pgadmin
     networks:
       - playground
 
@@ -89,7 +89,13 @@ services:
     networks:
       - playground
     volumes:
-      - ./volume/nats-data:/data
+      - nats_data:/data
+
+volumes:
+  pg_backend_data:
+  pg_keycloak_data:
+  pgadmin_data:
+  nats_data:
 
 networks:
   playground:

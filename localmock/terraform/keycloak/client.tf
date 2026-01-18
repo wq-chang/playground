@@ -25,4 +25,5 @@ resource "keycloak_openid_client" "bff_client" {
   client_secret_wo         = var.keycloak_bff_client_secret
   client_secret_wo_version = "1"
   standard_flow_enabled    = true
+  valid_redirect_uris      = ["http://localhost:7777/callback"]
 }
