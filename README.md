@@ -14,48 +14,48 @@ TODO
 
 ### Core Infrastructure
 
-[x] Add CI script
+- [x] Add CI script
 
-[x] Add flake
+- [x] Add flake
 
-[ ] Convert CI script to Python
+- [ ] Convert CI script to Python
 
-[ ] Add format check to CI
+- [ ] Add format check to CI
 
-[ ] Add observability stack
+- [ ] Add observability stack
 
-[ ] Add command runner
+- [ ] Add command runner
 
-[ ] Deploy to AWS
+- [ ] Deploy to AWS
 
-[ ] Add CD script
+- [ ] Add CD script
 
 ### BFF
 
-[ ] Implement BFF authentication
+- [ ] Implement BFF authentication
 
-[ ] Implement Authorization middleware (RBAC)
+- [ ] Implement Authorization middleware (RBAC)
 
-[ ] Add grpc-gateway and protobuf
+- [ ] Add grpc-gateway and protobuf
 
-[ ] Implement authentication middleware
+- [ ] Implement authentication middleware
 
-[ ] Add OTEL
+- [ ] Add OTEL
 
 ### Backend
 
-[x] Add database migration scripts
+- [x] Add database migration scripts
 
-[x] Implement FakeRepository for unit testing
+- [x] Implement FakeRepository for unit testing
 
-[ ] Implement PostgresRepository (Real)
+- [ ] Implement PostgresRepository (Real)
 
-[ ] Add repository contracts and implement Testcontainers for integration testing
+- [ ] Add repository contracts and implement Testcontainers for integration testing
 
-[ ] Implemented NATS consumer for Keycloak events
+- [ ] Implemented NATS consumer for Keycloak events
 
-[ ] Add OTEL
+- [ ] Add OTEL
 
 ### Frontend
 
-[ ] Integrate BFF authentication
+- [ ] Integrate BFF authentication
