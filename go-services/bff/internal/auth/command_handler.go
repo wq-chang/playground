@@ -79,13 +79,14 @@ func (h *AuthCommandHandler) CallbackHandler(w http.ResponseWriter, r *http.Requ
 	// Verify state for CSRF protection
 	stateCookie, err := r.Cookie(stateCookieName)
 	if err != nil {
-		return apperror.NewUnauthorized(
+		return apperror.New(
 			fmt.Sprintf("missing required cookie: %v", stateCookieName),
 			apperror.CodeUnauthorized,
+			err,
 		)
 	}
 	if r.URL.Query().Get("state") != stateCookie.Value {
-		return apperror.NewUnauthorized("state mismatch", apperror.CodeUnauthorized)
+		return apperror.New("state mismatch", apperror.CodeUnauthorized, err)
 	}
 
 	authCode := r.URL.Query().Get("code")

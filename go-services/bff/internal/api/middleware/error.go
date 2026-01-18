@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"errors"
 	"log/slog"
 	"net/http"
 
@@ -61,25 +60,26 @@ func Error(log *slog.Logger) errorHandlerWrapper {
 	return func(handler handlerFuncWithError) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			if err := handler(w, r); err != nil {
-				var appErr *apperror.AppError
-				if errors.As(err, &appErr) {
-					if appErr.StatusCode >= 500 {
-						log.Error("handler error",
+				if appErr, ok := apperror.As(err); ok {
+					statusCode := appErr.ToHTTPStatus()
+					if statusCode >= 500 {
+						log.Error("backend error",
 							"method", r.Method,
 							"path", r.URL.Path,
+							"code", appErr.Code,
 							"error", err,
 						)
 					} else {
 						log.Warn("client error",
 							"method", r.Method,
 							"path", r.URL.Path,
-							"status", appErr.StatusCode,
+							"status", statusCode,
 							"code", appErr.Code,
 							"msg", appErr.Msg,
 						)
 					}
 
-					api.SendErrorLog(log, w, appErr.StatusCode, appErr.Code, appErr.Msg)
+					api.SendErrorLog(log, w, statusCode, appErr.Code, appErr.Msg)
 					return
 				}
 

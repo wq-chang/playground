@@ -33,7 +33,7 @@ func TestError(t *testing.T) {
 		},
 		"app error - 4xx client error": {
 			handler: func(w http.ResponseWriter, r *http.Request) error {
-				return apperror.NewBadRequest("invalid input", apperror.CodeInvalidInput)
+				return apperror.New("invalid input", apperror.CodeInvalidInput, nil)
 			},
 			wantStatusCode: http.StatusBadRequest,
 			wantLogLevel:   slog.LevelWarn,
@@ -49,20 +49,20 @@ func TestError(t *testing.T) {
 		},
 		"app error - 5xx server error": {
 			handler: func(w http.ResponseWriter, r *http.Request) error {
-				return apperror.NewInternal("database connection failed", apperror.CodeDBConnection)
+				return apperror.New("database connection failed", apperror.CodeDBConnection, nil)
 			},
 			wantStatusCode: http.StatusInternalServerError,
 			wantLogLevel:   slog.LevelError,
 			wantLogged:     true,
 			wantLogContains: []string{
-				"handler error",
+				"backend error",
 				"method=GET",
 				"path=/test",
 			},
 		},
 		"app error - 404 not found": {
 			handler: func(w http.ResponseWriter, r *http.Request) error {
-				return apperror.NewNotFound("resource not found", apperror.CodeNotFound)
+				return apperror.New("resource not found", apperror.CodeNotFound, nil)
 			},
 			wantStatusCode: http.StatusNotFound,
 			wantLogLevel:   slog.LevelWarn,
@@ -89,13 +89,13 @@ func TestError(t *testing.T) {
 		},
 		"app error - 503 service unavailable": {
 			handler: func(w http.ResponseWriter, r *http.Request) error {
-				return apperror.NewUnavailable("service temporarily unavailable", apperror.CodeServiceUnavailable)
+				return apperror.New("service temporarily unavailable", apperror.CodeServiceUnavailable, nil)
 			},
 			wantStatusCode: http.StatusServiceUnavailable,
 			wantLogLevel:   slog.LevelError,
 			wantLogged:     true,
 			wantLogContains: []string{
-				"handler error",
+				"backend error",
 				"method=GET",
 			},
 		},
@@ -140,12 +140,7 @@ func TestError(t *testing.T) {
 func TestErrorBoundary499(t *testing.T) {
 	// Test the boundary between 4xx and 5xx errors (status 499 should log as warn)
 	handler := func(w http.ResponseWriter, r *http.Request) error {
-		return &apperror.AppError{
-			StatusCode: 499,
-			Code:       "CLIENT_CLOSED",
-			Msg:        "client closed connection",
-			Err:        errors.New("client closed connection"),
-		}
+		return &apperror.AppError{Code: apperror.CodeTooManyRequests, Msg: "too many request", Err: nil}
 	}
 
 	testLogger := testutil.NewTestLogger(t)
@@ -164,7 +159,7 @@ func TestErrorBoundary499(t *testing.T) {
 func TestErrorBoundary500(t *testing.T) {
 	// Test the boundary between 4xx and 5xx errors (status 500 should log as error)
 	handler := func(w http.ResponseWriter, r *http.Request) error {
-		return apperror.NewInternal("internal server error", apperror.CodeInternalError)
+		return apperror.New("internal server error", apperror.CodeInternalError, nil)
 	}
 
 	testLogger := testutil.NewTestLogger(t)
@@ -177,14 +172,14 @@ func TestErrorBoundary500(t *testing.T) {
 	wrappedHandler(rec, req)
 
 	testLogger.AssertLastLevel(slog.LevelError, "log level")
-	testLogger.AssertContains("handler error", "log message")
+	testLogger.AssertContains("backend error", "log message")
 	testLogger.AssertContains("path=/api/resource/123", "request url path")
 }
 
 func TestErrorMultipleCalls(t *testing.T) {
 	// Test that multiple handler calls are logged correctly
 	handler := func(w http.ResponseWriter, r *http.Request) error {
-		return apperror.NewBadRequest("bad request", apperror.CodeInvalidInput)
+		return apperror.New("bad request", apperror.CodeInvalidInput, nil)
 	}
 
 	testLogger := testutil.NewTestLogger(t)
@@ -218,21 +213,21 @@ func TestErrorMixedLevels(t *testing.T) {
 		{
 			name: "client error",
 			handler: func(w http.ResponseWriter, r *http.Request) error {
-				return apperror.NewBadRequest("bad request", apperror.CodeInvalidFormat)
+				return apperror.New("bad request", apperror.CodeInvalidFormat, nil)
 			},
 			wantLevel: slog.LevelWarn,
 		},
 		{
 			name: "server error",
 			handler: func(w http.ResponseWriter, r *http.Request) error {
-				return apperror.NewInternal("internal error", apperror.CodeInternalError)
+				return apperror.New("internal error", apperror.CodeInternalError, nil)
 			},
 			wantLevel: slog.LevelError,
 		},
 		{
 			name: "another client error",
 			handler: func(w http.ResponseWriter, r *http.Request) error {
-				return apperror.NewUnauthorized("unauthorized", apperror.CodeUnauthorized)
+				return apperror.New("unauthorized", apperror.CodeUnauthorized, nil)
 			},
 			wantLevel: slog.LevelWarn,
 		},
