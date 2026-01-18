@@ -82,5 +82,6 @@ hs_e_
 # ====================
 # Local
 # ====================
+.envrc.local
 .direnv/
 volume/

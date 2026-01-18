@@ -18,6 +18,8 @@ TODO
 
 - [x] Add flake
 
+- [x] Refactor environment variables for security (BFF/DB)
+
 - [ ] Convert CI script to Python
 
 - [ ] Add format check to CI
