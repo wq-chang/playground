@@ -26,7 +26,7 @@ func (c *LogCapture) String() string {
 // Reset clears the buffer and levels for reuse
 func (c *LogCapture) Reset() {
 	c.Buf.Reset()
-	c.Levels = make([]slog.Level, 0)
+	c.Levels = c.Levels[:0]
 }
 
 // Contains checks if the log output contains the given substring
