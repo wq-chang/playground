@@ -1,0 +1,4 @@
+export KEYCLOAK_ADMIN_PASSWORD=your_password_here
+export KEYCLOAK_DB_PASSWORD=your_password_here
+export BACKEND_DB_PASSWORD=your_password_here
+export PGADMIN_ADMIN_PASSWORD=your_password_here
