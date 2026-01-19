@@ -33,7 +33,7 @@ func TestError(t *testing.T) {
 		},
 		"app error - 4xx client error": {
 			handler: func(w http.ResponseWriter, r *http.Request) error {
-				return apperror.New("invalid input", apperror.CodeInvalidInput, nil)
+				return apperror.New(apperror.CodeInvalidInput, "invalid input")
 			},
 			wantStatusCode: http.StatusBadRequest,
 			wantLogLevel:   slog.LevelWarn,
@@ -49,7 +49,7 @@ func TestError(t *testing.T) {
 		},
 		"app error - 5xx server error": {
 			handler: func(w http.ResponseWriter, r *http.Request) error {
-				return apperror.New("database connection failed", apperror.CodeDBConnection, nil)
+				return apperror.New(apperror.CodeDBConnection, "database connection failed")
 			},
 			wantStatusCode: http.StatusInternalServerError,
 			wantLogLevel:   slog.LevelError,
@@ -62,7 +62,7 @@ func TestError(t *testing.T) {
 		},
 		"app error - 404 not found": {
 			handler: func(w http.ResponseWriter, r *http.Request) error {
-				return apperror.New("resource not found", apperror.CodeNotFound, nil)
+				return apperror.New(apperror.CodeNotFound, "resource not found")
 			},
 			wantStatusCode: http.StatusNotFound,
 			wantLogLevel:   slog.LevelWarn,
@@ -89,7 +89,7 @@ func TestError(t *testing.T) {
 		},
 		"app error - 503 service unavailable": {
 			handler: func(w http.ResponseWriter, r *http.Request) error {
-				return apperror.New("service temporarily unavailable", apperror.CodeServiceUnavailable, nil)
+				return apperror.New(apperror.CodeServiceUnavailable, "service temporarily unavailable")
 			},
 			wantStatusCode: http.StatusServiceUnavailable,
 			wantLogLevel:   slog.LevelError,
@@ -159,7 +159,7 @@ func TestErrorBoundary499(t *testing.T) {
 func TestErrorBoundary500(t *testing.T) {
 	// Test the boundary between 4xx and 5xx errors (status 500 should log as error)
 	handler := func(w http.ResponseWriter, r *http.Request) error {
-		return apperror.New("internal server error", apperror.CodeInternalError, nil)
+		return apperror.New(apperror.CodeInternalError, "internal server error")
 	}
 
 	testLogger := testutil.NewTestLogger(t)
@@ -179,7 +179,7 @@ func TestErrorBoundary500(t *testing.T) {
 func TestErrorMultipleCalls(t *testing.T) {
 	// Test that multiple handler calls are logged correctly
 	handler := func(w http.ResponseWriter, r *http.Request) error {
-		return apperror.New("bad request", apperror.CodeInvalidInput, nil)
+		return apperror.New(apperror.CodeInvalidInput, "bad request")
 	}
 
 	testLogger := testutil.NewTestLogger(t)
@@ -213,21 +213,21 @@ func TestErrorMixedLevels(t *testing.T) {
 		{
 			name: "client error",
 			handler: func(w http.ResponseWriter, r *http.Request) error {
-				return apperror.New("bad request", apperror.CodeInvalidFormat, nil)
+				return apperror.New(apperror.CodeInvalidFormat, "bad request")
 			},
 			wantLevel: slog.LevelWarn,
 		},
 		{
 			name: "server error",
 			handler: func(w http.ResponseWriter, r *http.Request) error {
-				return apperror.New("internal error", apperror.CodeInternalError, nil)
+				return apperror.New(apperror.CodeInternalError, "internal error")
 			},
 			wantLevel: slog.LevelError,
 		},
 		{
 			name: "another client error",
 			handler: func(w http.ResponseWriter, r *http.Request) error {
-				return apperror.New("unauthorized", apperror.CodeUnauthorized, nil)
+				return apperror.New(apperror.CodeUnauthorized, "unauthorized")
 			},
 			wantLevel: slog.LevelWarn,
 		},

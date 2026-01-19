@@ -49,7 +49,7 @@ func NewAuthCommandService(
 func (s *AuthCommandService) GenerateAuthCodeURL() (state string, authURL string, err error) {
 	state, err = s.tokenGenerator.GenerateStateToken()
 	if err != nil {
-		return "", "", apperror.New("faield to generate state", apperror.CodeInternalError, err)
+		return "", "", apperror.Wrap(apperror.CodeInternalError, err, "faield to generate state")
 	}
 
 	authURL = s.oauth2Config.AuthCodeURL(state, oauth2.SetAuthURLParam("response_type", "code"))
@@ -64,18 +64,18 @@ func (s *AuthCommandService) AuthenticateUser(
 	// Exchange authorization code for tokens
 	oauth2Token, err := s.oauth2Config.Exchange(ctx, authCode)
 	if err != nil {
-		return "", "", apperror.New("failed to exchange token", apperror.CodeExternalService, err)
+		return "", "", apperror.Wrap(apperror.CodeExternalService, err, "failed to exchange token")
 	}
 
 	// Verify ID token
 	rawIDToken, ok := oauth2Token.Extra("id_token").(string)
 	if !ok {
-		return "", "", apperror.New("no id_token in response", apperror.CodeExternalService, nil)
+		return "", "", apperror.New(apperror.CodeExternalService, "no id_token in response")
 	}
 
 	idToken, err := s.verifier.Verify(ctx, rawIDToken)
 	if err != nil {
-		return "", "", apperror.New("failed to verify ID token", apperror.CodeUnauthorized, err)
+		return "", "", apperror.Wrap(apperror.CodeUnauthorized, err, "failed to verify ID token")
 	}
 
 	// Extract user info
@@ -84,12 +84,12 @@ func (s *AuthCommandService) AuthenticateUser(
 		Name  string `json:"name"`
 	}
 	if err := idToken.Claims(&claims); err != nil {
-		return "", "", apperror.New("failed to decode ID token claims", apperror.CodeExternalService, err)
+		return "", "", apperror.Wrap(apperror.CodeExternalService, err, "failed to decode ID token claims")
 	}
 
 	sessionToken, err = s.tokenGenerator.GenerateStateToken()
 	if err != nil {
-		return "", "", apperror.New("faield to generate session token: w", apperror.CodeInternalError, err)
+		return "", "", apperror.Wrap(apperror.CodeInternalError, err, "faield to generate session token: w")
 	}
 
 	// TODO: store refresh token

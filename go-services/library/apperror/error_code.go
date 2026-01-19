@@ -26,6 +26,7 @@ const (
 
 	// 5xx Server Errors - General
 	CodeInternalError      ErrorCode = "INTERNAL_ERROR"
+	CodeNotImplemented     ErrorCode = "NOT_IMPLEMENTED"
 	CodeServiceUnavailable ErrorCode = "SERVICE_UNAVAILABLE"
 	CodeGatewayTimeout     ErrorCode = "GATEWAY_TIMEOUT"
 	CodeDependencyFailed   ErrorCode = "DEPENDENCY_FAILED"

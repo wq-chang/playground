@@ -22,11 +22,23 @@ func (e *AppError) Unwrap() error {
 	return e.Err
 }
 
-func New(msg string, code ErrorCode, err error) error {
+func New(code ErrorCode, msg string, msgArgs ...any) error {
 	return &AppError{
-		Msg:  msg,
+		Msg:  fmt.Sprintf(msg, msgArgs...),
+		Code: code,
+		Err:  nil,
+	}
+}
+
+func Wrap(code ErrorCode, err error, msg string, msgArgs ...any) error {
+	if err == nil {
+		return nil
+	}
+
+	return &AppError{
 		Code: code,
 		Err:  err,
+		Msg:  fmt.Sprintf(msg, msgArgs...),
 	}
 }
 

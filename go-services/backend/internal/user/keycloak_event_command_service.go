@@ -41,9 +41,7 @@ func (s *KeycloakEventCommandService) ProcessEvent(ctx context.Context, event Ke
 	case EventTypeAdmin:
 		return s.handleAdminEvent(ctx, event)
 	default:
-		// TODO: change to apperror
-		// Providing context here helps debug unexpected Keycloak configurations
-		return fmt.Errorf("unsupported event type: %s", event.EventType)
+		return apperror.New(apperror.CodeNotImplemented, "unsupported event type: %s", event.EventType)
 	}
 }
 
@@ -53,30 +51,28 @@ func (s *KeycloakEventCommandService) handleUserEvent(ctx context.Context, event
 		// return s.createUser(event)
 	case OperationUpdate:
 		if !event.Updated.Valid {
-			return apperror.New("missing updated details", apperror.CodeInvalidInput, nil)
+			return apperror.New(apperror.CodeInvalidInput, "missing updated details", nil)
 		}
 		return s.updateUser(ctx, event.UserID, event.Updated.V)
 	case OperationDelete:
 		// return s.deleteUser(event)
 	default:
-		// TODO: change to apperror
-		// Providing context here helps debug unexpected Keycloak configurations
-		return fmt.Errorf("unsupported user operation: %s", event.Operation)
+		return apperror.New(apperror.CodeNotImplemented, "unsupported user operation: %s", event.Operation)
 	}
 	return nil
 }
 
 func (s *KeycloakEventCommandService) handleAdminEvent(ctx context.Context, event KeycloakEvent) error {
-	// switch event.Operation {
-	// case OperationCreate:
-	// 	return s.createAdmin(event)
-	// case OperationUpdate:
-	// 	return s.updateAdmin(event)
-	// case OperationDelete:
-	// 	return s.deleteAdmin(event)
-	// default:
-	// 	return fmt.Errorf("unsupported admin operation: %s", event.Operation)
-	// }
+	switch event.Operation {
+	case OperationCreate:
+		// return s.createAdmin(event)
+	case OperationUpdate:
+		// return s.updateAdmin(event)
+	case OperationDelete:
+		// return s.deleteAdmin(event)
+	default:
+		return apperror.New(apperror.CodeNotImplemented, "unsupported admin operation: %s", event.Operation)
+	}
 	return nil
 }
 
