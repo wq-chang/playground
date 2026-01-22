@@ -51,7 +51,7 @@ func (s *KeycloakEventCommandService) handleUserEvent(ctx context.Context, event
 		// return s.createUser(event)
 	case OperationUpdate:
 		if !event.Updated.Valid {
-			return apperror.New(apperror.CodeInvalidInput, "missing updated details", nil)
+			return apperror.New(apperror.CodeInvalidInput, "missing updated details")
 		}
 		return s.updateUser(ctx, event.UserID, event.Updated.V)
 	case OperationDelete:
