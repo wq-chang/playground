@@ -10,26 +10,28 @@ import (
 	"go-services/bff/internal/api/middleware"
 	"go-services/library/apperror"
 	"go-services/library/assert"
-	"go-services/library/testutil"
+	"go-services/library/testlogger"
 )
 
 func TestError(t *testing.T) {
 	tests := map[string]struct {
-		handler         func(w http.ResponseWriter, r *http.Request) error
-		wantStatusCode  int
-		wantLogLevel    slog.Level
-		wantLogged      bool
-		wantLogContains []string
+		handler        func(w http.ResponseWriter, r *http.Request) error
+		wantStatusCode int
+		wantLogLevel   slog.Level
+		wantLogged     bool
+		wantMessage    string
+		wantFields     map[string]any
 	}{
 		"no error - handler succeeds": {
 			handler: func(w http.ResponseWriter, r *http.Request) error {
 				w.WriteHeader(http.StatusOK)
 				return nil
 			},
-			wantStatusCode:  http.StatusOK,
-			wantLogLevel:    0,
-			wantLogged:      false,
-			wantLogContains: []string{},
+			wantStatusCode: http.StatusOK,
+			wantLogLevel:   0,
+			wantLogged:     false,
+			wantMessage:    "",
+			wantFields:     nil,
 		},
 		"app error - 4xx client error": {
 			handler: func(w http.ResponseWriter, r *http.Request) error {
@@ -38,13 +40,13 @@ func TestError(t *testing.T) {
 			wantStatusCode: http.StatusBadRequest,
 			wantLogLevel:   slog.LevelWarn,
 			wantLogged:     true,
-			wantLogContains: []string{
-				"client error",
-				"method=GET",
-				"path=/test",
-				"status=400",
-				"code=INVALID_INPUT",
-				"msg=\"invalid input\"",
+			wantMessage:    "client error",
+			wantFields: map[string]any{
+				"method": "GET",
+				"path":   "/test",
+				"status": "400",
+				"code":   "INVALID_INPUT",
+				"msg":    "\"invalid input\"",
 			},
 		},
 		"app error - 5xx server error": {
@@ -54,10 +56,10 @@ func TestError(t *testing.T) {
 			wantStatusCode: http.StatusInternalServerError,
 			wantLogLevel:   slog.LevelError,
 			wantLogged:     true,
-			wantLogContains: []string{
-				"backend error",
-				"method=GET",
-				"path=/test",
+			wantMessage:    "backend error",
+			wantFields: map[string]any{
+				"method": "GET",
+				"path":   "/test",
 			},
 		},
 		"app error - 404 not found": {
@@ -67,10 +69,10 @@ func TestError(t *testing.T) {
 			wantStatusCode: http.StatusNotFound,
 			wantLogLevel:   slog.LevelWarn,
 			wantLogged:     true,
-			wantLogContains: []string{
-				"client error",
-				"status=404",
-				"code=NOT_FOUND",
+			wantMessage:    "client error",
+			wantFields: map[string]any{
+				"status": "404",
+				"code":   "NOT_FOUND",
 			},
 		},
 		"unhandled error - generic error": {
@@ -80,11 +82,11 @@ func TestError(t *testing.T) {
 			wantStatusCode: http.StatusInternalServerError,
 			wantLogLevel:   slog.LevelError,
 			wantLogged:     true,
-			wantLogContains: []string{
-				"unhandled error",
-				"method=GET",
-				"path=/test",
-				"error=\"unexpected error\"",
+			wantMessage:    "unhandled error",
+			wantFields: map[string]any{
+				"method": "GET",
+				"path":   "/test",
+				"error":  "\"unexpected error\"",
 			},
 		},
 		"app error - 503 service unavailable": {
@@ -94,19 +96,18 @@ func TestError(t *testing.T) {
 			wantStatusCode: http.StatusServiceUnavailable,
 			wantLogLevel:   slog.LevelError,
 			wantLogged:     true,
-			wantLogContains: []string{
-				"backend error",
-				"method=GET",
+			wantMessage:    "backend error",
+			wantFields: map[string]any{
+				"method": "GET",
 			},
 		},
 	}
+	log, logCapture := testlogger.New()
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			testLogger := testutil.NewTestLogger(t)
-
 			// Create error handler wrapper
-			errorHandler := middleware.Error(testLogger.Logger)
+			errorHandler := middleware.Error(log)
 			wrappedHandler := errorHandler(tt.handler)
 
 			// Create test request and recorder
@@ -120,19 +121,20 @@ func TestError(t *testing.T) {
 			assert.Equal(t, rec.Code, tt.wantStatusCode, "response status code")
 
 			// Check if log was written
+			logAssert := testlogger.Assert(t, logCapture.GetOutput())
 			if tt.wantLogged {
-				testLogger.AssertNotEmpty("logs")
-				testLogger.AssertLastLevel(tt.wantLogLevel, "log level")
+				logAssert.
+					Count(1, "should have 1 log after resolve the error").
+					AtIndex(0, tt.wantLogLevel, "", "log for resolved error")
 
-				// Check log contents
-				testLogger.AssertContainsAll(
-					tt.wantLogContains,
-					"logs for level %s",
-					tt.wantLogLevel.String(),
-				)
+				for fieldName, fieldValue := range tt.wantFields {
+					logAssert.HasField(0, fieldName, fieldValue, "%s", fieldName)
+				}
 			} else {
-				testLogger.AssertEmpty("logs")
+				logAssert.Empty("empty logs for no error")
 			}
+
+			logCapture.Reset()
 		})
 	}
 }
@@ -143,8 +145,8 @@ func TestErrorBoundary499(t *testing.T) {
 		return &apperror.AppError{Code: apperror.CodeTooManyRequests, Msg: "too many request", Err: nil}
 	}
 
-	testLogger := testutil.NewTestLogger(t)
-	errorHandler := middleware.Error(testLogger.Logger)
+	log, logCapture := testlogger.New()
+	errorHandler := middleware.Error(log)
 	wrappedHandler := errorHandler(handler)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/test", nil)
@@ -152,8 +154,8 @@ func TestErrorBoundary499(t *testing.T) {
 
 	wrappedHandler(rec, req)
 
-	testLogger.AssertLastLevel(slog.LevelWarn, "log level")
-	testLogger.AssertContains("client error", "log message")
+	testlogger.Assert(t, logCapture.GetOutput()).
+		AtIndex(0, slog.LevelWarn, "client error", "log message")
 }
 
 func TestErrorBoundary500(t *testing.T) {
@@ -162,8 +164,8 @@ func TestErrorBoundary500(t *testing.T) {
 		return apperror.New(apperror.CodeInternalError, "internal server error")
 	}
 
-	testLogger := testutil.NewTestLogger(t)
-	errorHandler := middleware.Error(testLogger.Logger)
+	log, logCapture := testlogger.New()
+	errorHandler := middleware.Error(log)
 	wrappedHandler := errorHandler(handler)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/resource/123", nil)
@@ -171,9 +173,9 @@ func TestErrorBoundary500(t *testing.T) {
 
 	wrappedHandler(rec, req)
 
-	testLogger.AssertLastLevel(slog.LevelError, "log level")
-	testLogger.AssertContains("backend error", "log message")
-	testLogger.AssertContains("path=/api/resource/123", "request url path")
+	testlogger.Assert(t, logCapture.GetOutput()).
+		AtIndex(0, slog.LevelError, "backend error", "log for error").
+		HasField(0, "path", "/api/resource/123", "url")
 }
 
 func TestErrorMultipleCalls(t *testing.T) {
@@ -182,59 +184,64 @@ func TestErrorMultipleCalls(t *testing.T) {
 		return apperror.New(apperror.CodeInvalidInput, "bad request")
 	}
 
-	testLogger := testutil.NewTestLogger(t)
-	errorHandler := middleware.Error(testLogger.Logger)
+	log, logCapture := testlogger.New()
+	errorHandler := middleware.Error(log)
 	wrappedHandler := errorHandler(handler)
+	reqCount := 3
 
 	// Call handler 3 times
-	for range 3 {
+	for range reqCount {
 		req := httptest.NewRequest(http.MethodGet, "/test", nil)
 		rec := httptest.NewRecorder()
 		wrappedHandler(rec, req)
 	}
 
 	// Check that 3 logs were written
-	testLogger.AssertLogCount(3, "log count")
-	testLogger.AssertLevelCount(slog.LevelWarn, 3, "warn level count")
+	logAssert := testlogger.Assert(t, logCapture.GetOutput())
+	logAssert.Count(3, "log counts for %d requests", reqCount)
 
 	// Check each log level individually
 	for i := range 3 {
-		testLogger.AssertLevelAt(i, slog.LevelWarn, "log level")
+		logAssert.AtIndex(i, slog.LevelWarn, "client error", "log for request %d", i)
 	}
 }
 
 func TestErrorMixedLevels(t *testing.T) {
 	// Test that different error types produce different log levels
 	tests := []struct {
-		name      string
-		handler   func(w http.ResponseWriter, r *http.Request) error
-		wantLevel slog.Level
+		name        string
+		handler     func(w http.ResponseWriter, r *http.Request) error
+		wantLevel   slog.Level
+		wantMessage string
 	}{
 		{
 			name: "client error",
 			handler: func(w http.ResponseWriter, r *http.Request) error {
 				return apperror.New(apperror.CodeInvalidFormat, "bad request")
 			},
-			wantLevel: slog.LevelWarn,
+			wantLevel:   slog.LevelWarn,
+			wantMessage: "client error",
 		},
 		{
 			name: "server error",
 			handler: func(w http.ResponseWriter, r *http.Request) error {
 				return apperror.New(apperror.CodeInternalError, "internal error")
 			},
-			wantLevel: slog.LevelError,
+			wantLevel:   slog.LevelError,
+			wantMessage: "backend error",
 		},
 		{
 			name: "another client error",
 			handler: func(w http.ResponseWriter, r *http.Request) error {
 				return apperror.New(apperror.CodeUnauthorized, "unauthorized")
 			},
-			wantLevel: slog.LevelWarn,
+			wantLevel:   slog.LevelWarn,
+			wantMessage: "client error",
 		},
 	}
 
-	testLogger := testutil.NewTestLogger(t)
-	errorHandler := middleware.Error(testLogger.Logger)
+	log, logCapture := testlogger.New()
+	errorHandler := middleware.Error(log)
 
 	// Execute all handlers
 	for _, h := range tests {
@@ -246,15 +253,13 @@ func TestErrorMixedLevels(t *testing.T) {
 		})
 	}
 
+	logAssert := testlogger.Assert(t, logCapture.GetOutput())
+
 	// Check total log count
-	testLogger.AssertLogCount(3, "log count")
+	logAssert.Count(3, "log count for %d error requests", len(tests))
 
-	// Check level counts
-	testLogger.AssertLevelCount(slog.LevelWarn, 2, "warn level count")
-	testLogger.AssertLevelCount(slog.LevelError, 1, "error level count")
-
-	// Verify each log level
-	testLogger.AssertLevelAt(0, slog.LevelWarn, "log level for first request")
-	testLogger.AssertLevelAt(1, slog.LevelError, "log level for second request")
-	testLogger.AssertLevelAt(2, slog.LevelWarn, "log level for third request")
+	// Verify each log
+	for i, tt := range tests {
+		logAssert.AtIndex(i, tt.wantLevel, tt.wantMessage, "log for request %d", i)
+	}
 }

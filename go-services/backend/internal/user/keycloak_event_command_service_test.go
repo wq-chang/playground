@@ -7,7 +7,7 @@ import (
 	"go-services/backend/internal/postgres"
 	"go-services/backend/internal/user"
 	"go-services/library/assert"
-	"go-services/library/testutil"
+	"go-services/library/testlogger"
 
 	"github.com/gofrs/uuid/v5"
 	"github.com/guregu/null/v6"
@@ -36,9 +36,9 @@ func TestProcessEvent_UpdateUser(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	testLogger := testutil.NewTestLogger(t)
+	log, logCapture := testlogger.New()
 	repo := NewFakeRepository()
-	service := user.NewKeycloakEventService(testLogger.Logger, repo, uuid.NewV4)
+	service := user.NewKeycloakEventService(log, repo, uuid.NewV4)
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -66,19 +66,19 @@ func TestProcessEvent_UpdateUser(t *testing.T) {
 			}
 
 			assert.Nil(t, err, "should not have error when processing keycloak update event")
-			assert.DeepEqual(t, updatedUser, expectedUser, "updated user")
+			assert.Equal(t, updatedUser, expectedUser, "updated user")
 		})
 
 		repo.Clear()
-		testLogger.Reset()
+		logCapture.Reset()
 	}
 }
 
 func TestProcess_UpdateUser_EmptyDetails(t *testing.T) {
 	ctx := context.Background()
-	testLogger := testutil.NewTestLogger(t)
+	log, _ := testlogger.New()
 	repo := NewFakeRepository()
-	service := user.NewKeycloakEventService(testLogger.Logger, repo, uuid.NewV4)
+	service := user.NewKeycloakEventService(log, repo, uuid.NewV4)
 
 	t.Run("return missing details error", func(t *testing.T) {
 		userID, err := uuid.NewV4()

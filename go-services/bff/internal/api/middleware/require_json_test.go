@@ -8,11 +8,11 @@ import (
 
 	"go-services/bff/internal/api"
 	"go-services/bff/internal/api/middleware"
-	"go-services/library/testutil"
+	"go-services/library/testlogger"
 )
 
 func TestRequireJSONMiddleware(t *testing.T) {
-	logger := testutil.NewTestLogger(t)
+	log, _ := testlogger.New()
 
 	okHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -22,7 +22,7 @@ func TestRequireJSONMiddleware(t *testing.T) {
 		}
 	})
 
-	mw := middleware.RequireJSON(logger.Logger)
+	mw := middleware.RequireJSON(log)
 	handler := mw(okHandler)
 
 	tests := map[string]struct {

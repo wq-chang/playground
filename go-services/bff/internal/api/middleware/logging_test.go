@@ -2,6 +2,7 @@ package middleware_test
 
 import (
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,13 +10,13 @@ import (
 
 	"go-services/bff/internal/api/middleware"
 	"go-services/library/assert"
-	"go-services/library/testutil"
+	"go-services/library/testlogger"
 )
 
 func TestLoggingMiddleware(t *testing.T) {
-	logger := testutil.NewTestLogger(t)
+	log, logCapture := testlogger.New()
 
-	mw := middleware.Logging(logger.Logger)
+	mw := middleware.Logging(log)
 
 	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
@@ -43,54 +44,75 @@ func TestLoggingMiddleware(t *testing.T) {
 
 	// --- define test cases ---
 	tests := map[string]struct {
-		method         string
-		path           string
-		body           string
-		expectedStatus int
-		expectInLog    []string
+		method     string
+		path       string
+		body       string
+		wantStatus int
+		wantLogs   []testlogger.LogEntry
 	}{
 		"successful request": {
-			method:         http.MethodPost,
-			path:           "/foo",
-			body:           "hello",
-			expectedStatus: http.StatusOK,
-			expectInLog: []string{
-				"incoming request",
-				"method=POST",
-				"path=/foo",
-				"body=hello",
-				"response",
-				"status_code=200",
-				"body=ok",
+			method:     http.MethodPost,
+			path:       "/foo",
+			body:       "hello",
+			wantStatus: http.StatusOK,
+			wantLogs: []testlogger.LogEntry{
+				{
+					Msg:   "incoming request",
+					Level: slog.LevelInfo,
+					Fields: map[string]any{
+						"method": "POST",
+						"path":   "/foo",
+						"body":   "hello",
+					},
+				},
+				{
+					Msg:   "response",
+					Level: slog.LevelInfo,
+					Fields: map[string]any{
+						"status_code": "200",
+						"body":        "hello",
+					},
+				},
 			},
 		},
 		"bad request": {
-			method:         http.MethodPost,
-			path:           "/foo",
-			body:           "error",
-			expectedStatus: http.StatusBadRequest,
-			expectInLog: []string{
-				"incoming request",
-				"method=POST",
-				"body=error",
-				"response",
-				"status_code=400",
-				"body=\"bad request\"",
+			method:     http.MethodPost,
+			path:       "/foo",
+			body:       "error",
+			wantStatus: http.StatusBadRequest,
+			wantLogs: []testlogger.LogEntry{
+				{
+					Msg:   "incoming request",
+					Level: slog.LevelInfo,
+					Fields: map[string]any{
+						"method": "POST",
+						"path":   "/foo",
+						"body":   "error",
+					},
+				},
+				{
+					Msg:   "response",
+					Level: slog.LevelInfo,
+					Fields: map[string]any{
+						"status_code": "400",
+						"body":        "\"bad request\"",
+					},
+				},
 			},
 		},
 		"OPTIONS method should not log": {
-			method:         http.MethodOptions,
-			path:           "/foo",
-			body:           "",
-			expectedStatus: http.StatusOK,
-			expectInLog:    nil, // should be empty
+			method:     http.MethodOptions,
+			path:       "/foo",
+			body:       "",
+			wantStatus: http.StatusOK,
+			wantLogs:   nil,
 		},
 	}
 
 	// --- run test cases ---
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			logger.Reset()
+			logCapture.Reset()
 
 			reqBody := strings.NewReader(tt.body)
 			req, _ := http.NewRequest(tt.method, ts.URL+tt.path, reqBody)
@@ -105,14 +127,19 @@ func TestLoggingMiddleware(t *testing.T) {
 				}
 			}()
 
-			assert.Equal(t, res.StatusCode, tt.expectedStatus, "wrong status code")
+			assert.Equal(t, res.StatusCode, tt.wantStatus, "wrong status code")
 
-			logOutput := logger.Capture.String()
+			logAssert := testlogger.Assert(t, logCapture.GetOutput())
+			if tt.wantLogs != nil {
+				for i, wantLog := range tt.wantLogs {
+					logAssert.AtIndex(i, wantLog.Level, wantLog.Msg, "log")
 
-			if tt.expectInLog == nil {
-				assert.Equal(t, logOutput, "", "expected no logs for OPTIONS request, got:\n%s", logOutput)
+					for name, value := range wantLog.Fields {
+						logAssert.HasField(i, name, value, "field for log %d field %q", i, name)
+					}
+				}
 			} else {
-				logger.AssertContainsAll(tt.expectInLog, "logs")
+				logAssert.Empty("option request should not have log")
 			}
 		})
 	}

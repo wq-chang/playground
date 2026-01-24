@@ -7,18 +7,18 @@ import (
 	"testing"
 
 	"go-services/library/assert"
-	"go-services/library/testutil"
+	"go-services/library/testlogger"
 )
 
 func TestRecoverMiddleware(t *testing.T) {
-	logger := testutil.NewTestLogger(t)
+	log, logCapture := testlogger.New()
 
 	// --- test handler that panics ---
 	panicHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		panic("something went wrong")
 	})
 
-	mw := Recover(logger.Logger)
+	mw := Recover(log)
 	handler := mw(panicHandler)
 
 	t.Run("should recover from panic and call SendErrorLog", func(t *testing.T) {
@@ -27,19 +27,15 @@ func TestRecoverMiddleware(t *testing.T) {
 
 		handler.ServeHTTP(rec, req)
 
-		if rec.Code != http.StatusInternalServerError {
-			t.Errorf("expected status %d, got %d", http.StatusInternalServerError, rec.Code)
-		}
+		assert.Equal(t, rec.Code, http.StatusInternalServerError, "http status")
 
 		resBody := rec.Body.String()
 
-		logger.AssertLevelCount(
-			slog.LevelError,
-			1,
-			"should have error level after recovered from panic",
-		)
-		logger.AssertContains("panic recovered", "should have log indicating recovered from panic")
-		logger.AssertContains("something went wrong", "generic recovered error message")
+		testlogger.Assert(t, logCapture.GetOutput()).
+			Count(1, "should have 1 error logs after recovered from panic").
+			AtIndex(0, slog.LevelError, "panic recovered", "panic recovered message").
+			HasField(0, "err", "something went wrong", "error message")
+
 		assert.StringContains(
 			t,
 			resBody,
@@ -49,7 +45,7 @@ func TestRecoverMiddleware(t *testing.T) {
 	})
 
 	t.Run("should not trigger recovery for normal requests", func(t *testing.T) {
-		logger.Reset()
+		logCapture.Reset()
 		normalHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			_, err := w.Write([]byte("ok"))
@@ -58,17 +54,14 @@ func TestRecoverMiddleware(t *testing.T) {
 			}
 		})
 
-		handler := Recover(logger.Logger)(normalHandler)
+		handler := Recover(log)(normalHandler)
 		req := httptest.NewRequest(http.MethodGet, "/ok", nil)
 		rec := httptest.NewRecorder()
 
 		handler.ServeHTTP(rec, req)
 
-		if got, want := rec.Code, http.StatusOK; got != want {
-			t.Errorf("got status = %d, want %d", http.StatusOK, rec.Code)
-		}
-
-		logger.AssertLevelCount(slog.LevelError, 0, "error log level for normal request")
-		logger.AssertEmpty("log should be empty for normal request")
+		assert.Equal(t, rec.Code, http.StatusOK, "http status for normal request")
+		testlogger.Assert(t, logCapture.GetOutput()).
+			Count(0, "should not log for normal request")
 	})
 }

@@ -21,6 +21,7 @@
       {
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [
+            graphviz # visualize mem allocation
             # go
             go
             gofumpt
