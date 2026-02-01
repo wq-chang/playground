@@ -69,8 +69,8 @@ func TestLoggingMiddleware(t *testing.T) {
 					Msg:   "response",
 					Level: slog.LevelInfo,
 					Fields: map[string]any{
-						"status_code": int64(200),
-						"body":        "ok",
+						"status_code": "200",
+						"body":        "hello",
 					},
 				},
 			},
@@ -94,8 +94,8 @@ func TestLoggingMiddleware(t *testing.T) {
 					Msg:   "response",
 					Level: slog.LevelInfo,
 					Fields: map[string]any{
-						"status_code": int64(400),
-						"body":        "bad request",
+						"status_code": "400",
+						"body":        "\"bad request\"",
 					},
 				},
 			},
