@@ -17,7 +17,10 @@ type LogAssert struct {
 	entries []LogEntry
 }
 
-var IgnoreLogFieldsOpt = []cmp.Option{cmpopts.IgnoreFields(LogEntry{}, "Fields")}
+var (
+	ignoreLogFieldsOpt = []cmp.Option{cmpopts.IgnoreFields(LogEntry{}, "Fields")}
+	equateErrorsOpt    = []cmp.Option{cmpopts.EquateErrors()}
+)
 
 // Assert initializes a new LogAssert with the provided test context and entries.
 // It returns a pointer to LogAssert to allow for fluent method chaining.
@@ -67,7 +70,7 @@ func (a *LogAssert) AtIndex(index int, level slog.Level, logMsg string, msg stri
 		a.entries,
 		index,
 		want,
-		IgnoreLogFieldsOpt,
+		ignoreLogFieldsOpt,
 		"log property mismatch :: %s",
 		formattedMsg,
 	)
@@ -86,7 +89,15 @@ func (a *LogAssert) HasField(index int, key string, want any, msg string, msgArg
 		return a
 	}
 
-	assert.MapAt(a.t, a.entries[index].Fields, key, want, "log field mismatch :: %s", formattedMsg)
+	assert.MapAtOpt(
+		a.t,
+		a.entries[index].Fields,
+		key,
+		want,
+		equateErrorsOpt,
+		"log field mismatch :: %s",
+		formattedMsg,
+	)
 
 	return a
 }
