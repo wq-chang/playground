@@ -14,6 +14,8 @@ import (
 )
 
 func TestError(t *testing.T) {
+	genericErr := errors.New("unexpected error")
+
 	tests := map[string]struct {
 		handler        func(w http.ResponseWriter, r *http.Request) error
 		wantStatusCode int
@@ -44,9 +46,9 @@ func TestError(t *testing.T) {
 			wantFields: map[string]any{
 				"method": "GET",
 				"path":   "/test",
-				"status": "400",
-				"code":   "INVALID_INPUT",
-				"msg":    "\"invalid input\"",
+				"status": int64(400),
+				"code":   apperror.CodeInvalidInput,
+				"msg":    "invalid input",
 			},
 		},
 		"app error - 5xx server error": {
@@ -71,13 +73,13 @@ func TestError(t *testing.T) {
 			wantLogged:     true,
 			wantMessage:    "client error",
 			wantFields: map[string]any{
-				"status": "404",
-				"code":   "NOT_FOUND",
+				"status": int64(404),
+				"code":   apperror.CodeNotFound,
 			},
 		},
 		"unhandled error - generic error": {
 			handler: func(w http.ResponseWriter, r *http.Request) error {
-				return errors.New("unexpected error")
+				return genericErr
 			},
 			wantStatusCode: http.StatusInternalServerError,
 			wantLogLevel:   slog.LevelError,
@@ -86,7 +88,7 @@ func TestError(t *testing.T) {
 			wantFields: map[string]any{
 				"method": "GET",
 				"path":   "/test",
-				"error":  "\"unexpected error\"",
+				"error":  genericErr,
 			},
 		},
 		"app error - 503 service unavailable": {
@@ -125,7 +127,7 @@ func TestError(t *testing.T) {
 			if tt.wantLogged {
 				logAssert.
 					Count(1, "should have 1 log after resolve the error").
-					AtIndex(0, tt.wantLogLevel, "", "log for resolved error")
+					AtIndex(0, tt.wantLogLevel, tt.wantMessage, "log for resolved error")
 
 				for fieldName, fieldValue := range tt.wantFields {
 					logAssert.HasField(0, fieldName, fieldValue, "%s", fieldName)
