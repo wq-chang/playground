@@ -1,0 +1,24 @@
+version: "2"
+
+overrides:
+  go:
+    overrides:
+      - db_type: "uuid"
+        go_type:
+          import: "github.com/gofrs/uuid/v5"
+          type: "UUID"
+      - db_type: "uuid"
+        nullable: true
+        go_type:
+          import: "github.com/gofrs/uuid/v5"
+          type: "NullUUID"
+sql:
+  - name: "user"
+    engine: "postgresql"
+    schema: "migrations"
+    queries: "internal/user/query.sql"
+    gen:
+      go:
+        package: "db"
+        out: "internal/user/internal/db"
+        sql_package: "pgx/v5"

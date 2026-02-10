@@ -5,32 +5,32 @@ import (
 	"fmt"
 	"log/slog"
 
-	"go-services/backend/internal/postgres"
+	"go-services/backend/internal/user/internal/db"
 	"go-services/library/apperror"
 
 	"github.com/gofrs/uuid/v5"
 )
 
-type commandRepository interface {
+type userSyncCommandRepository interface {
 	// CreateUser(createUserParams postgres.CreateUserParams)
-	UpdateUser(context context.Context, updateUserParams postgres.UpdateUserParams) error
+	UpdateUser(context context.Context, updateUserParams db.UpdateUserParams) (int64, error)
 }
 
 type KeycloakEventCommandService struct {
-	log         *slog.Logger
-	commandRepo commandRepository
-	genUUID     func() (uuid.UUID, error)
+	log     *slog.Logger
+	genUUID func() (uuid.UUID, error)
+	repo    userSyncCommandRepository
 }
 
 func NewKeycloakEventService(
 	log *slog.Logger,
-	commandRepo commandRepository,
 	genUUID func() (uuid.UUID, error),
+	repo userSyncCommandRepository,
 ) *KeycloakEventCommandService {
 	return &KeycloakEventCommandService{
-		log:         log,
-		commandRepo: commandRepo,
-		genUUID:     genUUID,
+		log:     log,
+		genUUID: genUUID,
+		repo:    repo,
 	}
 }
 
@@ -62,7 +62,7 @@ func (s *KeycloakEventCommandService) handleUserEvent(ctx context.Context, event
 	return nil
 }
 
-func (s *KeycloakEventCommandService) handleAdminEvent(ctx context.Context, event KeycloakEvent) error {
+func (s *KeycloakEventCommandService) handleAdminEvent(_ context.Context, event KeycloakEvent) error {
 	switch event.Operation {
 	case OperationCreate:
 		// return s.createAdmin(event)
@@ -79,7 +79,7 @@ func (s *KeycloakEventCommandService) handleAdminEvent(ctx context.Context, even
 func (s *KeycloakEventCommandService) updateUser(ctx context.Context, userID uuid.UUID, details UpdatedDetails) error {
 	updateUserParams := toUpdateUserParams(userID, details)
 
-	err := s.commandRepo.UpdateUser(ctx, updateUserParams)
+	_, err := s.repo.UpdateUser(ctx, updateUserParams)
 	if err != nil {
 		return fmt.Errorf("failed to update user %s: %w", userID, err)
 	}

@@ -1,4 +1,4 @@
-package postgres
+package pgutil
 
 import (
 	"github.com/guregu/null/v6"

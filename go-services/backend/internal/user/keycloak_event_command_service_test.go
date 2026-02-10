@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"go-services/backend/internal/postgres"
 	"go-services/backend/internal/user"
+	"go-services/backend/internal/user/internal/db"
 	"go-services/library/assert"
 	"go-services/library/testlogger"
 
@@ -38,7 +38,7 @@ func TestProcessEvent_UpdateUser(t *testing.T) {
 	ctx := context.Background()
 	log, logCapture := testlogger.New()
 	repo := NewFakeRepository()
-	service := user.NewKeycloakEventService(log, repo, uuid.NewV4)
+	service := user.NewKeycloakEventService(log, uuid.NewV4, repo)
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -50,7 +50,7 @@ func TestProcessEvent_UpdateUser(t *testing.T) {
 				UserID:    userID,
 				Updated:   null.ValueFrom(tt),
 			}
-			expectedUser := postgres.User{
+			expectedUser := db.User{
 				ID:        userID,
 				FirstName: tt.FirstName.ValueOr(existingUser.FirstName),
 				LastName:  tt.LastName.ValueOr(existingUser.LastName),
@@ -78,7 +78,7 @@ func TestProcess_UpdateUser_EmptyDetails(t *testing.T) {
 	ctx := context.Background()
 	log, _ := testlogger.New()
 	repo := NewFakeRepository()
-	service := user.NewKeycloakEventService(log, repo, uuid.NewV4)
+	service := user.NewKeycloakEventService(log, uuid.NewV4, repo)
 
 	t.Run("return missing details error", func(t *testing.T) {
 		userID, err := uuid.NewV4()
@@ -100,13 +100,13 @@ func TestProcess_UpdateUser_EmptyDetails(t *testing.T) {
 	})
 }
 
-func buildUser(t *testing.T) postgres.User {
+func buildUser(t *testing.T) db.User {
 	userID, err := uuid.NewV4()
 	if err != nil {
 		t.Fatalf("failed to generate uuid: %v", err)
 	}
 
-	return postgres.User{
+	return db.User{
 		ID:        userID,
 		FirstName: "first name",
 		LastName:  "last name",

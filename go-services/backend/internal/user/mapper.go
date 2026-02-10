@@ -1,17 +1,18 @@
 package user
 
 import (
-	"go-services/backend/internal/postgres"
+	"go-services/backend/internal/pgutil"
+	"go-services/backend/internal/user/internal/db"
 
 	"github.com/gofrs/uuid/v5"
 )
 
-func toUpdateUserParams(userID uuid.UUID, details UpdatedDetails) postgres.UpdateUserParams {
-	return postgres.UpdateUserParams{
+func toUpdateUserParams(userID uuid.UUID, details UpdatedDetails) db.UpdateUserParams {
+	return db.UpdateUserParams{
 		ID:        userID,
-		Username:  postgres.ToPGText(details.Username),
-		Email:     postgres.ToPGText(details.Email),
-		FirstName: postgres.ToPGText(details.FirstName),
-		LastName:  postgres.ToPGText(details.LastName),
+		Username:  pgutil.ToPGText(details.Username),
+		Email:     pgutil.ToPGText(details.Email),
+		FirstName: pgutil.ToPGText(details.FirstName),
+		LastName:  pgutil.ToPGText(details.LastName),
 	}
 }

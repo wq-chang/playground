@@ -3,32 +3,32 @@ package user_test
 import (
 	"context"
 
-	"go-services/backend/internal/postgres"
+	"go-services/backend/internal/user/internal/db"
 
 	"github.com/gofrs/uuid/v5"
 )
 
 type FakeRepository struct {
-	Users map[uuid.UUID]postgres.User
+	Users map[uuid.UUID]db.User
 }
 
 func NewFakeRepository() *FakeRepository {
 	return &FakeRepository{
-		Users: make(map[uuid.UUID]postgres.User),
+		Users: make(map[uuid.UUID]db.User),
 	}
 }
 
-func (r *FakeRepository) SaveUser(u postgres.User) {
+func (r *FakeRepository) SaveUser(u db.User) {
 	r.Users[u.ID] = u
 }
 
-func (r *FakeRepository) GetUserByID(id uuid.UUID) (postgres.User, bool) {
+func (r *FakeRepository) GetUserByID(id uuid.UUID) (db.User, bool) {
 	u, ok := r.Users[id]
 	return u, ok
 }
 
-func (r *FakeRepository) CreateUser(_ context.Context, createUserParams postgres.CreateUserParams) {
-	newUser := postgres.User{
+func (r *FakeRepository) CreateUser(_ context.Context, createUserParams db.CreateUserParams) {
+	newUser := db.User{
 		ID:        createUserParams.ID,
 		FirstName: createUserParams.FirstName,
 		LastName:  createUserParams.LastName,
@@ -39,8 +39,13 @@ func (r *FakeRepository) CreateUser(_ context.Context, createUserParams postgres
 	r.SaveUser(newUser)
 }
 
-func (r *FakeRepository) UpdateUser(_ context.Context, updateUserParams postgres.UpdateUserParams) error {
-	existingUser := r.Users[updateUserParams.ID]
+func (r *FakeRepository) UpdateUser(_ context.Context, updateUserParams db.UpdateUserParams) (int64, error) {
+	existingUser, ok := r.Users[updateUserParams.ID]
+
+	if !ok {
+		return 0, nil
+	}
+
 	if updateUserParams.FirstName.Valid {
 		existingUser.FirstName = updateUserParams.FirstName.String
 	}
@@ -56,7 +61,7 @@ func (r *FakeRepository) UpdateUser(_ context.Context, updateUserParams postgres
 
 	r.SaveUser(existingUser)
 
-	return nil
+	return 1, nil
 }
 
 func (r *FakeRepository) Clear() {
