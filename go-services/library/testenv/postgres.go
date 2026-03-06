@@ -11,7 +11,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 
-// GetSharedPool initializes or attaches to a reusable PostgreSQL TestContainer and provides
+// getPGSharedPool initializes or attaches to a reusable PostgreSQL TestContainer and provides
 // a connection pool scoped to a specific schema.
 //
 // Parameters:
@@ -24,7 +24,7 @@ import (
 //     It is managed by Testcontainers' Ryuk sidecar, which will remove the container
 //     once the test process (or the parent session) exits. This allows the
 //     container to persist across multiple 'go test' runs for speed.
-func GetSharedPool(ctx context.Context, packageName string) (*pgxpool.Pool, func(), error) {
+func getPGSharedPool(ctx context.Context, packageName string) (*pgxpool.Pool, func(), error) {
 	container, err := postgres.Run(ctx,
 		"postgres:18.1-trixie",
 		postgres.WithDatabase("shared_db"),

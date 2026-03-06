@@ -42,7 +42,7 @@
             sqlfluff
 
             # infra
-            localstack
+            # localstack
             natscli
             tenv
             terraform-local

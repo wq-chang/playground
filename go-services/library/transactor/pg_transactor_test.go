@@ -17,6 +17,7 @@ import (
 )
 
 func TestPGTransactor_Atomic(t *testing.T) {
+	testPool := te.GetPGPool(t)
 	ctx := context.Background()
 
 	_, _ = testPool.Exec(ctx, "DROP TABLE IF EXISTS users;")
@@ -72,6 +73,8 @@ func TestPGTransactor_Atomic(t *testing.T) {
 
 func TestPGTransactor_AtomicScenarios(t *testing.T) {
 	ctx := context.Background()
+
+	testPool := te.GetPGPool(t)
 
 	_, _ = testPool.Exec(ctx, "DROP TABLE IF EXISTS users;")
 	_, err := testPool.Exec(ctx, "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT)")
@@ -164,6 +167,7 @@ func TestPGTransactor_AtomicScenarios(t *testing.T) {
 
 // verifyUser is a helper to check counts in the DB
 func verifyUser(t *testing.T, ctx context.Context, name string, expected int) {
+	testPool := te.GetPGPool(t)
 	var count int
 	_ = testPool.QueryRow(ctx, "SELECT COUNT(*) FROM users WHERE name = $1", name).Scan(&count)
 	assert.Equal(t, expected, count, "count mismatch for user: "+name)
