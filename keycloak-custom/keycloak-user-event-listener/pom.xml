@@ -18,7 +18,7 @@
     <plugin.compiler.version>3.14.1</plugin.compiler.version>
     <plugin.jar.version>3.5.0</plugin.jar.version>
     <plugin.shade.version>3.6.1</plugin.shade.version>
-    <plugin.surefire.version>3.5.4</plugin.surefire.version>
+    <plugin.surefire.version>3.5.5</plugin.surefire.version>
   </properties>
   <dependencyManagement>
     <dependencies>
