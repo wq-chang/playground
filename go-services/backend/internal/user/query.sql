@@ -1,10 +1,9 @@
--- name: CreateUser :one
+-- name: CreateUser :exec
 INSERT INTO users (
   id, username, email, first_name, last_name
 ) VALUES (
   @id, @username, @email, @first_name, @last_name
-)
-RETURNING *;
+);
 
 -- name: UpdateUser :execresult
 UPDATE users

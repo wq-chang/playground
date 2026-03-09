@@ -6,6 +6,7 @@ import (
 	"github.com/gofrs/uuid/v5"
 
 	"go-services/backend/internal/user/internal/db"
+	"go-services/library/apperror"
 )
 
 type FakeRepository struct {
@@ -27,7 +28,11 @@ func (r *FakeRepository) GetUserByID(id uuid.UUID) (db.User, bool) {
 	return u, ok
 }
 
-func (r *FakeRepository) CreateUser(_ context.Context, createUserParams db.CreateUserParams) {
+func (r *FakeRepository) CreateUser(_ context.Context, createUserParams db.CreateUserParams) error {
+	if _, ok := r.Users[createUserParams.ID]; ok {
+		return apperror.New(apperror.CodeDuplicateRecord, "user already exists")
+	}
+
 	newUser := db.User{
 		ID:        createUserParams.ID,
 		FirstName: createUserParams.FirstName,
@@ -37,6 +42,8 @@ func (r *FakeRepository) CreateUser(_ context.Context, createUserParams db.Creat
 	}
 
 	r.SaveUser(newUser)
+
+	return nil
 }
 
 func (r *FakeRepository) UpdateUser(_ context.Context, updateUserParams db.UpdateUserParams) (int64, error) {
