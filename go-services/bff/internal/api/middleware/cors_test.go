@@ -41,8 +41,8 @@ func TestCORS(t *testing.T) {
 	tests := map[string]struct {
 		method         string
 		origin         string
-		wantStatus     int
 		wantBody       string
+		wantStatus     int
 		shouldCallNext bool
 	}{
 		"GET request with trusted origin": {

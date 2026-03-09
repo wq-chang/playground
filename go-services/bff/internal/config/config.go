@@ -19,11 +19,11 @@ type OIDCProviderConfig struct {
 type Config struct {
 	Keycloak                *OIDCProviderConfig
 	ServerPort              string
-	SessionSecret           []byte
-	UseHTTPS                bool
 	FrontendBaseURL         string
 	NatsURL                 string
 	NatsKVSessionBucketName string
+	SessionSecret           []byte
+	UseHTTPS                bool
 }
 
 func New() (*Config, error) {

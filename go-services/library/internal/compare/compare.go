@@ -110,7 +110,7 @@ func Panics(t *testing.T, f func(), msg string, msgArgs ...any) (m string, ok bo
 	}()
 
 	f()
-	return
+	return m, ok
 }
 
 // Zero asserts that got is the zero value for its type.
@@ -621,6 +621,6 @@ func row(label string, value any) string {
 }
 
 // rowRaw returns a formatted string without %#v (useful for pre-formatted strings).
-func rowRaw(label string, value string, valueArgs ...any) string {
+func rowRaw(label, value string, valueArgs ...any) string {
 	return fmt.Sprintf("%-*s %s", labelWidth, label+":", fmt.Sprintf(value, valueArgs...))
 }

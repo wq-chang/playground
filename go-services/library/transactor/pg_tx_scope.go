@@ -37,8 +37,8 @@ func (s *PGTxScope) SavePoint(ctx context.Context, fn func() error) error {
 	// Properly quote the identifier to prevent any weird character issues
 	spName := pgx.Identifier{"sp_" + id.String()}.Sanitize()
 
-	if _, err := s.tx.Exec(ctx, "SAVEPOINT "+spName); err != nil {
-		return apperror.Wrap(apperror.CodeDBTransaction, err, "failed to create savepoint")
+	if _, savePointErr := s.tx.Exec(ctx, "SAVEPOINT "+spName); savePointErr != nil {
+		return apperror.Wrap(apperror.CodeDBTransaction, savePointErr, "failed to create savepoint")
 	}
 	s.log.DebugContext(ctx, "started savepoint", "savepoint", spName)
 

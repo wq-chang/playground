@@ -29,8 +29,8 @@ func TestRequireJSONMiddleware(t *testing.T) {
 		method           string
 		contentType      string
 		accept           string
-		wantStatus       int
 		wantBodyContains string
+		wantStatus       int
 	}{
 		"OPTIONS request allowed": {
 			method:           http.MethodOptions,

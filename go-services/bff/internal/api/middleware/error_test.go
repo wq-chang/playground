@@ -18,11 +18,11 @@ func TestError(t *testing.T) {
 
 	tests := map[string]struct {
 		handler        func(w http.ResponseWriter, r *http.Request) error
+		wantFields     map[string]any
+		wantMessage    string
 		wantStatusCode int
 		wantLogLevel   slog.Level
 		wantLogged     bool
-		wantMessage    string
-		wantFields     map[string]any
 	}{
 		"no error - handler succeeds": {
 			handler: func(w http.ResponseWriter, r *http.Request) error {
@@ -211,10 +211,10 @@ func TestErrorMultipleCalls(t *testing.T) {
 func TestErrorMixedLevels(t *testing.T) {
 	// Test that different error types produce different log levels
 	tests := []struct {
-		name        string
 		handler     func(w http.ResponseWriter, r *http.Request) error
-		wantLevel   slog.Level
+		name        string
 		wantMessage string
+		wantLevel   slog.Level
 	}{
 		{
 			name: "client error",

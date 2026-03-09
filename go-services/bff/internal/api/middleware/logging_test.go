@@ -10,6 +10,7 @@ import (
 
 	"go-services/bff/internal/api/middleware"
 	"go-services/library/assert"
+	"go-services/library/require"
 	"go-services/library/testlogger"
 )
 
@@ -19,12 +20,11 @@ func TestLoggingMiddleware(t *testing.T) {
 	mw := middleware.Logging(log)
 
 	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err, "failed to read req body")
 		defer func() {
-			err := r.Body.Close()
-			if err != nil {
-				t.Fatal("failed to close body")
-			}
+			closeBodyErr := r.Body.Close()
+			require.NoError(t, closeBodyErr, "failed to close req body")
 		}()
 
 		if string(body) == "error" {
@@ -33,10 +33,8 @@ func TestLoggingMiddleware(t *testing.T) {
 		}
 
 		w.WriteHeader(http.StatusOK)
-		_, err := w.Write([]byte("ok"))
-		if err != nil {
-			t.Fatal("failed to write ok")
-		}
+		_, err = w.Write([]byte("ok"))
+		require.NoError(t, err, "failed to write ok")
 	})
 
 	ts := httptest.NewServer(mw(testHandler))
@@ -47,8 +45,8 @@ func TestLoggingMiddleware(t *testing.T) {
 		method     string
 		path       string
 		body       string
-		wantStatus int
 		wantLogs   []testlogger.LogEntry
+		wantStatus int
 	}{
 		"successful request": {
 			method:     http.MethodPost,
@@ -115,16 +113,13 @@ func TestLoggingMiddleware(t *testing.T) {
 			logCapture.Reset()
 
 			reqBody := strings.NewReader(tt.body)
-			req, _ := http.NewRequest(tt.method, ts.URL+tt.path, reqBody)
+			req, err := http.NewRequest(tt.method, ts.URL+tt.path, reqBody)
+			require.NoError(t, err, "failed to create request")
 			res, err := http.DefaultClient.Do(req)
-			if err != nil {
-				t.Fatalf("request failed: %v", err)
-			}
+			require.NoError(t, err, "request failed")
 			defer func() {
 				err := res.Body.Close()
-				if err != nil {
-					t.Fatal("failed to close body")
-				}
+				require.NoError(t, err, "failed to close body")
 			}()
 
 			assert.Equal(t, res.StatusCode, tt.wantStatus, "wrong status code")

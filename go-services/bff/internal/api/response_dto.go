@@ -3,13 +3,13 @@ package api
 import "go-services/library/apperror"
 
 type SuccessResponse struct {
-	Success bool `json:"success"`
 	Data    any  `json:"data,omitempty"`
+	Success bool `json:"success"`
 }
 
 type ErrorResponse struct {
-	Success bool              `json:"success"`
 	Error   ErrorResponseBody `json:"error"`
+	Success bool              `json:"success"`
 }
 
 type ErrorResponseBody struct {

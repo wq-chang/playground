@@ -329,8 +329,8 @@ func TestNotZero(t *testing.T) {
 
 func TestEqualOpt(t *testing.T) {
 	type User struct {
-		ID   int
 		Name string
+		ID   int
 	}
 
 	t.Run("returns true when ignoring fields with cmpopts", func(t *testing.T) {
@@ -686,8 +686,8 @@ func TestNotNil(t *testing.T) {
 
 func TestSliceContainsOpt(t *testing.T) {
 	type Item struct {
-		ID   int
 		Name string
+		ID   int
 	}
 
 	t.Run("returns true when ignoring fields via options", func(t *testing.T) {
@@ -997,8 +997,8 @@ func TestSliceAt(t *testing.T) {
 
 	t.Run("returns false and gocmp diff for complex mismatch", func(t *testing.T) {
 		type user struct {
-			ID   int
 			Name string
+			ID   int
 		}
 		got := user{ID: 1, Name: "Alice"}
 		want := user{ID: 1, Name: "Bob"}
@@ -1294,8 +1294,8 @@ func TestMapLen(t *testing.T) {
 
 func TestMapAtOpt(t *testing.T) {
 	type Data struct {
-		ID  int
 		Val string
+		ID  int
 	}
 
 	t.Run("returns true when value matches via cmpopts", func(t *testing.T) {
@@ -1375,8 +1375,8 @@ func TestMapAt(t *testing.T) {
 
 	t.Run("returns false and gocmp diff when map value is a complex struct mismatch", func(t *testing.T) {
 		type data struct {
-			Score int
 			Tags  []string
+			Score int
 		}
 
 		m := map[string]data{

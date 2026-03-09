@@ -8,9 +8,9 @@ import (
 
 // LogEntry represents a simplified, testable version of a slog record.
 type LogEntry struct {
-	Level  slog.Level
-	Msg    string
 	Fields map[string]any
+	Msg    string
+	Level  slog.Level
 }
 
 // LogCapture is a concurrency-safe container for capturing logs during tests.

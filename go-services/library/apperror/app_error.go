@@ -6,9 +6,9 @@ import (
 )
 
 type AppError struct {
+	Err  error
 	Msg  string
 	Code ErrorCode
-	Err  error
 }
 
 func (e *AppError) Error() string {

@@ -108,7 +108,9 @@ func (t *PGTransactor) runInTx(ctx context.Context, action func(context.Context,
 
 	defer func() {
 		if r := recover(); r != nil {
-			_ = tx.Rollback(cleanupCtx)
+			if rbErr := tx.Rollback(cleanupCtx); rbErr != nil {
+				t.log.ErrorContext(cleanupCtx, "failed to rollback for panic", "err", rbErr)
+			}
 			panic(r) // Re-panic after rolling back to allow standard recovery middleware to catch it.
 		}
 		if err != nil {

@@ -5,23 +5,23 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 	"unicode/utf8"
 
+	"go-services/library/gsync"
 	"go-services/library/redact"
 )
 
 var defaultCfg = newConfig()
 
-var statePool = sync.Pool{
-	New: func() any {
+var statePool = gsync.Pool[map[uintptr]bool]{
+	New: func() map[uintptr]bool {
 		return make(map[uintptr]bool)
 	},
 }
 
-var builderPool = sync.Pool{
-	New: func() any {
+var builderPool = gsync.Pool[*strings.Builder]{
+	New: func() *strings.Builder {
 		b := &strings.Builder{}
 		b.Grow(1024)
 		return b
@@ -33,10 +33,10 @@ func Value(v any) string {
 }
 
 func ValueOpt(v any, cfg *config) string {
-	b := builderPool.Get().(*strings.Builder)
+	b := builderPool.Get()
 	b.Reset()
 
-	visited := statePool.Get().(map[uintptr]bool)
+	visited := statePool.Get()
 	clear(visited)
 
 	formatRecursive(cfg, b, visited, reflect.ValueOf(v), 0)

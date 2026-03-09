@@ -221,20 +221,20 @@ func TestUTF8Safety(t *testing.T) {
 }
 
 type Account struct {
-	ID        int
+	CreatedAt time.Time
+	Metadata  map[string]string
+	Settings  *Settings
 	Username  string
 	Email     string
-	IsActive  bool
-	Metadata  map[string]string
 	Friends   []int
-	CreatedAt time.Time
-	Settings  *Settings
+	ID        int
+	IsActive  bool
 }
 
 type Settings struct {
+	LastLogin   *time.Time
 	Theme       string
 	Permissions []string
-	LastLogin   *time.Time
 }
 
 func createComplexObject() Account {

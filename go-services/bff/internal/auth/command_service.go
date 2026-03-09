@@ -46,7 +46,7 @@ func NewAuthCommandService(
 	}
 }
 
-func (s *AuthCommandService) GenerateAuthCodeURL() (state string, authURL string, err error) {
+func (s *AuthCommandService) GenerateAuthCodeURL() (state, authURL string, err error) {
 	state, err = s.tokenGenerator.GenerateStateToken()
 	if err != nil {
 		return "", "", apperror.Wrap(apperror.CodeInternalError, err, "faield to generate state")
@@ -60,7 +60,7 @@ func (s *AuthCommandService) GenerateAuthCodeURL() (state string, authURL string
 func (s *AuthCommandService) AuthenticateUser(
 	ctx context.Context,
 	authCode string,
-) (sessionToken string, accessToken string, err error) {
+) (sessionToken, accessToken string, err error) {
 	// Exchange authorization code for tokens
 	oauth2Token, err := s.oauth2Config.Exchange(ctx, authCode)
 	if err != nil {
@@ -83,8 +83,8 @@ func (s *AuthCommandService) AuthenticateUser(
 		Email string `json:"email"`
 		Name  string `json:"name"`
 	}
-	if err := idToken.Claims(&claims); err != nil {
-		return "", "", apperror.Wrap(apperror.CodeExternalService, err, "failed to decode ID token claims")
+	if decodeErr := idToken.Claims(&claims); decodeErr != nil {
+		return "", "", apperror.Wrap(apperror.CodeExternalService, decodeErr, "failed to decode ID token claims")
 	}
 
 	sessionToken, err = s.tokenGenerator.GenerateStateToken()

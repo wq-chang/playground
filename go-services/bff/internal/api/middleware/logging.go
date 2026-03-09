@@ -11,8 +11,8 @@ import (
 // responseWriter is a wrapper to capture status code and body
 type responseWriter struct {
 	http.ResponseWriter
-	statusCode int
 	body       *bytes.Buffer
+	statusCode int
 }
 
 // WriteHeader overrides the default WriteHeader method to record the

@@ -60,7 +60,7 @@ func (a *LogAssert) NotEmpty(msg string, msgArgs ...any) *LogAssert {
 
 // AtIndex verifies the slog.Level and Message of a log entry at a specific index.
 // It ignores the 'Fields' map during comparison, focusing only on the core log properties.
-func (a *LogAssert) AtIndex(index int, level slog.Level, logMsg string, msg string, msgArgs ...any) *LogAssert {
+func (a *LogAssert) AtIndex(index int, level slog.Level, logMsg, msg string, msgArgs ...any) *LogAssert {
 	a.t.Helper()
 
 	want := LogEntry{Level: level, Msg: logMsg, Fields: nil}

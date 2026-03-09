@@ -8,8 +8,8 @@ import (
 type KeycloakEvent struct {
 	EventType KeycloakEventType          `json:"eventType"`
 	Operation KeycloakOperation          `json:"operation"`
-	UserID    uuid.UUID                  `json:"userId"`
 	Updated   null.Value[UpdatedDetails] `json:"updatedDetails"`
+	UserID    uuid.UUID                  `json:"userId"`
 }
 
 type UpdatedDetails struct {

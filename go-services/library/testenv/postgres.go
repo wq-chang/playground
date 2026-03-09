@@ -43,7 +43,10 @@ func getPGSharedPool(ctx context.Context, packageName string) (*pgxpool.Pool, fu
 	}
 
 	// Root Pool: Minimal admin connection for schema management
-	rootCfg, _ := pgxpool.ParseConfig(connStr)
+	rootCfg, err := pgxpool.ParseConfig(connStr)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to parse connection string: %w", err)
+	}
 	rootCfg.MaxConns = 1
 	rootPool, err := pgxpool.NewWithConfig(ctx, rootCfg)
 	if err != nil {
@@ -66,7 +69,10 @@ func getPGSharedPool(ctx context.Context, packageName string) (*pgxpool.Pool, fu
 
 	// Scoped Pool: The connection pool for application logic
 	scopedConnStr := fmt.Sprintf("%s&search_path=%s", connStr, schemaName)
-	scopedCfg, _ := pgxpool.ParseConfig(scopedConnStr)
+	scopedCfg, err := pgxpool.ParseConfig(scopedConnStr)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to parse scoped connection string: %w", err)
+	}
 	scopedCfg.MaxConns = 5
 
 	scopedPool, err := pgxpool.NewWithConfig(ctx, scopedCfg)
@@ -84,8 +90,10 @@ func getPGSharedPool(ctx context.Context, packageName string) (*pgxpool.Pool, fu
 			return
 		}
 
-		_, _ = rootPool.Exec(context.Background(),
-			fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE", schemaName))
+		_, err = rootPool.Exec(
+			context.Background(),
+			fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE", schemaName),
+		)
 		rootPool.Close()
 	}
 

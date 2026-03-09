@@ -18,19 +18,19 @@ const (
 )
 
 type authService interface {
-	GenerateAuthCodeURL() (state string, authURL string, err error)
+	GenerateAuthCodeURL() (state, authURL string, err error)
 	AuthenticateUser(
 		ctx context.Context,
 		authCode string,
-	) (sessionToken string, accessToken string, err error)
+	) (sessionToken, accessToken string, err error)
 }
 
 type AuthCommandHandler struct {
+	authCommandService authService
 	log                *slog.Logger
 	providerConfig     *config.OIDCProviderConfig
-	useHTTPS           bool
 	frontendBaseURL    string
-	authCommandService authService
+	useHTTPS           bool
 }
 
 func NewAuthCommandHandler(

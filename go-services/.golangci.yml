@@ -1,10 +1,29 @@
 version: "2"
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    gofumpt:
+      module-path: go-services
+      extra-rules: true
+    goimports:
+      local-prefixes:
+        - go-services
 linters:
   enable:
     - exhaustruct
   settings:
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+      verbose: true
     exhaustruct:
       include:
         - "go-services/.*"
       allow-empty: true
       allow-empty-returns: true
+    govet:
+      enable-all: true
+    ineffassign:
+      check-escaping-errors: true

@@ -124,13 +124,21 @@ func isTestFunc(fn *ast.FuncDecl) bool {
 	}
 
 	// Verify first return is 'string'
-	res1, _ := exprToString(fn.Type.Results.List[0].Type)
+	res1, err := exprToString(fn.Type.Results.List[0].Type)
+	if err != nil {
+		slog.Error("failed to convert the first result type: %v", "err", err)
+		os.Exit(1)
+	}
 	if res1 != "string" {
 		return false
 	}
 
 	// Verify second return is 'bool'
-	res2, _ := exprToString(fn.Type.Results.List[1].Type)
+	res2, err := exprToString(fn.Type.Results.List[1].Type)
+	if err != nil {
+		slog.Error("failed to convert the second result type: %v", "err", err)
+		os.Exit(1)
+	}
 	return res2 == "bool"
 }
 
@@ -142,7 +150,11 @@ func parseFunc(fn *ast.FuncDecl) (FuncDef, error) {
 	// Handle Generics: extracts [T any, K comparable] etc.
 	if fn.Type.TypeParams != nil {
 		for _, field := range fn.Type.TypeParams.List {
-			fieldType, _ := exprToString(field.Type)
+			fieldType, err := exprToString(field.Type)
+			if err != nil {
+				slog.Error("failed to convert type params: %w", "err", err)
+				os.Exit(1)
+			}
 			for _, name := range field.Names {
 				tParams = append(tParams, fmt.Sprintf("%s %s", name.Name, fieldType))
 			}
@@ -157,7 +169,11 @@ func parseFunc(fn *ast.FuncDecl) (FuncDef, error) {
 			continue
 		}
 
-		fieldType, _ := exprToString(field.Type)
+		fieldType, err := exprToString(field.Type)
+		if err != nil {
+			slog.Error("failed to convert param type: %w", "err", err)
+			os.Exit(1)
+		}
 		for _, name := range field.Names {
 			if name.Name == "msg" || name.Name == "msgArgs" {
 				continue

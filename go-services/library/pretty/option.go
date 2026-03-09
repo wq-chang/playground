@@ -3,12 +3,12 @@ package pretty
 import "strings"
 
 type config struct {
+	sensitiveFields map[string]struct{}
 	maxDepth        int
 	maxSliceItems   int
 	maxMapItems     int
 	maxStructFields int
 	maxBytes        int
-	sensitiveFields map[string]struct{}
 }
 
 func newConfig(opts ...Option) *config {

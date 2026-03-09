@@ -11,9 +11,9 @@ import (
 // TestEnv manages the lifecycle of infrastructure dependencies for a specific test package.
 // It leverages lazy initialization to ensure resources are only provisioned when requested.
 type TestEnv struct {
-	packageName string
 	pgPool      *pgxpool.Pool
 	pgCleanup   func()
+	packageName string
 	pgOnce      sync.Once
 }
 
