@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/coreos/go-oidc/v3/oidc"
+	"golang.org/x/oauth2"
+
 	"go-services/bff/internal/auth"
 	"go-services/bff/internal/common/tokenutil"
 	"go-services/bff/internal/config"
-
-	"github.com/coreos/go-oidc/v3/oidc"
-	"golang.org/x/oauth2"
 )
 
 type service struct {

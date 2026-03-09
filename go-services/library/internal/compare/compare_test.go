@@ -6,11 +6,11 @@ import (
 	"strings"
 	"testing"
 
-	"go-services/library/internal/compare"
-	"go-services/library/pretty"
-
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+
+	"go-services/library/internal/compare"
+	"go-services/library/pretty"
 )
 
 func TestError(t *testing.T) {

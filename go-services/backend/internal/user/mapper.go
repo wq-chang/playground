@@ -1,10 +1,10 @@
 package user
 
 import (
+	"github.com/gofrs/uuid/v5"
+
 	"go-services/backend/internal/pgutil"
 	"go-services/backend/internal/user/internal/db"
-
-	"github.com/gofrs/uuid/v5"
 )
 
 func toUpdateUserParams(userID uuid.UUID, details UpdatedDetails) db.UpdateUserParams {

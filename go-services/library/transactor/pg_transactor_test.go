@@ -7,13 +7,13 @@ import (
 	"os"
 	"testing"
 
-	"go-services/library/assert"
-	"go-services/library/require"
-	"go-services/library/transactor"
-
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/jackc/pgx/v5"
+
+	"go-services/library/assert"
+	"go-services/library/require"
+	"go-services/library/transactor"
 )
 
 func TestPGTransactor_Atomic(t *testing.T) {

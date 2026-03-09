@@ -3,9 +3,9 @@ package pgutil
 import (
 	"context"
 
-	"go-services/library/transactor"
-
 	"github.com/jackc/pgx/v5"
+
+	"go-services/library/transactor"
 )
 
 // Executable is a generic that represents sqlc Queries struct

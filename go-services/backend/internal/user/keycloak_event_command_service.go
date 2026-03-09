@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/gofrs/uuid/v5"
+
 	"go-services/backend/internal/user/internal/db"
 	"go-services/library/apperror"
-
-	"github.com/gofrs/uuid/v5"
 )
 
 type userSyncCommandRepository interface {

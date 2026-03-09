@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"go-services/library/pretty"
-
 	gocmp "github.com/google/go-cmp/cmp"
+
+	"go-services/library/pretty"
 )
 
 const labelWidth = 9 // Adjusted to 9 to comfortably fit "mismatch:" or "index:"

@@ -5,10 +5,10 @@ import (
 	"log/slog"
 	"time"
 
-	"go-services/library/apperror"
-
 	"github.com/gofrs/uuid/v5"
 	"github.com/jackc/pgx/v5"
+
+	"go-services/library/apperror"
 )
 
 // PGTxScope is the concrete implementation of the TX interface for PostgreSQL.

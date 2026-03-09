@@ -4,12 +4,12 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/coreos/go-oidc/v3/oidc"
+	"golang.org/x/oauth2"
+
 	"go-services/bff/internal/common/tokenutil"
 	"go-services/bff/internal/config"
 	"go-services/library/apperror"
-
-	"github.com/coreos/go-oidc/v3/oidc"
-	"golang.org/x/oauth2"
 )
 
 type oidcVerifier interface {

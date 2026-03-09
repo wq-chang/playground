@@ -6,10 +6,10 @@ import (
 	"log/slog"
 	"time"
 
-	"go-services/library/apperror"
-
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"go-services/library/apperror"
 )
 
 // PGTransactor implements the Transactor interface specifically for PostgreSQL

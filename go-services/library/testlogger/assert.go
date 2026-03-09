@@ -5,10 +5,10 @@ import (
 	"log/slog"
 	"testing"
 
-	"go-services/library/assert"
-
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+
+	"go-services/library/assert"
 )
 
 // LogAssert wraps a slice of LogEntry to provide chainable assertion methods.

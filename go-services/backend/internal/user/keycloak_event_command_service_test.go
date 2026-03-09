@@ -4,13 +4,13 @@ import (
 	"context"
 	"testing"
 
+	"github.com/gofrs/uuid/v5"
+	"github.com/guregu/null/v6"
+
 	"go-services/backend/internal/user"
 	"go-services/backend/internal/user/internal/db"
 	"go-services/library/assert"
 	"go-services/library/testlogger"
-
-	"github.com/gofrs/uuid/v5"
-	"github.com/guregu/null/v6"
 )
 
 func TestProcessEvent_UpdateUser(t *testing.T) {

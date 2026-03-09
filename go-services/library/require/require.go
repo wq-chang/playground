@@ -5,9 +5,9 @@ import (
 	"cmp"
 	"testing"
 
-	"go-services/library/internal/compare"
-
 	gocmp "github.com/google/go-cmp/cmp"
+
+	"go-services/library/internal/compare"
 )
 
 // Error asserts that got is not nil.

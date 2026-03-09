@@ -3,9 +3,9 @@ package user_test
 import (
 	"context"
 
-	"go-services/backend/internal/user/internal/db"
-
 	"github.com/gofrs/uuid/v5"
+
+	"go-services/backend/internal/user/internal/db"
 )
 
 type FakeRepository struct {
