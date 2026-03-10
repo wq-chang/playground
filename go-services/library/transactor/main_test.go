@@ -10,7 +10,7 @@ import (
 var te *testenv.TestEnv
 
 func TestMain(m *testing.M) {
-	te = testenv.NewTestEnv("library_transactor")
+	te = testenv.New("library_transactor")
 	code := m.Run()
 
 	te.Cleanup()

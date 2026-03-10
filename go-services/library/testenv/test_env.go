@@ -11,17 +11,20 @@ import (
 // TestEnv manages the lifecycle of infrastructure dependencies for a specific test package.
 // It leverages lazy initialization to ensure resources are only provisioned when requested.
 type TestEnv struct {
+	cfg         *config
 	pgPool      *pgxpool.Pool
 	pgCleanup   func()
 	packageName string
 	pgOnce      sync.Once
 }
 
-// NewTestEnv creates a new environment manager for the given package.
+// New creates a new environment manager for the given package.
 // The packageName is used to scope resources, such as creating a unique
 // PostgreSQL schema name to prevent cross-package data contamination.
-func NewTestEnv(packageName string) *TestEnv {
+func New(packageName string, opts ...Option) *TestEnv {
+	cfg := newConfig(opts...)
 	return &TestEnv{
+		cfg:         cfg,
 		packageName: packageName,
 		pgPool:      nil,
 		pgOnce:      sync.Once{},
@@ -40,7 +43,7 @@ func (te *TestEnv) GetPGPool(t *testing.T) *pgxpool.Pool {
 		ctx := context.Background()
 		var err error
 		// getPGSharedPool is expected to handle container reuse and schema creation.
-		te.pgPool, te.pgCleanup, err = getPGSharedPool(ctx, te.packageName)
+		te.pgPool, te.pgCleanup, err = getPGSharedPool(ctx, te.packageName, te.cfg.postgresImage)
 		if err != nil {
 			t.Fatalf("failed to start test db: %v", err)
 		}

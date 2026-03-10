@@ -12,26 +12,35 @@ import (
 )
 
 // getPGSharedPool initializes or attaches to a reusable PostgreSQL TestContainer and provides
-// a connection pool scoped to a specific schema.
+// a connection pool scoped to a specific PostgreSQL schema.
 //
 // Parameters:
-//   - packageName: Used as the schema name (hyphens replaced by underscores).
+//   - packageName: Used as the schema name (hyphens replaced by underscores). This ensures
+//     isolation when multiple packages share the same physical container.
+//   - imageName: The Docker image to use (e.g., "postgres:16-alpine").
 //
 // Behavioral Notes:
-//   - Uses 'WithReuseByName' for rapid local test cycles.
+//   - Reuse Logic: Uses 'WithReuseByName' with a name derived from the imageName.
+//     This ensures that if you upgrade the requested image version, a fresh container
+//     is started instead of reusing an outdated one.
+//   - Isolation: Every call creates a fresh schema named after the package.
+//     Existing schemas with the same name are dropped to ensure a clean state.
+//   - Search Path: The returned pool is configured with 'search_path', so all
+//     queries/migrations automatically target the package-specific schema.
+//   - Lifecycle Management: The container is managed by Testcontainers' Ryuk sidecar.
+//     It persists across 'go test' runs for speed but is automatically reaped
+//     when the Docker session or parent process terminates.
 //   - The cleanup function drops the schema unless the KEEP_TEST_DB env var is set.
-//   - Lifecycle Management: The container is NOT manually terminated by this function.
-//     It is managed by Testcontainers' Ryuk sidecar, which will remove the container
-//     once the test process (or the parent session) exits. This allows the
-//     container to persist across multiple 'go test' runs for speed.
-func getPGSharedPool(ctx context.Context, packageName string) (*pgxpool.Pool, func(), error) {
+func getPGSharedPool(ctx context.Context, packageName, imageName string) (*pgxpool.Pool, func(), error) {
+	safeImageName := strings.NewReplacer(":", "_", "/", "_", ".", "_").Replace(imageName)
+	reuseName := fmt.Sprintf("test_env_pg_%s", safeImageName)
 	container, err := postgres.Run(ctx,
-		"postgres:18.1-trixie",
+		imageName,
 		postgres.WithDatabase("shared_db"),
 		postgres.WithUsername("user"),
 		postgres.WithPassword("pass"),
 		postgres.BasicWaitStrategies(),
-		testcontainers.WithReuseByName("go_services_db"),
+		testcontainers.WithReuseByName(reuseName),
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to start/reuse container: %w", err)
