@@ -28,11 +28,16 @@ var builderPool = gsync.Pool[*strings.Builder]{
 	},
 }
 
-func Value(v any) string {
-	return ValueOpt(v, defaultCfg)
+func Value(v any, opts ...Option) string {
+	if len(opts) == 0 {
+		return valueOpt(v, defaultCfg)
+	}
+
+	cfg := newConfig(opts...)
+	return valueOpt(v, cfg)
 }
 
-func ValueOpt(v any, cfg *config) string {
+func valueOpt(v any, cfg *config) string {
 	b := builderPool.Get()
 	b.Reset()
 

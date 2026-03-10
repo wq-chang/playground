@@ -147,22 +147,13 @@ func TestValue_SharedBackingArray(t *testing.T) {
 }
 
 func TestValueOpt_Limits(t *testing.T) {
-	cfg := pretty.NewConfig(
-		pretty.WithMaxDepth(2),
-		pretty.WithSliceLimit(2),
-		pretty.WithMaxDepth(2),
-		pretty.WithStructFieldsLimit(2),
-		pretty.WithBytesLimit(10),
-		pretty.WithSensitiveFields("password"),
-	)
-
 	t.Run("MaxDepth", func(t *testing.T) {
 		// Depth 0 -> 1 -> 2 -> 3 (should stop)
 		type Deep struct {
 			Next *Deep
 		}
 		d := &Deep{Next: &Deep{Next: &Deep{Next: &Deep{}}}}
-		got := pretty.ValueOpt(d, cfg)
+		got := pretty.Value(d, pretty.WithMaxDepth(2))
 		if !strings.Contains(got, "...") {
 			t.Errorf("MaxDepth failed, got: %s", got)
 		}
@@ -170,7 +161,7 @@ func TestValueOpt_Limits(t *testing.T) {
 
 	t.Run("SliceTruncation", func(t *testing.T) {
 		s := []int{1, 2, 3, 4, 5}
-		got := pretty.ValueOpt(s, cfg)
+		got := pretty.Value(s, pretty.WithSliceLimit(2))
 		// Expect [1, 2, ... and 3 more]
 		if !strings.Contains(got, "and 3 more") {
 			t.Errorf("Slice truncation failed: %s", got)
@@ -179,7 +170,7 @@ func TestValueOpt_Limits(t *testing.T) {
 
 	t.Run("StringTruncation", func(t *testing.T) {
 		s := "This is a very long string"
-		got := pretty.ValueOpt(s, cfg)
+		got := pretty.Value(s, pretty.WithBytesLimit(10))
 		// Expect "This is a ... [truncated]"
 		if !strings.Contains(got, "[truncated]") {
 			t.Errorf("String truncation failed: %s", got)
@@ -192,7 +183,7 @@ func TestValueOpt_Limits(t *testing.T) {
 			Password string
 		}
 		u := User{Username: "admin", Password: "supersecret"}
-		got := pretty.ValueOpt(u, cfg)
+		got := pretty.Value(u, pretty.WithSensitiveFields("password"))
 
 		if !strings.Contains(got, "<REDACTED>") {
 			t.Error("Sensitive field was not redacted")
@@ -205,7 +196,6 @@ func TestValueOpt_Limits(t *testing.T) {
 
 // TestUTF8Safety checks if the code produces invalid strings when truncating multibyte chars
 func TestUTF8Safety(t *testing.T) {
-	cfg := pretty.NewConfig(pretty.WithBytesLimit(4))
 	// "世" is 3 bytes (E4 B8 96). "界" is 3 bytes.
 	// String is 6 bytes total.
 	// MaxBytes 4 cuts the second character "界" in the middle (1 byte of it).
@@ -214,7 +204,7 @@ func TestUTF8Safety(t *testing.T) {
 
 	// We just want to ensure it doesn't look completely broken or panic
 	// Ideally, your implementation should fix this, but the test here documents current behavior.
-	if got, want := pretty.ValueOpt(s, cfg), "\"世... [truncated]\""; got != want {
+	if got, want := pretty.Value(s, pretty.WithBytesLimit(4)), "\"世... [truncated]\""; got != want {
 		// t.Errorf("UTF8 Truncation Result: %s", got)
 		t.Errorf("got: %q\nwant: %q", got, want)
 	}

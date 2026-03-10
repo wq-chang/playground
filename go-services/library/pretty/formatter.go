@@ -5,11 +5,11 @@ type Formatter struct {
 }
 
 func New(opts ...Option) *Formatter {
-	cfg := NewConfig(opts...)
+	cfg := newConfig(opts...)
 
 	return &Formatter{cfg: cfg}
 }
 
 func (f *Formatter) Value(v any) string {
-	return ValueOpt(v, f.cfg)
+	return valueOpt(v, f.cfg)
 }

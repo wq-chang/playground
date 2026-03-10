@@ -11,6 +11,7 @@ type config struct {
 	maxBytes        int
 }
 
+// NewConfig creates a reusable configuration object
 func newConfig(opts ...Option) *config {
 	c := &config{
 		maxDepth:        4,
@@ -26,11 +27,6 @@ func newConfig(opts ...Option) *config {
 	}
 
 	return c
-}
-
-// NewConfig creates a reusable configuration object
-func NewConfig(opts ...Option) *config {
-	return newConfig(opts...)
 }
 
 // Option is a function that configures our settings
