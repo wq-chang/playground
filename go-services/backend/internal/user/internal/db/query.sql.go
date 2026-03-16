@@ -40,6 +40,24 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) error {
 	return err
 }
 
+const getUserByID = `-- name: GetUserByID :one
+SELECT id, first_name, last_name, email, username FROM users
+WHERE id = $1
+`
+
+func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
+	row := q.db.QueryRow(ctx, getUserByID, id)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.FirstName,
+		&i.LastName,
+		&i.Email,
+		&i.Username,
+	)
+	return i, err
+}
+
 const updateUser = `-- name: UpdateUser :execresult
 UPDATE users
 SET

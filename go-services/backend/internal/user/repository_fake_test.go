@@ -23,9 +23,9 @@ func (r *FakeRepository) SaveUser(u db.User) {
 	r.Users[u.ID] = u
 }
 
-func (r *FakeRepository) GetUserByID(id uuid.UUID) (db.User, bool) {
-	u, ok := r.Users[id]
-	return u, ok
+func (r *FakeRepository) GetUserByID(_ context.Context, id uuid.UUID) (db.User, error) {
+	u, _ := r.Users[id]
+	return u, nil
 }
 
 func (r *FakeRepository) CreateUser(_ context.Context, createUserParams db.CreateUserParams) error {

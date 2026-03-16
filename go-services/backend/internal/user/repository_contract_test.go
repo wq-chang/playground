@@ -14,7 +14,7 @@ import (
 
 type Repository interface {
 	CreateUser(context.Context, db.CreateUserParams) error
-	GetUserByID(uuid.UUID) (db.User, bool)
+	GetUserByID(context.Context, uuid.UUID) (db.User, error)
 }
 
 type RepositoryContract struct {
@@ -47,8 +47,8 @@ func (r *RepositoryContract) Test(t *testing.T) {
 		err = repo.CreateUser(ctx, input)
 		assert.NoError(t, err, "no error from inserting user")
 
-		createdUser, ok := repo.GetUserByID(id)
-		assert.True(t, ok, "user is created")
+		createdUser, err := repo.GetUserByID(ctx, id)
+		assert.NoError(t, err, "failed to create user")
 		assert.Equal(t, createdUser, want, "new created user")
 	})
 

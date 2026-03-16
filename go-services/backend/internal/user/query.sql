@@ -13,3 +13,7 @@ SET
   first_name = COALESCE(sqlc.narg('first_name'), first_name),
   first_name = COALESCE(sqlc.narg('last_name'), last_name)
 WHERE id = @id;
+
+-- name: GetUserByID :one
+SELECT * FROM users
+WHERE id = @id;
