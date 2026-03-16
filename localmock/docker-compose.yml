@@ -16,7 +16,7 @@ services:
 
   postgres-backend:
     container_name: "postgres-backend"
-    image: postgres:18.1-trixie
+    image: postgres:18.3-trixie
     ports:
       - "5432:5432"
     environment:
@@ -32,7 +32,7 @@ services:
 
   postgres-keycloak:
     container_name: "postgres-keycloak"
-    image: postgres:18.1-trixie
+    image: postgres:18.3-trixie
     ports:
       - "5433:5432"
     environment:
@@ -71,7 +71,7 @@ services:
 
   pgadmin:
     container_name: pgadmin
-    image: dpage/pgadmin4:9.11
+    image: dpage/pgadmin4:9.13
     user: root
     environment:
       PGADMIN_DEFAULT_EMAIL: admin@admin.com

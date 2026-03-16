@@ -1,5 +1,5 @@
-ARG KEYCLOAK_IMAGE=quay.io/keycloak/keycloak:26.5.1
-ARG MAVEN_IMAGE=maven:3.9.12-eclipse-temurin-21-alpine
+ARG KEYCLOAK_IMAGE=quay.io/keycloak/keycloak:26.5.5
+ARG MAVEN_IMAGE=maven:3.9.14-eclipse-temurin-21-alpine
 
 FROM ${MAVEN_IMAGE} AS jar-builder
 
