@@ -10,6 +10,7 @@ import (
 	"go-services/backend/internal/user"
 	"go-services/backend/internal/user/internal/db"
 	"go-services/library/assert"
+	"go-services/library/require"
 	"go-services/library/testlogger"
 )
 
@@ -60,12 +61,11 @@ func TestProcessEvent_UpdateUser(t *testing.T) {
 			repo.SaveUser(existingUser)
 
 			err := service.ProcessEvent(ctx, event)
-			updatedUser, ok := repo.GetUserByID(userID)
-			if !ok {
-				t.Fatal("the user is not created")
-			}
 
-			assert.Nil(t, err, "should not have error when processing keycloak update event")
+			updatedUser, getUserErr := repo.GetUserByID(ctx, userID)
+			require.NoError(t, getUserErr, "the user is not created")
+
+			assert.NoError(t, err, "should not have error when processing keycloak update event")
 			assert.Equal(t, updatedUser, expectedUser, "updated user")
 		})
 

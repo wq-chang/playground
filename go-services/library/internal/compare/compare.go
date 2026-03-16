@@ -15,6 +15,9 @@ import (
 )
 
 const labelWidth = 9 // Adjusted to 9 to comfortably fit "mismatch:" or "index:"
+var stringerTransformer = gocmp.Transformer("Stringer", func(s fmt.Stringer) string {
+	return s.String()
+})
 
 // Error asserts that got is not nil.
 func Error(t *testing.T, got error, msg string, msgArgs ...any) (string, bool) {
@@ -583,7 +586,9 @@ func reportMismatch(t *testing.T, got, want any, header string, cmpOpts ...gocmp
 	rv := reflect.ValueOf(got)
 	switch rv.Kind() {
 	case reflect.Slice, reflect.Array, reflect.Map, reflect.Struct, reflect.Pointer, reflect.Interface:
-		diff := gocmp.Diff(want, got, cmpOpts...)
+		internalOpts := []gocmp.Option{stringerTransformer}
+		allOpts := append(internalOpts, cmpOpts...)
+		diff := gocmp.Diff(want, got, allOpts...)
 		// Remove trailing newline from Diff if present
 		diff = strings.TrimSuffix(diff, "\n")
 		detail = fmt.Sprintf("%s\n%s", rowRaw("mismatch", "(-want +got)"), diff)
