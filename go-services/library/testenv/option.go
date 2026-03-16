@@ -18,7 +18,8 @@ type config struct {
 //   - postgresImage: "postgres:18.1-trixie"
 func newConfig(opts ...Option) *config {
 	c := &config{
-		postgresImage: "postgres:18.1-trixie",
+		postgresImage:      "postgres:18.1-trixie",
+		migrationTableName: "",
 	}
 
 	for _, opt := range opts {

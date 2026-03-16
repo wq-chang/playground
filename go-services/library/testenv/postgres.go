@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/testcontainers/testcontainers-go"
@@ -100,10 +101,13 @@ func NewPostgres(ctx context.Context, packageName, imageName, migrationTableName
 			return
 		}
 
-		_, _ = rootPool.Exec(
-			context.Background(),
-			fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE", schemaName),
-		)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		_, err := rootPool.Exec(ctx, fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE", schemaName))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "testenv: SCHEMA DROP failed: %v\n", err)
+		}
 		rootPool.Close()
 	}
 
@@ -130,10 +134,13 @@ func NewPostgres(ctx context.Context, packageName, imageName, migrationTableName
 		}
 
 		if len(tables) > 0 {
-			_, _ = scopedPool.Exec(
-				context.Background(),
-				fmt.Sprintf("TRUNCATE TABLE %s CASCADE", strings.Join(tables, ", ")),
-			)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			sql := fmt.Sprintf("TRUNCATE TABLE %s CASCADE", strings.Join(tables, ", "))
+			if _, err := scopedPool.Exec(ctx, sql); err != nil {
+				fmt.Fprintf(os.Stderr, "testenv: TRUNCATE failed: %v\n", err)
+			}
 		}
 	}
 

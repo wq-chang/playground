@@ -22,8 +22,8 @@ type RepositoryContract struct {
 }
 
 func (r *RepositoryContract) Test(t *testing.T) {
-	repo, cleanup := r.NewRepository()
-	cleanup()
+	repo, cleanupData := r.NewRepository()
+	cleanupData()
 	t.Run("CreateUser can create user", func(t *testing.T) {
 		ctx := context.Background()
 		id, err := uuid.NewV4()
@@ -45,14 +45,15 @@ func (r *RepositoryContract) Test(t *testing.T) {
 		}
 
 		err = repo.CreateUser(ctx, input)
-		assert.NoError(t, err, "no error from inserting user")
+		assert.NoError(t, err, "failed to create user")
 
 		createdUser, err := repo.GetUserByID(ctx, id)
-		assert.NoError(t, err, "failed to create user")
+		require.NoError(t, err, "failed to find new created user")
+
 		assert.Equal(t, createdUser, want, "new created user")
 	})
 
-	cleanup()
+	cleanupData()
 	t.Run("CreateUser return error when user exists", func(t *testing.T) {
 		ctx := context.Background()
 		id, err := uuid.NewV4()
@@ -72,5 +73,19 @@ func (r *RepositoryContract) Test(t *testing.T) {
 		var appErr *apperror.AppError
 		assert.ErrorAs(t, err, &appErr, "duplicate record should hit error")
 		assert.Equal(t, appErr.Code, apperror.CodeDuplicateRecord, "duplicate err code")
+	})
+
+	cleanupData()
+	t.Run("GetUserByID returns error when user not found", func(t *testing.T) {
+		ctx := context.Background()
+		randomID, err := uuid.NewV4()
+		require.NoError(t, err, "failed to create uuid")
+
+		_, err = repo.GetUserByID(ctx, randomID)
+
+		var appErr *apperror.AppError
+		if assert.ErrorAs(t, err, &appErr, "should return an AppError for missing records") {
+			assert.Equal(t, apperror.CodeNotFound, appErr.Code, "expected 404/NotFound code")
+		}
 	})
 }

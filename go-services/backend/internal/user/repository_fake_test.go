@@ -24,7 +24,11 @@ func (r *FakeRepository) SaveUser(u db.User) {
 }
 
 func (r *FakeRepository) GetUserByID(_ context.Context, id uuid.UUID) (db.User, error) {
-	u, _ := r.Users[id]
+	u, ok := r.Users[id]
+	if !ok {
+		return u, apperror.New(apperror.CodeNotFound, "cannot find the user by id %v", id)
+	}
+
 	return u, nil
 }
 
