@@ -11,7 +11,7 @@
 //
 // # Supported Services
 //
-//   - **PostgreSQL**: Managed via `GetSharedPool`. Supports schema-level isolation for parallel test execution.
+//   - **PostgreSQL**: Managed via `GetPostgres`. Supports schema-level isolation for parallel test execution.
 //
 // # Usage
 //
@@ -22,7 +22,7 @@
 //
 //	func TestMain(m *testing.M) {
 //		// Initialize the environment with a unique name (used as a DB schema)
-//		te = testenv.NewTestEnv("my_package")
+//		te = testenv.New("my_package")
 //
 //		code := m.Run()
 //
@@ -34,7 +34,8 @@
 //
 //	func TestMyFeature(t *testing.T) {
 //		// Lazily initializes the PG container/schema on first call
-//		pool := te.GetPGPool(t)
+//		pg := te.GetPostgres(t)
+//		pool := pg.Pool
 //
 //		// Run tests using 'pool'...
 //	}

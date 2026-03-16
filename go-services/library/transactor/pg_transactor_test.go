@@ -17,7 +17,7 @@ import (
 )
 
 func TestPGTransactor_Atomic(t *testing.T) {
-	testPool := te.GetPGPool(t)
+	testPool := te.GetPostgres(t).Pool
 	ctx := context.Background()
 
 	_, insertErr := testPool.Exec(ctx, "DROP TABLE IF EXISTS users;")
@@ -82,7 +82,7 @@ func TestPGTransactor_Atomic(t *testing.T) {
 func TestPGTransactor_AtomicScenarios(t *testing.T) {
 	ctx := context.Background()
 
-	testPool := te.GetPGPool(t)
+	testPool := te.GetPostgres(t).Pool
 
 	_, err := testPool.Exec(ctx, "DROP TABLE IF EXISTS users;")
 	require.NoError(t, err, "failed to drop user table if exists")
@@ -185,7 +185,7 @@ func TestPGTransactor_AtomicScenarios(t *testing.T) {
 
 // verifyUser is a helper to check counts in the DB
 func verifyUser(t *testing.T, ctx context.Context, name string, expected int) {
-	testPool := te.GetPGPool(t)
+	testPool := te.GetPostgres(t).Pool
 	var count int
 	err := testPool.QueryRow(ctx, "SELECT COUNT(*) FROM users WHERE name = $1", name).Scan(&count)
 	require.NoError(t, err, "failed to count user table")
