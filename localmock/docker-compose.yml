@@ -63,7 +63,19 @@ services:
       KC_HEALTH_ENABLED: true
       KC_LOG_LEVEL: info
 
-      KC_SPI_EVENTS_LISTENER_USER_EVENT_LISTENER_NATS_URL: nats://nats:4222
+      KC_SPI_EVENTS_LISTENER_USER_EVENT_LISTENER_TOPIC: iam.user.event.v1
+      KC_SPI_EVENTS_LISTENER_USER_EVENT_LISTENER_CLOSE_TIMEOUT: 10000
+      KC_SPI_EVENTS_LISTENER_USER_EVENT_LISTENER_MAX_RETRIES: 3
+      KC_SPI_EVENTS_LISTENER_USER_EVENT_LISTENER_INITIAL_BACKOFF_MILLIS: 1000
+
+      KC_SPI_EVENTS_LISTENER_USER_EVENT_LISTENER_KAFKA_USER: keycloak
+      KC_SPI_EVENTS_LISTENER_USER_EVENT_LISTENER_KAFKA_PASSWORD: ${KAFKA_KEYCLOAK_PASSWORD}
+      KC_SPI_EVENTS_LISTENER_USER_EVENT_LISTENER_KAFKA_BROKERS: kafka:9093
+      KC_SPI_EVENTS_LISTENER_USER_EVENT_LISTENER_KAFKA_SECURITY_PROVIDERS_CONFIG: SASL_PLAINTEXT
+      KC_SPI_EVENTS_LISTENER_USER_EVENT_LISTENER_KAFKA_SASL_MECHANISM: SCRAM-SHA-512
+      KC_SPI_EVENTS_LISTENER_USER_EVENT_LISTENER_KAFKA_DELIVERY_TIMEOUT_MS_CONFIG: 3000
+      KC_SPI_EVENTS_LISTENER_USER_EVENT_LISTENER_KAFKA_REQUEST_TIMEOUT_MS_CONFIG: 1500
+      KC_SPI_EVENTS_LISTENER_USER_EVENT_LISTENER_KAFKA_LINGER_MS: 1
     ports:
       - "7777:8080"
     networks:
@@ -85,23 +97,83 @@ services:
     secrets:
       - pgadmin_admin_secret
 
-  nats:
-    container_name: nats
-    image: nats:2.12.3-alpine
-    command: ["-js", "-sd", "/data", "--http_port", "8222"]
+  kafka:
+    image: apache/kafka:4.1.2
+    container_name: kafka
     ports:
-      - "4222:4222"
-      - "8222:8222"
+      - "9092:9092"
+      - "9093:9093"
+    environment:
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:SASL_PLAINTEXT,INTERNAL:SASL_PLAINTEXT,EXTERNAL:SASL_PLAINTEXT"
+      # Mapping ports: 9092 (Internal), 9093 (External), 9094 (Controller)
+      KAFKA_LISTENERS: "INTERNAL://:9092,EXTERNAL://:9093,CONTROLLER://:9094"
+      KAFKA_ADVERTISED_LISTENERS: "INTERNAL://localhost:9092,EXTERNAL://kafka:9093"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9094"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "INTERNAL"
+      # SASL Config
+      KAFKA_SASL_ENABLED_MECHANISMS: "SCRAM-SHA-512"
+      KAFKA_SASL_MECHANISM_CONTROLLER_PROTOCOL: "SCRAM-SHA-512"
+      KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: "SCRAM-SHA-512"
+      KAFKA_OPTS: "-Djava.security.auth.login.config=/tmp/kafka/kafka_server_jaas.conf"
+      # Security Authorization
+      KAFKA_AUTHORIZER_CLASS_NAME: "org.apache.kafka.metadata.authorizer.StandardAuthorizer"
+      KAFKA_SUPER_USERS: "User:admin"
+      KAFKA_ALLOW_EVERYONE_IF_NO_ACL_FOUND: "false"
+      KAFKA_ADMIN_PASSWORD: ${KAFKA_ADMIN_PASSWORD}
+      KAFKA_KEYCLOAK_PASSWORD: ${KAFKA_KEYCLOAK_PASSWORD}
     networks:
       - playground
     volumes:
-      - nats_data:/data
+      - kafka_data:/var/lib/kafka/data
+    entrypoint:
+      - "/bin/sh"
+      - "-c"
+      - |
+        # 1. Create the JAAS file dynamically
+        mkdir -p /tmp/kafka
+        cat <<EOF > /tmp/kafka/kafka_server_jaas.conf
+        KafkaServer {
+            org.apache.kafka.common.security.scram.ScramLoginModule required
+            username="admin"
+            password="$${KAFKA_ADMIN_PASSWORD}"
+            user_keycloak="$${KAFKA_KEYCLOAK_PASSWORD}";
+        };
+        EOF
+
+        # 2. Create the Bootstrap Properties
+        cat <<EOF > /tmp/kafka/bootstrap.properties
+        early.start.listeners=CONTROLLER
+        process.roles=$${KAFKA_PROCESS_ROLES}
+        node.id=$${KAFKA_NODE_ID}
+        controller.quorum.voters=$${KAFKA_CONTROLLER_QUORUM_VOTERS}
+        controller.listener.names=$${KAFKA_CONTROLLER_LISTENER_NAMES}
+        listeners=$${KAFKA_LISTENERS}
+        listener.security.protocol.map=$${KAFKA_LISTENER_SECURITY_PROTOCOL_MAP}
+        inter.broker.listener.name=$${KAFKA_INTER_BROKER_LISTENER_NAME}
+        sasl.enabled.mechanisms=$${KAFKA_SASL_ENABLED_MECHANISMS}
+        sasl.mechanism.controller.protocol=$${KAFKA_SASL_MECHANISM_CONTROLLER_PROTOCOL}
+        sasl.mechanism.inter.broker.protocol=$${KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL}
+        EOF
+
+        # 3. Format if necessary
+        echo "Formatting storage...";
+        /opt/kafka/bin/kafka-storage.sh format \
+          -t $${CLUSTER_ID} \
+          -c /tmp/kafka/bootstrap.properties \
+          --add-scram "SCRAM-SHA-512=[name=admin,password=$${KAFKA_ADMIN_PASSWORD}]";
+
+        # 4. Start Kafka
+        exec /etc/kafka/docker/run
 
 volumes:
   pg_backend_data:
   pg_keycloak_data:
   pgadmin_data:
-  nats_data:
+  kafka_data:
 
 networks:
   playground:

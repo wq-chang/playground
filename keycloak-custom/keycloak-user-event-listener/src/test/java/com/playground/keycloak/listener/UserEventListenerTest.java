@@ -33,7 +33,7 @@ class UserEventListenerTest {
   }
 
   @Test
-  void testOnEvent_withRegisterEvent_shouldHandleEvent() {
+  void onEvent_whenRegisterEvent_shouldHandleEvent() {
     // Arrange
     when(event.getType()).thenReturn(EventType.REGISTER);
 
@@ -45,7 +45,7 @@ class UserEventListenerTest {
   }
 
   @Test
-  void testOnEvent_withUpdateProfileEvent_shouldHandleEvent() {
+  void onEvent_whenUpdateProfileEvent_shouldHandleEvent() {
     // Arrange
     when(event.getType()).thenReturn(EventType.UPDATE_PROFILE);
 
@@ -57,7 +57,7 @@ class UserEventListenerTest {
   }
 
   @Test
-  void testOnEvent_withUpdateEmailEvent_shouldHandleEvent() {
+  void onEvent_whenUpdateEmailEvent_shouldHandleEvent() {
     // Arrange
     when(event.getType()).thenReturn(EventType.UPDATE_EMAIL);
 
@@ -69,7 +69,7 @@ class UserEventListenerTest {
   }
 
   @Test
-  void testOnEvent_withDeleteAccountEvent_shouldHandleEvent() {
+  void onEvent_whenDeleteAccountEvent_shouldHandleEvent() {
     // Arrange
     when(event.getType()).thenReturn(EventType.DELETE_ACCOUNT);
 
@@ -81,7 +81,7 @@ class UserEventListenerTest {
   }
 
   @Test
-  void testOnEvent_withLoginEvent_shouldNotHandleEvent() {
+  void onEvent_whenLoginEvent_shouldNotHandleEvent() {
     // Arrange
     when(event.getType()).thenReturn(EventType.LOGIN);
 
@@ -93,7 +93,7 @@ class UserEventListenerTest {
   }
 
   @Test
-  void testOnEvent_withLogoutEvent_shouldNotHandleEvent() {
+  void onEvent_whenLogoutEvent_shouldNotHandleEvent() {
     // Arrange
     when(event.getType()).thenReturn(EventType.LOGOUT);
 
@@ -105,7 +105,7 @@ class UserEventListenerTest {
   }
 
   @Test
-  void testOnEvent_withCodeToTokenEvent_shouldNotHandleEvent() {
+  void onEvent_whenCodeToTokenEvent_shouldNotHandleEvent() {
     // Arrange
     when(event.getType()).thenReturn(EventType.CODE_TO_TOKEN);
 
@@ -117,7 +117,7 @@ class UserEventListenerTest {
   }
 
   @Test
-  void testOnEvent_withNullEvent_shouldNotThrowException() {
+  void onEvent_whenNullEvent_shouldNotThrowException() {
     // Act & Assert
     assertDoesNotThrow(() -> userEventListener.onEvent(null));
     verify(userEventService, never()).handleUserEvent(any());
@@ -126,7 +126,7 @@ class UserEventListenerTest {
   // Tests for Admin Events (onEvent with includeRepresentation)
 
   @Test
-  void testOnAdminEvent_withUserCreateEvent_shouldHandleEvent() {
+  void onAdminEvent_whenUserCreateEvent_shouldHandleEvent() {
     // Arrange
     when(adminEvent.getResourceType()).thenReturn(ResourceType.USER);
     when(adminEvent.getOperationType()).thenReturn(OperationType.CREATE);
@@ -139,7 +139,7 @@ class UserEventListenerTest {
   }
 
   @Test
-  void testOnAdminEvent_withUserUpdateEvent_shouldHandleEvent() {
+  void onAdminEvent_whenUserUpdateEvent_shouldHandleEvent() {
     // Arrange
     when(adminEvent.getResourceType()).thenReturn(ResourceType.USER);
     when(adminEvent.getOperationType()).thenReturn(OperationType.UPDATE);
@@ -152,7 +152,7 @@ class UserEventListenerTest {
   }
 
   @Test
-  void testOnAdminEvent_withUserDeleteEvent_shouldHandleEvent() {
+  void onAdminEvent_whenUserDeleteEvent_shouldHandleEvent() {
     // Arrange
     when(adminEvent.getResourceType()).thenReturn(ResourceType.USER);
     when(adminEvent.getOperationType()).thenReturn(OperationType.DELETE);
@@ -165,7 +165,7 @@ class UserEventListenerTest {
   }
 
   @Test
-  void testOnAdminEvent_withUserActionOperation_shouldNotHandleEvent() {
+  void onAdminEvent_whenUserActionOperation_shouldNotHandleEvent() {
     // Arrange
     when(adminEvent.getResourceType()).thenReturn(ResourceType.USER);
     when(adminEvent.getOperationType()).thenReturn(OperationType.ACTION);
@@ -178,7 +178,7 @@ class UserEventListenerTest {
   }
 
   @Test
-  void testOnAdminEvent_withClientCreateEvent_shouldNotHandleEvent() {
+  void onAdminEvent_whenClientCreateEvent_shouldNotHandleEvent() {
     // Arrange
     when(adminEvent.getResourceType()).thenReturn(ResourceType.CLIENT);
     when(adminEvent.getOperationType()).thenReturn(OperationType.CREATE);
@@ -191,7 +191,7 @@ class UserEventListenerTest {
   }
 
   @Test
-  void testOnAdminEvent_withRealmCreateEvent_shouldNotHandleEvent() {
+  void onAdminEvent_whenRealmCreateEvent_shouldNotHandleEvent() {
     // Arrange
     when(adminEvent.getResourceType()).thenReturn(ResourceType.REALM);
     when(adminEvent.getOperationType()).thenReturn(OperationType.CREATE);
@@ -204,7 +204,7 @@ class UserEventListenerTest {
   }
 
   @Test
-  void testOnAdminEvent_withGroupUpdateEvent_shouldNotHandleEvent() {
+  void onAdminEvent_whenGroupUpdateEvent_shouldNotHandleEvent() {
     // Arrange
     when(adminEvent.getResourceType()).thenReturn(ResourceType.GROUP);
     when(adminEvent.getOperationType()).thenReturn(OperationType.UPDATE);
@@ -217,14 +217,14 @@ class UserEventListenerTest {
   }
 
   @Test
-  void testOnAdminEvent_withNullEvent_shouldNotThrowException() {
+  void onAdminEvent_whenNullEvent_shouldNotThrowException() {
     // Act & Assert
     assertDoesNotThrow(() -> userEventListener.onEvent(null, false));
     verify(userEventService, never()).handleAdminEvent(any());
   }
 
   @Test
-  void testOnAdminEvent_includeRepresentationParameter_shouldNotAffectHandling() {
+  void onAdminEvent_whenIncludeRepresentationParameter_shouldNotAffectHandling() {
     // Arrange
     when(adminEvent.getResourceType()).thenReturn(ResourceType.USER);
     when(adminEvent.getOperationType()).thenReturn(OperationType.CREATE);
@@ -238,13 +238,13 @@ class UserEventListenerTest {
   }
 
   @Test
-  void testClose_shouldNotThrowException() {
+  void close_whenCalled_shouldNotThrowException() {
     // Act & Assert
     assertDoesNotThrow(() -> userEventListener.close());
   }
 
   @Test
-  void testConstructor_initializesFieldsCorrectly() {
+  void constructor_whenCalled_shouldInitializeFieldsCorrectly() {
     // Act & Assert
     assertDoesNotThrow(() -> new UserEventListener(userEventService));
   }
