@@ -64,7 +64,14 @@ func CORS(log *slog.Logger, trustedOrigin string) (func(http.Handler) http.Handl
 		return nil, err
 	}
 	csrp.SetDenyHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		api.SendErrorLog(log, w, http.StatusForbidden, apperror.CodeForbidden, "CORS origin not allowed")
+		api.SendErrorLog(
+			r.Context(),
+			log,
+			w,
+			http.StatusForbidden,
+			apperror.CodeForbidden,
+			"CORS origin not allowed",
+		)
 	}))
 
 	return func(next http.Handler) http.Handler {

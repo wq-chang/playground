@@ -60,17 +60,20 @@ func Error(log *slog.Logger) errorHandlerWrapper {
 	return func(handler handlerFuncWithError) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			if err := handler(w, r); err != nil {
+				ctx := r.Context()
 				if appErr, ok := apperror.As(err); ok {
 					statusCode := appErr.ToHTTPStatus()
 					if statusCode >= 500 {
-						log.Error("backend error",
+						log.ErrorContext(
+							ctx,
+							"backend error",
 							"method", r.Method,
 							"path", r.URL.Path,
 							"code", appErr.Code,
 							"error", err,
 						)
 					} else {
-						log.Warn("client error",
+						log.WarnContext(r.Context(), "client error",
 							"method", r.Method,
 							"path", r.URL.Path,
 							"status", statusCode,
@@ -79,16 +82,21 @@ func Error(log *slog.Logger) errorHandlerWrapper {
 						)
 					}
 
-					api.SendErrorLog(log, w, statusCode, appErr.Code, appErr.Msg)
+					api.SendErrorLog(ctx, log, w, statusCode, appErr.Code, appErr.Msg)
 					return
 				}
 
-				log.Error("unhandled error",
+				log.ErrorContext(
+					ctx,
+					"unhandled error",
 					"method", r.Method,
 					"path", r.URL.Path,
 					"error", err,
 				)
-				api.SendErrorLog(log, w,
+				api.SendErrorLog(
+					ctx,
+					log,
+					w,
 					http.StatusInternalServerError,
 					apperror.CodeInternalError,
 					"internal server error",

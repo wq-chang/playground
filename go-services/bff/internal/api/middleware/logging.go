@@ -76,10 +76,11 @@ func Logging(log *slog.Logger) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// --- Log request ---
 			var requestBody []byte
+			ctx := r.Context()
 			if r.Body != nil {
 				bodyBytes, err := io.ReadAll(r.Body)
 				if err != nil {
-					log.Error("failed to read request body", "err", err)
+					log.ErrorContext(ctx, "failed to read request body", "err", err)
 				} else {
 					requestBody = bodyBytes
 				}
@@ -88,7 +89,8 @@ func Logging(log *slog.Logger) func(http.Handler) http.Handler {
 			}
 
 			if r.Method != http.MethodOptions {
-				log.Info(
+				log.InfoContext(
+					ctx,
 					"incoming request",
 					"method", r.Method,
 					"path", r.URL.Path,
@@ -106,7 +108,8 @@ func Logging(log *slog.Logger) func(http.Handler) http.Handler {
 			next.ServeHTTP(rw, r)
 
 			if r.Method != http.MethodOptions {
-				log.Info(
+				log.InfoContext(
+					ctx,
 					"response",
 					"status_code", rw.statusCode,
 					"body", strings.TrimSuffix(rw.body.String(), "\n"),

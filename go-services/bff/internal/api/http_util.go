@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -30,6 +31,7 @@ func SendError(w http.ResponseWriter, status int, code apperror.ErrorCode, messa
 }
 
 func SendErrorLog(
+	ctx context.Context,
 	log *slog.Logger,
 	w http.ResponseWriter,
 	status int,
@@ -38,6 +40,6 @@ func SendErrorLog(
 ) {
 	err := SendError(w, status, code, message)
 	if err != nil {
-		log.Error("failed to encode response", "err", err)
+		log.ErrorContext(ctx, "failed to encode response", "err", err)
 	}
 }

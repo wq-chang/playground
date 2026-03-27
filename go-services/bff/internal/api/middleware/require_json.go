@@ -52,17 +52,30 @@ func RequireJSON(log *slog.Logger) func(http.Handler) http.Handler {
 				return
 			}
 
+			ctx := r.Context()
 			if r.Header.Get("Content-Type") != api.ContentTypeJSON {
-				api.SendErrorLog(log, w, http.StatusUnsupportedMediaType,
-					apperror.CodeUnsupportedMediaType, "Content-Type must be application/json string")
+				api.SendErrorLog(
+					ctx,
+					log,
+					w,
+					http.StatusUnsupportedMediaType,
+					apperror.CodeUnsupportedMediaType,
+					"Content-Type must be application/json string",
+				)
 				return
 			}
 
 			// TODO: move media type to constants
 			if accept := r.Header.Get("Accept"); accept != "" &&
 				accept != api.ContentTypeJSON && accept != "*/*" {
-				api.SendErrorLog(log, w, http.StatusNotAcceptable,
-					apperror.CodeNotAcceptable, "Accept header must include application/json")
+				api.SendErrorLog(
+					ctx,
+					log,
+					w,
+					http.StatusNotAcceptable,
+					apperror.CodeNotAcceptable,
+					"Accept header must include application/json",
+				)
 				return
 			}
 

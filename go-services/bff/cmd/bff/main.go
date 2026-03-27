@@ -17,13 +17,13 @@ func main() {
 
 	appl, err := app.New(ctx)
 	if err != nil {
-		slog.Error("failed to initialize app", "err", err)
+		slog.ErrorContext(ctx, "failed to initialize app", "err", err)
 		os.Exit(1)
 	}
 
 	cors, err := middleware.CORS(appl.Log, appl.Config.FrontendBaseURL)
 	if err != nil {
-		appl.Log.Error("failed to initialize cors middleware", "err", err)
+		appl.Log.ErrorContext(ctx, "failed to initialize cors middleware", "err", err)
 		os.Exit(1)
 	}
 	errMw := middleware.Error(appl.Log)
@@ -48,10 +48,10 @@ func main() {
 	// http.HandleFunc("/api/protected", sessionHandler.ProtectedHandler)
 
 	addr := fmt.Sprintf(":%v", appl.Config.ServerPort)
-	appl.Log.Info("BFF server starting", "port", appl.Config.ServerPort)
+	appl.Log.InfoContext(ctx, "BFF server starting", "port", appl.Config.ServerPort)
 
 	if err := http.ListenAndServe(addr, chain.Apply(mux)); err != nil {
-		appl.Log.Error("server failed:", "err", err)
+		appl.Log.ErrorContext(ctx, "server failed:", "err", err)
 		os.Exit(1)
 	}
 }
