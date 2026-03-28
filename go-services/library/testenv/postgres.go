@@ -34,8 +34,7 @@ import (
 //     It persists across 'go test' runs for speed but is automatically reaped when the Docker session or parent process terminates.
 //   - The cleanup function drops the schema unless the KEEP_TEST_DB env var is set.
 func NewPostgres(ctx context.Context, packageName, imageName, migrationTableName string) (*Postgres, error) {
-	safeImageName := strings.NewReplacer(":", "_", "/", "_", ".", "_").Replace(imageName)
-	reuseName := fmt.Sprintf("test_env_pg_%s", safeImageName)
+	reuseName := SanitizeContainerName("pg", imageName)
 	container, err := postgres.Run(ctx,
 		imageName,
 		postgres.WithDatabase("shared_db"),

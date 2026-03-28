@@ -11,34 +11,32 @@ import (
 type TestEnv struct {
 	cfg         *config
 	postgres    *Postgres
+	kafka       *Kafka
 	packageName string
 	pgOnce      sync.Once
+	kafkaOnce   sync.Once
 }
 
 // New creates a new environment manager for the given package.
-// The packageName is used to scope resources, such as creating a unique
-// PostgreSQL schema name to prevent cross-package data contamination.
+// The packageName is used to scope resources.
 func New(packageName string, opts ...Option) *TestEnv {
 	cfg := newConfig(opts...)
 	return &TestEnv{
 		cfg:         cfg,
-		packageName: packageName,
 		postgres:    nil,
+		kafka:       nil,
+		packageName: packageName,
 		pgOnce:      sync.Once{},
+		kafkaOnce:   sync.Once{},
 	}
 }
 
 // GetPostgres returns an initialized PostgreSQL environment.
-// It lazily initializes the database container and schema on the first call.
-//
-// If initialization fails, it calls t.Fatalf to stop execution. Subsequent calls
-// return the same instance without re-initializing.
 func (te *TestEnv) GetPostgres(t *testing.T) *Postgres {
 	t.Helper()
 	te.pgOnce.Do(func() {
 		ctx := context.Background()
 		var err error
-		// NewPostgres is expected to handle container reuse and schema creation.
 		te.postgres, err = NewPostgres(ctx, te.packageName, te.cfg.postgresImage, te.cfg.migrationTableName)
 		if err != nil {
 			t.Fatalf("failed to start test db: %v", err)
@@ -47,11 +45,26 @@ func (te *TestEnv) GetPostgres(t *testing.T) *Postgres {
 	return te.postgres
 }
 
+// GetKafka returns an initialized Kafka environment.
+func (te *TestEnv) GetKafka(t *testing.T) *Kafka {
+	t.Helper()
+	te.kafkaOnce.Do(func() {
+		ctx := context.Background()
+		var err error
+		te.kafka, err = NewKafka(ctx, te.cfg.kafkaImage)
+		if err != nil {
+			t.Fatalf("failed to start test kafka: %v", err)
+		}
+	})
+	return te.kafka
+}
+
 // Cleanup performs teardown of all initialized services.
-// It should typically be called once in TestMain after m.Run() completes.
-// If no services were lazily initialized, Cleanup is a no-op.
 func (te *TestEnv) Cleanup() {
 	if te.postgres != nil && te.postgres.Cleanup != nil {
 		te.postgres.Cleanup()
+	}
+	if te.kafka != nil && te.kafka.Cleanup != nil {
+		te.kafka.Cleanup()
 	}
 }

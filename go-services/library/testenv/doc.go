@@ -12,6 +12,7 @@
 // # Supported Services
 //
 //   - **PostgreSQL**: Managed via `GetPostgres`. Supports schema-level isolation for parallel test execution.
+//   - **Kafka**: Managed via `GetKafka`.
 //
 // # Usage
 //
