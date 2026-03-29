@@ -13,15 +13,25 @@ import (
 	"github.com/twmb/franz-go/pkg/sasl/scram"
 )
 
+// Kafka represents a running Kafka instance managed by TestContainers.
+// It provides connection details for both authenticated and unauthenticated listeners,
+// as well as helper functions for topic management.
 type Kafka struct {
-	Cleanup      func()
-	CreateTopic  func(context.Context, string) error
-	Username     string
-	Password     string
+	// Cleanup is a function to stop the container, though usually managed by Ryuk.
+	Cleanup func()
+	// CreateTopic is a helper function to provision new topics in the test cluster.
+	CreateTopic func(context.Context, string) error
+	// Username is the default SCRAM-SHA-512 username.
+	Username string
+	// Password is the default SCRAM-SHA-512 password.
+	Password string
+	// PlainBrokers provides the address for the PLAINTEXT listener (no auth).
 	PlainBrokers []string
-	AuthBrokers  []string
+	// AuthBrokers provides the address for the SASL_PLAINTEXT listener.
+	AuthBrokers []string
 }
 
+// kafkaConnConfig internalizes the mapping of host-mapped ports.
 type kafkaConnConfig struct {
 	plainBrokers []string
 	authBrokers  []string
@@ -75,7 +85,10 @@ exec /etc/kafka/docker/run
 `
 )
 
-// NewKafka initializes or attaches to a reusable Kafka TestContainer.
+// NewKafka initializes or attaches to a Kafka TestContainer.
+// It handles the injection of a custom bootstrap script to enable SCRAM authentication
+// and KRaft mode. If a container with the same sanitized name already exists,
+// it will be reused to speed up test execution.
 func NewKafka(ctx context.Context, imageName string) (*Kafka, error) {
 	// 1. Start Container
 	container, err := testcontainers.GenericContainer(ctx, buildContainerRequest(imageName))
@@ -120,6 +133,8 @@ func NewKafka(ctx context.Context, imageName string) (*Kafka, error) {
 	}, nil
 }
 
+// buildContainerRequest constructs the configuration for the Kafka container,
+// including environment variables, exposed ports, and lifecycle hooks.
 func buildContainerRequest(imageName string) testcontainers.GenericContainerRequest {
 	reuseName := SanitizeContainerName("kafka", imageName)
 
@@ -144,6 +159,8 @@ func buildContainerRequest(imageName string) testcontainers.GenericContainerRequ
 	}
 }
 
+// getKafkaEnv returns the environment variables required to run Kafka in KRaft mode
+// with the StandardAuthorizer enabled.
 func getKafkaEnv() map[string]string {
 	return map[string]string{
 		"CLUSTER_ID":                                     clusterID,
@@ -168,6 +185,9 @@ func getKafkaEnv() map[string]string {
 	}
 }
 
+// injectStarterScript is a PostStart hook that generates and copies the shell script
+// into the container. This script is responsible for formatting the storage
+// and adding the initial SCRAM user before the Kafka process starts.
 func injectStarterScript(ctx context.Context, c testcontainers.Container) error {
 	plainEndpoint, err := c.PortEndpoint(ctx, noAuthPort, "NO_AUTH")
 	if err != nil {
@@ -200,6 +220,7 @@ func injectStarterScript(ctx context.Context, c testcontainers.Container) error 
 		WaitUntilReady(ctx, c)
 }
 
+// getKafkaConfig resolves the external host and mapped ports for the Kafka container.
 func getKafkaConfig(ctx context.Context, c testcontainers.Container) (*kafkaConnConfig, error) {
 	host, err := c.Host(ctx)
 	if err != nil {

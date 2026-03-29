@@ -11,6 +11,17 @@ import (
 	"github.com/twmb/franz-go/pkg/sasl/scram"
 )
 
+// New creates and initializes a Kafka Consumer and Producer pair using a single shared
+// kgo.Client. This is the primary entry point for the kafka package.
+//
+// It automatically configures the client based on the provided brokers, groupId, and
+// functional options. It handles:
+//   - SASL Authentication (Plain, SCRAM-256, SCRAM-512)
+//   - Topic routing based on registered handlers
+//   - Offset management strategy (e.g., disabling auto-commit for AtLeastOnce mode)
+//
+// Both the returned Consumer and Producer share the same underlying TCP connections
+// to the Kafka brokers, which is more resource-efficient than creating separate clients.
 func New(brokers []string, groupId string, opts ...Option) (*Consumer, *Producer, error) {
 	cfg := newConfig(brokers, groupId)
 	for _, opt := range opts {
