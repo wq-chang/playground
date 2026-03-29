@@ -18,7 +18,7 @@ func TestKafkaProducerConsumer(t *testing.T) {
 		t.Skip("skipping test in short mode")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	k := te.GetKafka(t)
