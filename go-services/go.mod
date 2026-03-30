@@ -12,10 +12,9 @@ require (
 	github.com/nats-io/nats.go v1.50.0
 	github.com/pressly/goose/v3 v3.27.0
 	github.com/testcontainers/testcontainers-go v0.41.0
-	github.com/testcontainers/testcontainers-go/modules/kafka v0.41.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.41.0
 	github.com/twmb/franz-go v1.20.7
-	github.com/twmb/franz-go/pkg/kadm v1.15.0
+	github.com/twmb/franz-go/pkg/kadm v1.17.2
 	golang.org/x/oauth2 v0.36.0
 	golang.org/x/tools v0.43.0
 )
