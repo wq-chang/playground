@@ -12,7 +12,7 @@
     <java.version>21</java.version>
     <junit.version>6.0.3</junit.version>
     <kafka.version>4.2.0</kafka.version>
-    <keycloak.version>26.5.6</keycloak.version>
+    <keycloak.version>26.6.0</keycloak.version>
     <mockito.version>5.23.0</mockito.version>
     <plugin.compiler.version>3.15.0</plugin.compiler.version>
     <plugin.google-java-format.version>1.35.0</plugin.google-java-format.version>
