@@ -84,7 +84,7 @@ services:
 
   pgadmin:
     container_name: pgadmin
-    image: dpage/pgadmin4:9.13
+    image: dpage/pgadmin4:9.14
     user: root
     environment:
       PGADMIN_DEFAULT_EMAIL: admin@admin.com

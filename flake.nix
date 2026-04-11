@@ -43,7 +43,7 @@
 
             # infra
             # localstack
-            natscli
+            kafkactl
             tenv
             terraform-local
           ];

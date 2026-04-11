@@ -12,10 +12,9 @@
     <java.version>21</java.version>
     <junit.version>6.0.3</junit.version>
     <kafka.version>4.2.0</kafka.version>
-    <keycloak.version>26.5.6</keycloak.version>
+    <keycloak.version>26.6.0</keycloak.version>
     <mockito.version>5.23.0</mockito.version>
     <plugin.compiler.version>3.15.0</plugin.compiler.version>
-    <plugin.google-java-format.version>1.35.0</plugin.google-java-format.version>
     <plugin.jar.version>3.5.0</plugin.jar.version>
     <plugin.shade.version>3.6.2</plugin.shade.version>
     <plugin.spotless.version>3.4.0</plugin.spotless.version>
@@ -179,7 +178,6 @@
           <java>
             <removeUnusedImports/>
             <googleJavaFormat>
-              <version>${plugin.google-java-format.version}</version>
               <style>GOOGLE</style>
             </googleJavaFormat>
             <importOrder/>
