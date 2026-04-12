@@ -1,7 +1,7 @@
 resource "kafka_topic" "iam_user_events" {
   name               = "iam.user.event.v1"
   replication_factor = 1
-  partitions         = 3
+  partitions         = 1
 
   config = {
     "cleanup.policy" = "delete"

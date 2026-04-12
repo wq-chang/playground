@@ -58,7 +58,6 @@ EOF
 
 # 2. Create the Bootstrap Properties
 cat <<EOF > /tmp/kafka/bootstrap.properties
-early.start.listeners=CONTROLLER
 process.roles=${KAFKA_PROCESS_ROLES}
 node.id=${KAFKA_NODE_ID}
 controller.quorum.voters=${KAFKA_CONTROLLER_QUORUM_VOTERS}
@@ -66,9 +65,6 @@ controller.listener.names=${KAFKA_CONTROLLER_LISTENER_NAMES}
 listeners=${KAFKA_LISTENERS}
 listener.security.protocol.map=${KAFKA_LISTENER_SECURITY_PROTOCOL_MAP}
 inter.broker.listener.name=${KAFKA_INTER_BROKER_LISTENER_NAME}
-sasl.enabled.mechanisms=${KAFKA_SASL_ENABLED_MECHANISMS}
-sasl.mechanism.controller.protocol=${KAFKA_SASL_MECHANISM_CONTROLLER_PROTOCOL}
-sasl.mechanism.inter.broker.protocol=${KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL}
 EOF
 
 # 3. Format if necessary
