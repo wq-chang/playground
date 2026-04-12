@@ -1,10 +1,10 @@
 package com.playground.keycloak.dto;
 
-import com.playground.keycloak.enums.KeycloakEventType;
-import com.playground.keycloak.enums.KeycloakOperation;
+import com.playground.keycloak.enums.UserEventType;
+import com.playground.keycloak.enums.UserOperation;
 
 public record EventMessage(
-    KeycloakEventType eventType,
-    KeycloakOperation operation,
+    UserEventType eventType,
+    UserOperation operation,
     String userId,
     UpdatedDetails updatedDetails) {}

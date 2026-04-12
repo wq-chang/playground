@@ -3,12 +3,12 @@ package com.playground.keycloak.enums;
 import org.keycloak.events.EventType;
 import org.keycloak.events.admin.OperationType;
 
-public enum KeycloakOperation {
+public enum UserOperation {
   CREATE,
   UPDATE,
   DELETE;
 
-  public static KeycloakOperation getByKeycloakEventType(EventType eventType) {
+  public static UserOperation getByKeycloakEventType(EventType eventType) {
     return switch (eventType) {
       case REGISTER -> CREATE;
       case UPDATE_EMAIL, UPDATE_PROFILE -> UPDATE;
@@ -17,7 +17,7 @@ public enum KeycloakOperation {
     };
   }
 
-  public static KeycloakOperation getByKeycloakOperationType(OperationType operationType) {
+  public static UserOperation getByKeycloakOperationType(OperationType operationType) {
     return switch (operationType) {
       case CREATE -> CREATE;
       case UPDATE -> UPDATE;

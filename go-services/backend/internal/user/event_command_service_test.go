@@ -39,13 +39,13 @@ func TestProcessEvent_UpdateUser(t *testing.T) {
 	ctx := context.Background()
 	log, logCapture := testlogger.New()
 	repo := NewFakeRepository()
-	service := user.NewKeycloakEventService(log, uuid.NewV4, repo)
+	service := user.NewEventCommandService(log, uuid.NewV4, repo)
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			existingUser := buildUser(t)
 			userID := existingUser.ID
-			event := user.KeycloakEvent{
+			event := user.Event{
 				EventType: user.EventTypeUser,
 				Operation: user.OperationUpdate,
 				UserID:    userID,
@@ -78,7 +78,7 @@ func TestProcess_UpdateUser_EmptyDetails(t *testing.T) {
 	ctx := context.Background()
 	log, _ := testlogger.New()
 	repo := NewFakeRepository()
-	service := user.NewKeycloakEventService(log, uuid.NewV4, repo)
+	service := user.NewEventCommandService(log, uuid.NewV4, repo)
 
 	t.Run("return missing details error", func(t *testing.T) {
 		userID, err := uuid.NewV4()
@@ -86,7 +86,7 @@ func TestProcess_UpdateUser_EmptyDetails(t *testing.T) {
 			t.Fatalf("failed to generate uuid: %v", err)
 		}
 
-		event := user.KeycloakEvent{
+		event := user.Event{
 			EventType: user.EventTypeUser,
 			Operation: user.OperationUpdate,
 			UserID:    userID,

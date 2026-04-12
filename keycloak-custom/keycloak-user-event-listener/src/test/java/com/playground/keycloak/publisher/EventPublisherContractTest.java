@@ -4,8 +4,8 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 
 import com.playground.keycloak.dto.EventMessage;
 import com.playground.keycloak.dto.UpdatedDetails;
-import com.playground.keycloak.enums.KeycloakEventType;
-import com.playground.keycloak.enums.KeycloakOperation;
+import com.playground.keycloak.enums.UserEventType;
+import com.playground.keycloak.enums.UserOperation;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
@@ -20,8 +20,8 @@ public abstract class EventPublisherContractTest {
     EventPublisher publisher = createPublisher();
     EventMessage message =
         new EventMessage(
-            KeycloakEventType.USER_EVENT,
-            KeycloakOperation.CREATE,
+            UserEventType.USER_EVENT,
+            UserOperation.CREATE,
             UUID.randomUUID().toString(),
             new UpdatedDetails("John", "Doe", "jdoe", "jdoe@example.com"));
 
@@ -47,10 +47,7 @@ public abstract class EventPublisherContractTest {
 
     EventMessage message =
         new EventMessage(
-            KeycloakEventType.USER_EVENT,
-            KeycloakOperation.CREATE,
-            UUID.randomUUID().toString(),
-            null);
+            UserEventType.USER_EVENT, UserOperation.CREATE, UUID.randomUUID().toString(), null);
 
     // Should effectively be a no-op or swallowed error
     assertThatCode(() -> publisher.publish(message)).doesNotThrowAnyException();

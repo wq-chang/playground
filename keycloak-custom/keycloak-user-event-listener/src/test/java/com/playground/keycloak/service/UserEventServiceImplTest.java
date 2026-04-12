@@ -11,8 +11,8 @@ import static org.mockito.Mockito.when;
 
 import com.playground.keycloak.dto.EventMessage;
 import com.playground.keycloak.dto.UpdatedDetails;
-import com.playground.keycloak.enums.KeycloakEventType;
-import com.playground.keycloak.enums.KeycloakOperation;
+import com.playground.keycloak.enums.UserEventType;
+import com.playground.keycloak.enums.UserOperation;
 import com.playground.keycloak.publisher.KafkaEventPublisherFake;
 import com.playground.keycloak.util.EventLogger;
 import java.util.HashMap;
@@ -69,8 +69,8 @@ class UserEventServiceImplTest {
 
     EventMessage capturedMessage = publisher.getLastMessage();
     assertNotNull(capturedMessage);
-    assertEquals(KeycloakEventType.USER_EVENT, capturedMessage.eventType());
-    assertEquals(KeycloakOperation.UPDATE, capturedMessage.operation());
+    assertEquals(UserEventType.USER_EVENT, capturedMessage.eventType());
+    assertEquals(UserOperation.UPDATE, capturedMessage.operation());
     assertEquals(userId, capturedMessage.userId());
     UpdatedDetails updatedDetails = capturedMessage.updatedDetails();
     assertNotNull(updatedDetails);
@@ -117,8 +117,8 @@ class UserEventServiceImplTest {
 
     EventMessage capturedMessage = publisher.getLastMessage();
     assertNotNull(capturedMessage);
-    assertEquals(KeycloakEventType.USER_EVENT, capturedMessage.eventType());
-    assertEquals(KeycloakOperation.UPDATE, capturedMessage.operation());
+    assertEquals(UserEventType.USER_EVENT, capturedMessage.eventType());
+    assertEquals(UserOperation.UPDATE, capturedMessage.operation());
     UpdatedDetails updatedDetails = capturedMessage.updatedDetails();
     assertNotNull(updatedDetails);
     assertNull(updatedDetails.firstName());
@@ -144,8 +144,8 @@ class UserEventServiceImplTest {
 
     EventMessage capturedMessage = publisher.getLastMessage();
     assertNotNull(capturedMessage);
-    assertEquals(KeycloakEventType.ADMIN_EVENT, capturedMessage.eventType());
-    assertEquals(KeycloakOperation.CREATE, capturedMessage.operation());
+    assertEquals(UserEventType.ADMIN_EVENT, capturedMessage.eventType());
+    assertEquals(UserOperation.CREATE, capturedMessage.operation());
     assertEquals(resourceId, capturedMessage.userId());
     assertNull(capturedMessage.updatedDetails());
   }
@@ -184,8 +184,8 @@ class UserEventServiceImplTest {
 
     EventMessage capturedMessage = publisher.getLastMessage();
     assertNotNull(capturedMessage);
-    assertEquals(KeycloakEventType.ADMIN_EVENT, capturedMessage.eventType());
-    assertEquals(KeycloakOperation.DELETE, capturedMessage.operation());
+    assertEquals(UserEventType.ADMIN_EVENT, capturedMessage.eventType());
+    assertEquals(UserOperation.DELETE, capturedMessage.operation());
     assertEquals(resourceId, capturedMessage.userId());
     assertNull(capturedMessage.updatedDetails());
   }

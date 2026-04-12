@@ -3,8 +3,8 @@ package com.playground.keycloak.publisher;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.playground.keycloak.dto.EventMessage;
-import com.playground.keycloak.enums.KeycloakEventType;
-import com.playground.keycloak.enums.KeycloakOperation;
+import com.playground.keycloak.enums.UserEventType;
+import com.playground.keycloak.enums.UserOperation;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -27,10 +27,7 @@ public class KafkaEventPublisherFakeTest extends EventPublisherContractTest {
   void publish_whenMessageIsValid_shouldStoreMessage() {
     EventMessage message =
         new EventMessage(
-            KeycloakEventType.USER_EVENT,
-            KeycloakOperation.CREATE,
-            UUID.randomUUID().toString(),
-            null);
+            UserEventType.USER_EVENT, UserOperation.CREATE, UUID.randomUUID().toString(), null);
 
     fake.publish(message);
 
@@ -49,10 +46,7 @@ public class KafkaEventPublisherFakeTest extends EventPublisherContractTest {
 
     EventMessage message =
         new EventMessage(
-            KeycloakEventType.USER_EVENT,
-            KeycloakOperation.CREATE,
-            UUID.randomUUID().toString(),
-            null);
+            UserEventType.USER_EVENT, UserOperation.CREATE, UUID.randomUUID().toString(), null);
 
     fake.publish(message);
     assertThat(fake.getPublishedMessages()).isEmpty();
@@ -63,10 +57,7 @@ public class KafkaEventPublisherFakeTest extends EventPublisherContractTest {
     KafkaEventPublisherFake fake = (KafkaEventPublisherFake) createPublisher();
     EventMessage message =
         new EventMessage(
-            KeycloakEventType.USER_EVENT,
-            KeycloakOperation.CREATE,
-            UUID.randomUUID().toString(),
-            null);
+            UserEventType.USER_EVENT, UserOperation.CREATE, UUID.randomUUID().toString(), null);
 
     fake.publish(message);
     assertThat(fake.getPublishedMessages()).hasSize(1);
@@ -79,16 +70,10 @@ public class KafkaEventPublisherFakeTest extends EventPublisherContractTest {
   void getLastMessage_whenMessagesPublished_shouldReturnLastMessage() {
     EventMessage message1 =
         new EventMessage(
-            KeycloakEventType.USER_EVENT,
-            KeycloakOperation.CREATE,
-            UUID.randomUUID().toString(),
-            null);
+            UserEventType.USER_EVENT, UserOperation.CREATE, UUID.randomUUID().toString(), null);
     EventMessage message2 =
         new EventMessage(
-            KeycloakEventType.USER_EVENT,
-            KeycloakOperation.UPDATE,
-            UUID.randomUUID().toString(),
-            null);
+            UserEventType.USER_EVENT, UserOperation.UPDATE, UUID.randomUUID().toString(), null);
 
     fake.publish(message1);
     fake.publish(message2);
@@ -105,10 +90,7 @@ public class KafkaEventPublisherFakeTest extends EventPublisherContractTest {
   void getMessage_whenIndexValid_shouldReturnMessage() {
     EventMessage message =
         new EventMessage(
-            KeycloakEventType.USER_EVENT,
-            KeycloakOperation.CREATE,
-            UUID.randomUUID().toString(),
-            null);
+            UserEventType.USER_EVENT, UserOperation.CREATE, UUID.randomUUID().toString(), null);
 
     fake.publish(message);
 

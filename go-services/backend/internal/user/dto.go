@@ -5,9 +5,9 @@ import (
 	"github.com/guregu/null/v6"
 )
 
-type KeycloakEvent struct {
-	EventType KeycloakEventType          `json:"eventType"`
-	Operation KeycloakOperation          `json:"operation"`
+type Event struct {
+	EventType EventType                  `json:"eventType"`
+	Operation Operation                  `json:"operation"`
 	Updated   null.Value[UpdatedDetails] `json:"updatedDetails"`
 	UserID    uuid.UUID                  `json:"userId"`
 }

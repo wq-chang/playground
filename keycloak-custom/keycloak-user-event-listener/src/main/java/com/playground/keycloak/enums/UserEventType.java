@@ -1,6 +1,6 @@
 package com.playground.keycloak.enums;
 
-public enum KeycloakEventType {
+public enum UserEventType {
   USER_EVENT,
   ADMIN_EVENT,
 }

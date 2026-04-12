@@ -16,25 +16,25 @@ type userSyncCommandRepository interface {
 	UpdateUser(context context.Context, updateUserParams db.UpdateUserParams) (int64, error)
 }
 
-type KeycloakEventCommandService struct {
+type EventCommandService struct {
 	log     *slog.Logger
 	genUUID func() (uuid.UUID, error)
 	repo    userSyncCommandRepository
 }
 
-func NewKeycloakEventService(
+func NewEventCommandService(
 	log *slog.Logger,
 	genUUID func() (uuid.UUID, error),
 	repo userSyncCommandRepository,
-) *KeycloakEventCommandService {
-	return &KeycloakEventCommandService{
+) *EventCommandService {
+	return &EventCommandService{
 		log:     log,
 		genUUID: genUUID,
 		repo:    repo,
 	}
 }
 
-func (s *KeycloakEventCommandService) ProcessEvent(ctx context.Context, event KeycloakEvent) error {
+func (s *EventCommandService) ProcessEvent(ctx context.Context, event Event) error {
 	switch event.EventType {
 	case EventTypeUser:
 		return s.handleUserEvent(ctx, event)
@@ -45,7 +45,7 @@ func (s *KeycloakEventCommandService) ProcessEvent(ctx context.Context, event Ke
 	}
 }
 
-func (s *KeycloakEventCommandService) handleUserEvent(ctx context.Context, event KeycloakEvent) error {
+func (s *EventCommandService) handleUserEvent(ctx context.Context, event Event) error {
 	switch event.Operation {
 	case OperationCreate:
 		// return s.createUser(event)
@@ -62,7 +62,7 @@ func (s *KeycloakEventCommandService) handleUserEvent(ctx context.Context, event
 	return nil
 }
 
-func (s *KeycloakEventCommandService) handleAdminEvent(_ context.Context, event KeycloakEvent) error {
+func (s *EventCommandService) handleAdminEvent(_ context.Context, event Event) error {
 	switch event.Operation {
 	case OperationCreate:
 		// return s.createAdmin(event)
@@ -76,7 +76,7 @@ func (s *KeycloakEventCommandService) handleAdminEvent(_ context.Context, event 
 	return nil
 }
 
-func (s *KeycloakEventCommandService) updateUser(ctx context.Context, userID uuid.UUID, details UpdatedDetails) error {
+func (s *EventCommandService) updateUser(ctx context.Context, userID uuid.UUID, details UpdatedDetails) error {
 	updateUserParams := toUpdateUserParams(userID, details)
 
 	_, err := s.repo.UpdateUser(ctx, updateUserParams)
