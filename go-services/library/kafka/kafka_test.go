@@ -26,42 +26,57 @@ func TestKafkaProducerConsumer(t *testing.T) {
 	err := k.CreateTopic(ctx, topic)
 	require.NoError(t, err, "failed to create test topic")
 
-	consumedChan := make(chan string, 1)
-	handler := func(ctx context.Context, record *kgo.Record) error {
-		consumedChan <- string(record.Value)
-		return nil
+	message := "hello kafka"
+
+	tests := map[string]struct {
+		brokers []string
+		auth    bool
+	}{
+		"no-auth": {k.PlainBrokers, false},
+		"auth":    {k.AuthBrokers, true},
 	}
 
-	consumer, producer, err := kafka.New(
-		k.AuthBrokers,
-		"test-group",
-		kafka.WithTopic(topic, handler),
-		kafka.WithKgoOptions(kgo.ConsumeResetOffset(kgo.NewOffset().AtStart())),
-		kafka.WithAuth(k.Username, k.Password, kafka.AuthMechanismScram512),
-	)
-	require.NoError(t, err, "failed to create producer and consumer")
-	defer consumer.Close()
-	defer producer.Close()
-
-	message := "hello kafka"
-	err = producer.ProduceSync(ctx, &kgo.Record{
-		Topic: topic,
-		Value: []byte(message),
-	})
-	require.NoError(t, err, "failed to produce message")
-
-	go func() {
-		if err := consumer.Run(ctx); err != nil {
-			if ctx.Err() == nil {
-				t.Errorf("consumer run failed: %v", err)
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			consumedChan := make(chan string, 1)
+			handler := func(ctx context.Context, record *kgo.Record) error {
+				consumedChan <- string(record.Value)
+				return nil
 			}
-		}
-	}()
 
-	select {
-	case val := <-consumedChan:
-		assert.Equal(t, val, message, "kafka message")
-	case <-ctx.Done():
-		t.Fatal("timed out waiting for message")
+			opts := []kafka.Option{
+				kafka.WithTopic(topic, handler),
+				kafka.WithKgoOptions(kgo.ConsumeResetOffset(kgo.NewOffset().AtStart())),
+			}
+			if tt.auth {
+				opts = append(opts, kafka.WithAuth(k.Username, k.Password, kafka.AuthMechanismScram512))
+			}
+
+			consumer, producer, err := kafka.New(tt.brokers, "test-group-"+name, opts...)
+			require.NoError(t, err, "failed to create producer and consumer")
+			defer consumer.Close()
+			defer producer.Close()
+
+			err = producer.ProduceSync(ctx, &kgo.Record{
+				Topic: topic,
+				Value: []byte(message),
+			})
+			require.NoError(t, err, "failed to produce message")
+
+			go func() {
+				if err := consumer.Run(ctx); err != nil {
+					if ctx.Err() == nil {
+						t.Errorf("consumer run failed: %v", err)
+					}
+				}
+			}()
+
+			select {
+			case val := <-consumedChan:
+				assert.Equal(t, val, message, "kafka message")
+			case <-ctx.Done():
+				t.Fatal("timed out waiting for message")
+			}
+		})
 	}
 }
