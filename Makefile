@@ -25,7 +25,7 @@ help:
 	@echo ""
 	@echo "Development Targets:"
 	@echo "  make dev                - Build all and start local dev environment"
-	@echo "  make local-up           - Start local dev environment (docker-compose)"
+	@echo "  make local-up           - Start local dev environment (docker compose)"
 	@echo "  make local-down         - Stop local dev environment"
 	@echo ""
 	@echo "Utility Targets:"
@@ -100,16 +100,16 @@ format:
 # DEVELOPMENT TARGETS
 # ============================================================================
 
-# Start local dev environment (docker-compose)
+# Start local dev environment (docker compose)
 local-up:
 	@echo "Starting local dev environment..."
-	@cd localmock && docker-compose up -d && cd - > /dev/null
+	@cd localmock && docker compose up -d && cd - > /dev/null
 	@echo "✓ Local dev environment started"
 
 # Stop local dev environment
 local-down:
 	@echo "Stopping local dev environment..."
-	@cd localmock && docker-compose down && cd - > /dev/null
+	@cd localmock && docker compose down && cd - > /dev/null
 	@echo "✓ Local dev environment stopped"
 
 # Build all services and start local environment
