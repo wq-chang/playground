@@ -1,6 +1,6 @@
 # Playground
 
-A modern polyglot monorepo showcasing microservices architecture with Go backend services, Java backends, Node.js BFF (Backend-for-Frontend), React frontend, and integrated authentication via Keycloak.
+A personal tech exploration playground — a polyglot monorepo for experimenting modern tech stack.
 
 ---
 
@@ -99,6 +99,7 @@ make help          # Show all available targets
 ```
 
 Or use the shell scripts in `scripts/`:
+
 - `./scripts/build-all.sh` - Build all services
 - `./scripts/test-all.sh` - Run all tests
 - `./scripts/lint-all.sh` - Lint all code
@@ -136,4 +137,3 @@ The following features and improvements are planned:
 - 📈 **Observability Stack** - Distributed tracing, metrics, and logging (OTEL)
 - 🚀 **Deployment** - Kubernetes manifests and cloud deployment options
 - ⚙️ **Format Checking** - Automated code formatting in CI pipeline
-- 📦 **Command Runner** - Unified task automation

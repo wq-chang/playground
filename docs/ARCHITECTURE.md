@@ -2,14 +2,7 @@
 
 ## Monorepo Overview
 
-This is a personal exploration project using a **polyglot monorepo** to experiment with different tech stacks: Go for performance, Java for enterprise features like Keycloak SPIs, and TypeScript for modern frontend development. It's a learning ground for trying different architectural patterns and technologies.
-
-**Exploration Goals:**
-
-- Try polyglot microservices (Go, Java, TypeScript)
-- Explore event-driven patterns with Kafka
-- Learn Keycloak SPI development for custom authentication flows
-- Experiment with different deployment and orchestration approaches
+A polyglot monorepo combining Go backends, Java services, and a React frontend. Includes Keycloak for authentication and local development environment with Docker Compose.
 
 ## Directory Structure
 
