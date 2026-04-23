@@ -10,9 +10,9 @@ A modern polyglot monorepo showcasing microservices architecture with Go backend
 
 Before you begin, ensure you have the following installed:
 
-- **Go** (1.21+) - For backend services
-- **Java** (17+) - For Java services
-- **Node.js** (18+) - For BFF and frontend
+- **Go** (1.26+) - For backend services
+- **Java** (21+) - For Java services
+- **Node.js** (v24+) - For BFF and frontend
 - **Docker** & **Docker Compose** - For services (Postgres, Keycloak, NATS, etc.)
 
 ### Clone and Setup
@@ -81,53 +81,40 @@ For a comprehensive services catalog, API documentation, and deployment info, se
 
 ## Development
 
-### Local Development with localmock/
+### Local Development Environment
 
-The `localmock/` directory provides mock implementations and test fixtures for local development without running the full infrastructure:
-
-```bash
-# Start development environment with mocks
-npm run dev
-```
+For detailed setup instructions, running individual services, debugging, and troubleshooting, see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ### Common Commands
 
-Build, test, lint, and format scripts are located in `scripts/`:
+Use the `Makefile` or scripts for common tasks:
 
 ```bash
-./scripts/build-all.sh      # Build all services
-./scripts/test-all.sh       # Run tests for all services
-./scripts/lint-all.sh       # Lint all code
-./scripts/format-all.sh     # Format code
+make build         # Build all services
+make test          # Run all tests
+make lint          # Lint all code
+make dev           # Build and start local environment
+make clean         # Clean build artifacts
+make help          # Show all available targets
 ```
 
-For more development information, build scripts details, and troubleshooting, see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+Or use the shell scripts in `scripts/`:
+- `./scripts/build-all.sh` - Build all services
+- `./scripts/test-all.sh` - Run all tests
+- `./scripts/lint-all.sh` - Lint all code
+- `./scripts/format-all.sh` - Format all code
 
 ---
 
 ## Building & Testing
 
-### Build All Services
+Use the provided scripts or Makefile to build and test:
 
 ```bash
-./scripts/build-all.sh
+make build test    # Build and test everything
 ```
 
-This command compiles:
-- Go services in `services/go/`
-- Java services in `services/java/`
-- Frontend application in `frontend/`
-- BFF service in Node.js
-
-### Run Tests
-
-```bash
-./scripts/test-all.sh
-```
-
-Runs unit and integration tests across all services.
-
-For additional build configurations and troubleshooting, refer to [scripts/README.md](scripts/README.md).
+Or see [scripts/README.md](scripts/README.md) for individual build and test commands.
 
 ---
 
@@ -150,9 +137,3 @@ The following features and improvements are planned:
 - 🚀 **Deployment** - Kubernetes manifests and cloud deployment options
 - ⚙️ **Format Checking** - Automated code formatting in CI pipeline
 - 📦 **Command Runner** - Unified task automation
-
----
-
-## License
-
-This project is maintained by the Playground team. See individual service READMEs for license information.
