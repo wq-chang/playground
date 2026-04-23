@@ -10,12 +10,10 @@
   <artifactId>keycloak-custom</artifactId>
   <packaging>pom</packaging>
   <name>Keycloak Custom SPIs</name>
-  <description>Parent POM for custom Keycloak Service Provider Interfaces (SPIs). Uses Java 17 due to Keycloak requirements.</description>
-
+  <description>Parent POM for custom Keycloak Service Provider Interfaces (SPIs). Uses Java 21 due to Keycloak requirements.</description>
   <modules>
     <module>keycloak-user-event-listener</module>
   </modules>
-
   <properties>
     <!-- Override parent's java.version (25) with Java 21 required by Keycloak -->
     <java.version>21</java.version>

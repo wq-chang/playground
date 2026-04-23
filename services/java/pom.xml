@@ -7,13 +7,11 @@
   <packaging>pom</packaging>
   <name>Playground Services Parent</name>
   <description>Parent POM for Playground Java services</description>
-
   <modules>
     <module>keycloak-custom</module>
     <!-- <module>reporting</module> -->
     <!-- <module>keycloak-theme</module> -->
   </modules>
-
   <properties>
     <assertj.version>3.27.7</assertj.version>
     <java.version>25</java.version>
@@ -28,7 +26,6 @@
     <plugin.surefire.version>3.5.5</plugin.surefire.version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
   </properties>
-
   <dependencyManagement>
     <dependencies>
       <dependency>
@@ -47,7 +44,6 @@
       </dependency>
     </dependencies>
   </dependencyManagement>
-
   <build>
     <pluginManagement>
       <plugins>
