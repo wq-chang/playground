@@ -103,13 +103,13 @@ format:
 # Start local dev environment (docker compose)
 local-up:
 	@echo "Starting local dev environment..."
-	@cd localmock && docker compose up -d && cd - > /dev/null
+	@direnv exec localmock docker compose -f localmock/docker-compose.yml up -d
 	@echo "✓ Local dev environment started"
 
 # Stop local dev environment
 local-down:
 	@echo "Stopping local dev environment..."
-	@cd localmock && docker compose down && cd - > /dev/null
+	@direnv exec localmock docker compose -f localmock/docker-compose.yml down
 	@echo "✓ Local dev environment stopped"
 
 # Build all services and start local environment
