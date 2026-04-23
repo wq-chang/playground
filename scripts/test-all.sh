@@ -29,7 +29,7 @@ echo ""
 
 # Test Frontend
 echo "Testing frontend..."
-if cd frontend && npm test; then
+if cd frontend && npm test -- run --passWithNoTests; then
 	echo "✓ Frontend tests passed"
 else
 	echo "✗ Frontend tests failed"

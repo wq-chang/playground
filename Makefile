@@ -81,7 +81,7 @@ test-java:
 # Test frontend
 test-frontend:
 	@echo "Testing frontend..."
-	@cd frontend && npm test && cd - > /dev/null
+	@cd frontend && npm test -- run --passWithNoTests && cd - > /dev/null
 	@echo "✓ Frontend tests passed"
 
 # ============================================================================

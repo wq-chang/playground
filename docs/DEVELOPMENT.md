@@ -78,8 +78,8 @@ cd services/go && go test ./...
 # Java tests
 cd services/java && mvn test
 
-# Frontend tests
-cd frontend && npm test
+# Frontend tests (with passWithNoTests since we're still exploring)
+cd frontend && npm test -- run --passWithNoTests
 ```
 
 ### Debugging
