@@ -383,3 +383,58 @@ For local development:
 1. Start services: `docker compose -f localmock/docker-compose.yml up`
 2. Services become available at their respective ports
 3. See `docs/DEVELOPMENT.md` for detailed setup instructions
+
+---
+
+## CI/CD Integration
+
+The monorepo uses **automatic change detection** for selective testing on every PR and push to main.
+
+### Service Detection
+
+CI identifies service changes based on directory structure:
+
+- **Go services:** `services/go/{bff,backend,library}`
+- **Java services:** `services/java/` (Maven modules identified by closest ancestor `pom.xml`)
+- **React services:** `frontend/`
+
+### Change-Triggered Testing
+
+| Change | Triggers |
+|--------|----------|
+| `services/go/bff/*` | Test BFF module |
+| `services/go/backend/*` | Test Backend module |
+| `services/go/library/*` | Test **all Go modules** (BFF, Backend depend on library) |
+| `services/java/keycloak-custom/*` | Test keycloak-custom Maven module |
+| `services/java/[other-module]/*` | Test that Maven module |
+| `frontend/*` | Test React application |
+
+### Before Pushing
+
+Always test locally:
+
+```bash
+make test          # Run all tests for changed services
+make build-go      # Build Go only
+make test-frontend # Test React only
+```
+
+Or validate what CI will test:
+
+```bash
+python3 .github/scripts/ci_detect_changes.py --base origin/main --current HEAD
+```
+
+### Library Changes
+
+When `services/go/library/` changes, **all Go services are rebuilt and tested** because they depend on the shared library. This prevents integration issues from library updates.
+
+**Example:** Updating `services/go/library/auth/token.go` triggers:
+- ✅ Test `./services/go/library`
+- ✅ Test `./services/go/bff` (depends on library)
+- ✅ Test `./services/go/backend` (depends on library)
+- ❌ Skip Java and React (no changes)
+
+### CI Pipeline
+
+See `docs/CI.md` for detailed architecture, change detection logic, and troubleshooting.
