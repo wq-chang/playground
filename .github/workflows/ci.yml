@@ -55,33 +55,8 @@ jobs:
             --base "$BASE_SHA" \
             --current "$CURRENT_SHA" > /tmp/detect_output.json
 
-          # Parse JSON and set GitHub Actions outputs
-          python3 << 'EOF'
-          import json
-          import os
-          
-          with open('/tmp/detect_output.json') as f:
-              data = json.load(f)
-          
-          # Convert list outputs to space-separated strings for GitHub Actions
-          def format_modules(modules_list):
-              return ' '.join(modules_list) if modules_list else ''
-          
-          outputs = {
-              'has_go_changes': 'true' if data['has_go_changes'] else 'false',
-              'go_modules': format_modules(data['go_modules']),
-              'has_java_changes': 'true' if data['has_java_changes'] else 'false',
-              'java_modules': format_modules(data['java_modules']),
-              'has_react_changes': 'true' if data['has_react_changes'] else 'false',
-              'react_modules': format_modules(data['react_modules']),
-          }
-          
-          for key, value in outputs.items():
-              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-                  f.write(f"{key}={value}\n")
-          
-          print(json.dumps(outputs, indent=2))
-          EOF
+          # Convert output to GitHub Actions format
+          python3 .github/scripts/convert_detect_output.py /tmp/detect_output.json
 
   test-go-modules:
     runs-on: ubuntu-latest
