@@ -13,15 +13,13 @@ Output:
     Human-readable summary to stderr (for CI logs)
 """
 
-import argparse
 import json
 import subprocess
 import sys
 from pathlib import Path
-from typing import List, Dict, Any
 
 
-def run_git_command(args: List[str]) -> str:
+def run_git_command(args: list[str]) -> str:
     """
     Execute a git command and return stdout.
 
@@ -48,7 +46,7 @@ def run_git_command(args: List[str]) -> str:
         )
         return result.stdout.strip()
     except subprocess.CalledProcessError as e:
-        error_msg = e.stderr.strip() if e.stderr else str(e)
+        error_msg = (e.stderr or str(e)).strip()
         raise RuntimeError(f"git command failed: {error_msg}") from e
 
 
@@ -68,7 +66,11 @@ def is_new_branch(ref: str) -> bool:
     Returns:
         True if ref is a null marker (new branch), False otherwise.
     """
-    return ref == "0000000000000000000000000000000000000000" or ref == "0" * 40 or ref == "0"
+    return (
+        ref == "0000000000000000000000000000000000000000"
+        or ref == "0" * 40
+        or ref == "0"
+    )
 
 
 def resolve_base_ref(base_ref: str) -> str:
@@ -97,32 +99,33 @@ def resolve_base_ref(base_ref: str) -> str:
     """
     # Check if this is a new branch (all zeros)
     if is_new_branch(base_ref):
-        print("ℹ️  New branch detected (base is all zeros). Using origin/main as base.",
-              file=sys.stderr)
+        msg = "ℹ️  New branch detected (base is all zeros). Using origin/main as base."
+        print(msg, file=sys.stderr)
         # Verify origin/main exists
         try:
-            run_git_command(["rev-parse", "--verify", "origin/main"])
+            _ = run_git_command(["rev-parse", "--verify", "origin/main"])
             return "origin/main"
         except RuntimeError:
             try:
                 # Fallback to origin/master if origin/main doesn't exist
-                run_git_command(["rev-parse", "--verify", "origin/master"])
+                _ = run_git_command(["rev-parse", "--verify", "origin/master"])
                 return "origin/master"
             except RuntimeError as e:
-                raise RuntimeError(
+                msg = (
                     "Cannot resolve base ref: new branch but origin/main and "
                     "origin/master do not exist"
-                ) from e
+                )
+                raise RuntimeError(msg) from e
 
     # Verify ref exists
     try:
-        run_git_command(["rev-parse", "--verify", base_ref])
+        _ = run_git_command(["rev-parse", "--verify", base_ref])
         return base_ref
     except RuntimeError as e:
         raise RuntimeError(f"Base ref '{base_ref}' does not exist") from e
 
 
-def get_changed_files(base_ref: str, current_ref: str) -> List[str]:
+def get_changed_files(base_ref: str, current_ref: str) -> list[str]:
     """
     Get list of changed files between two refs.
 
@@ -148,7 +151,7 @@ def get_changed_files(base_ref: str, current_ref: str) -> List[str]:
     """
     # Verify current ref exists
     try:
-        run_git_command(["rev-parse", "--verify", current_ref])
+        _ = run_git_command(["rev-parse", "--verify", current_ref])
     except RuntimeError as e:
         raise RuntimeError(f"Current ref '{current_ref}' does not exist") from e
 
@@ -157,10 +160,12 @@ def get_changed_files(base_ref: str, current_ref: str) -> List[str]:
         output = run_git_command(["diff", "--name-only", f"{base_ref}...{current_ref}"])
         return [f.strip() for f in output.split("\n") if f.strip()]
     except RuntimeError as e:
-        raise RuntimeError(f"Failed to get diff between {base_ref} and {current_ref}") from e
+        raise RuntimeError(
+            f"Failed to get diff between {base_ref} and {current_ref}"
+        ) from e
 
 
-def detect_go_changes(files: List[str]) -> Dict[str, Any]:
+def detect_go_changes(files: list[str]) -> dict[str, bool | list[str]]:
     """
     Detect Go service changes.
 
@@ -189,7 +194,7 @@ def detect_go_changes(files: List[str]) -> Dict[str, Any]:
                              If library changes, includes all consumers.
     """
     go_prefixes = ["services/go/bff/", "services/go/backend/", "services/go/library/"]
-    modules = set()
+    modules: set[str] = set()
 
     for file_path in files:
         for prefix in go_prefixes:
@@ -211,7 +216,7 @@ def detect_go_changes(files: List[str]) -> Dict[str, Any]:
     }
 
 
-def detect_java_changes(files: List[str]) -> Dict[str, Any]:
+def detect_java_changes(files: list[str]) -> dict[str, bool | list[str]]:
     """
     Detect Java service changes.
 
@@ -250,11 +255,13 @@ def detect_java_changes(files: List[str]) -> Dict[str, Any]:
                                ["./services/java/keycloak-custom/keycloak-user-event-listener"])
     """
     java_prefix = "services/java/"
-    modules = set()
+    modules: set[str] = set()
 
     # Find all pom.xml files in services/java to identify available modules
     try:
-        pom_files = run_git_command(["find", "services/java", "-name", "pom.xml", "-type", "f"])
+        pom_files = run_git_command(
+            ["find", "services/java", "-name", "pom.xml", "-type", "f"]
+        )
         available_poms = [p.strip() for p in pom_files.split("\n") if p.strip()]
     except RuntimeError:
         # Fallback if git find doesn't work (should rarely happen, but defensive coding)
@@ -271,7 +278,9 @@ def detect_java_changes(files: List[str]) -> Dict[str, Any]:
         # Find the closest pom.xml ancestor for this file.
         # We match by checking if the file is under the pom's parent directory.
         matching_poms = [
-            pom for pom in available_poms if file_path.startswith(str(Path(pom).parent) + "/")
+            pom
+            for pom in available_poms
+            if file_path.startswith(str(Path(pom).parent) + "/")
         ]
 
         if matching_poms:
@@ -288,7 +297,7 @@ def detect_java_changes(files: List[str]) -> Dict[str, Any]:
     }
 
 
-def detect_react_changes(files: List[str]) -> Dict[str, Any]:
+def detect_react_changes(files: list[str]) -> dict[str, bool | list[str]]:
     """
     Detect React service changes.
 
@@ -314,7 +323,7 @@ def detect_react_changes(files: List[str]) -> Dict[str, Any]:
     }
 
 
-def print_summary(output: Dict[str, Any], files: List[str]) -> None:
+def print_summary(output: dict[str, bool | list[str]], files: list[str]) -> None:
     """
     Print human-readable summary to stderr for CI logs.
 
@@ -334,19 +343,26 @@ def print_summary(output: Dict[str, Any], files: List[str]) -> None:
     print(f"\n📝 Total changed files: {len(files)}", file=sys.stderr)
 
     if output["has_go_changes"]:
-        print(f"✅ Go services changed: {', '.join(output['go_modules'])}", file=sys.stderr)
+        print(
+            f"✅ Go services changed: {', '.join(output['go_modules'])}",
+            file=sys.stderr,
+        )
     else:
         print("⏭️  No Go services changed", file=sys.stderr)
 
     if output["has_java_changes"]:
         print(
-            f"✅ Java services changed: {', '.join(output['java_modules'])}", file=sys.stderr
+            f"✅ Java services changed: {', '.join(output['java_modules'])}",
+            file=sys.stderr,
         )
     else:
         print("⏭️  No Java services changed", file=sys.stderr)
 
     if output["has_react_changes"]:
-        print(f"✅ React services changed: {', '.join(output['react_modules'])}", file=sys.stderr)
+        print(
+            f"✅ React services changed: {', '.join(output['react_modules'])}",
+            file=sys.stderr,
+        )
     else:
         print("⏭️  No React services changed", file=sys.stderr)
 
@@ -373,26 +389,24 @@ def main() -> int:
     STDERR: Human-readable summary with emoji indicators
     STDOUT: JSON output (must be valid for downstream processing)
     """
-    parser = argparse.ArgumentParser(
-        description="Detect which services changed in a monorepo between two git refs"
-    )
-    parser.add_argument(
-        "--base",
-        required=True,
-        help="Base git ref (SHA, branch name, or tag). Use 0 or all zeros for new branches.",
-    )
-    parser.add_argument(
-        "--current", required=True, help="Current git ref (SHA, branch name, or tag)"
-    )
+    # Parse command-line arguments
+    if len(sys.argv) < 5 or sys.argv[1] != "--base" or sys.argv[3] != "--current":
+        msg = (
+            "Usage: ci_detect_changes.py --base <ref> --current <ref>\n"
+            "  ref: Git SHA, branch name, or tag"
+        )
+        print(msg, file=sys.stderr)
+        return 1
 
-    args = parser.parse_args()
+    base_ref = sys.argv[2]
+    current_ref = sys.argv[4]
 
     try:
         # Resolve base ref (handle new branch case where base is all zeros)
-        resolved_base = resolve_base_ref(args.base)
+        resolved_base = resolve_base_ref(base_ref)
 
         # Get changed files between base and current
-        changed_files = get_changed_files(resolved_base, args.current)
+        changed_files = get_changed_files(resolved_base, current_ref)
 
         # Detect changes by service type
         go_result = detect_go_changes(changed_files)
