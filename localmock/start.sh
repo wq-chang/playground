@@ -28,7 +28,7 @@ echo "✓ Keycloak is ready!"
 echo "Applying Keycloak configurations..."
 cd "$CUR_DIR/terraform/keycloak"
 tflocal init -input=false
-tflocal apply -var-file="secrets.tfvars" -auto-approve
+tflocal apply -auto-approve
 
 cd "$CUR_DIR"
 echo "✓ Playground deployed successfully"

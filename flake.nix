@@ -21,6 +21,7 @@
       {
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [
+            gnumake
             graphviz # visualize mem allocation
             # go
             go

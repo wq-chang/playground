@@ -7,13 +7,11 @@ on:
       - main
 
 env:
-  GO_VERSION: "1.25"
+  GO_VERSION: "1.26"
   JAVA_VERSION: "21"
   NODE_VERSION: "24"
-  GOLANGCI_LINT_VERSION: "v2.11.3"
+  GOLANGCI_LINT_VERSION: "v2.12.1"
   GOTESTSUM_VERSION: "1.13.0"
-  GO_MOD_DIR: "go-services"
-  JAVA_ROOT_DIR: "keycloak-custom"
 
 jobs:
   detect-changes:
@@ -29,7 +27,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
-          fetch-depth: 10
+          fetch-depth: 0
+
+      - name: Set up Python 3
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
 
       - name: Detect changed modules
         id: detect
@@ -43,101 +46,17 @@ jobs:
             # For pushes, compare against the previous state
             BASE_SHA="${{ github.event.before }}"
             CURRENT_SHA="${{ github.sha }}"
-
-            # Handle new branch (github.event.before is all zeros)
-            if [ "$BASE_SHA" == "0000000000000000000000000000000000000000" ]; then
-              echo "New branch detected, comparing against default branch"
-              git fetch origin ${{ github.event.repository.default_branch }}
-              BASE_SHA="origin/${{ github.event.repository.default_branch }}"
-            fi
           fi
 
           echo "Comparing $BASE_SHA...$CURRENT_SHA"
 
-          # Get all changed files
-          CHANGED_FILES=$(git diff --name-only $BASE_SHA $CURRENT_SHA)
+          # Call Python script to detect changes
+          python3 .github/scripts/ci_detect_changes.py \
+            --base "$BASE_SHA" \
+            --current "$CURRENT_SHA" > /tmp/detect_output.json
 
-          echo "Changed files:"
-          echo "$CHANGED_FILES"
-          echo ""
-
-          # Check if library, go.mod, or go.sum changed
-          LIBRARY_CHANGED=false
-          if echo "$CHANGED_FILES" | grep -qE "^${GO_MOD_DIR}/(library/|go\.mod$|go\.sum$)"; then
-            echo "⚠️ Go library changed - will test all Go modules"
-            LIBRARY_CHANGED=true
-          fi
-
-          # Detect Go modules (go-services/subdirectory)
-          CHANGED_GO_MODULES=""
-
-          if [ "$LIBRARY_CHANGED" = true ]; then
-            # If library changed, include all modules
-            for dir in ${GO_MOD_DIR}/*/; do
-              CHANGED_GO_MODULES="$CHANGED_GO_MODULES ./${dir%/}"
-            done
-          else
-            # Only include directly changed modules
-            for dir in ${GO_MOD_DIR}/*/; do
-              if echo "$CHANGED_FILES" | grep -q "^${dir}"; then
-                CHANGED_GO_MODULES="$CHANGED_GO_MODULES ./${dir%/}"
-              fi
-            done
-          fi
-
-          # Detect changed Java/Maven modules in keycloak-custom/
-          CHANGED_JAVA_MODULES=""
-          for dir in ${JAVA_ROOT_DIR}/*/; do
-            if [ -f "${dir}pom.xml" ]; then
-              # Check if any file in this Maven project changed
-              if echo "$CHANGED_FILES" | grep -q "^${dir}"; then
-                CHANGED_JAVA_MODULES="$CHANGED_JAVA_MODULES ./${dir%/}"
-              fi
-            fi
-          done
-
-
-          # Detect changed React modules
-          CHANGED_REACT_MODULES=""
-          for dir in */; do
-            if [ -f "${dir}package.json" ]; then
-              # Check if any file in this directory changed
-              if echo "$CHANGED_FILES" | grep -q "^${dir}"; then
-                CHANGED_REACT_MODULES="$CHANGED_REACT_MODULES ./${dir%/}"
-              fi
-            fi
-          done
-
-          # Export outputs
-          if [ -z "$CHANGED_GO_MODULES" ]; then
-            echo "No Go modules changed"
-            echo "go_modules=" >> $GITHUB_OUTPUT
-            echo "has_go_changes=false" >> $GITHUB_OUTPUT
-          else
-            echo "Changed Go modules: $CHANGED_GO_MODULES"
-            echo "go_modules=$CHANGED_GO_MODULES" >> $GITHUB_OUTPUT
-            echo "has_go_changes=true" >> $GITHUB_OUTPUT
-          fi
-
-          if [ -z "$CHANGED_JAVA_MODULES" ]; then
-            echo "No Java modules changed"
-            echo "java_modules=" >> $GITHUB_OUTPUT
-            echo "has_java_changes=false" >> $GITHUB_OUTPUT
-          else
-            echo "Changed Java modules: $CHANGED_JAVA_MODULES"
-            echo "java_modules=$CHANGED_JAVA_MODULES" >> $GITHUB_OUTPUT
-            echo "has_java_changes=true" >> $GITHUB_OUTPUT
-          fi
-
-          if [ -z "$CHANGED_REACT_MODULES" ]; then
-            echo "No React modules changed"
-            echo "react_modules=" >> $GITHUB_OUTPUT
-            echo "has_react_changes=false" >> $GITHUB_OUTPUT
-          else
-            echo "Changed React modules: $CHANGED_REACT_MODULES"
-            echo "react_modules=$CHANGED_REACT_MODULES" >> $GITHUB_OUTPUT
-            echo "has_react_changes=true" >> $GITHUB_OUTPUT
-          fi
+          # Convert output to GitHub Actions format
+          python3 .github/scripts/convert_detect_output.py /tmp/detect_output.json
 
   test-go-modules:
     runs-on: ubuntu-latest
@@ -159,7 +78,7 @@ jobs:
           EXIT_CODE=0
 
           echo "Downloading dependencies"
-          (cd ${GO_MOD_DIR} && go mod download)
+          (cd services/go && go mod download)
 
           for module in $MODULES; do
             echo "Building Go module: $module"
@@ -180,7 +99,7 @@ jobs:
 
       - name: Install golangci-lint
         run: |
-          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin ${{ env.GOLANGCI_LINT_VERSION }}
+          curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(go env GOPATH)/bin ${{ env.GOLANGCI_LINT_VERSION }}
           echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
 
       - name: Run golangci-lint on changed Go modules
@@ -332,7 +251,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
 
           if [ "${{ needs.detect-changes.outputs.has_java_changes }}" == "true" ]; then
-            echo "### Go Modules Tested" >> $GITHUB_STEP_SUMMARY
+            echo "### Java Modules Tested" >> $GITHUB_STEP_SUMMARY
             echo "${{ needs.detect-changes.outputs.java_modules }}" | tr ' ' '\n' | grep -v '^$' | sed 's/^/- /' >> $GITHUB_STEP_SUMMARY
             if [ "${{ needs.test-java-modules.result }}" == "success" ]; then
               echo "✅ All Java tests passed" >> $GITHUB_STEP_SUMMARY
