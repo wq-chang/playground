@@ -14,7 +14,7 @@ updates:
       include: "scope"
 
   - package-ecosystem: "gomod"
-    directory: "/go-services"
+    directory: "/services/go"
     schedule:
       interval: "daily"
       time: "09:00"
@@ -40,7 +40,7 @@ updates:
       include: "scope"
 
   - package-ecosystem: "maven"
-    directory: "/keycloak-custom/keycloak-user-event-listener"
+    directory: "/services/java"
     schedule:
       interval: "daily"
       time: "09:00"
@@ -48,7 +48,6 @@ updates:
     labels:
       - "dependencies"
       - "java"
-      - "keycloak"
     commit-message:
       prefix: "chore"
       include: "scope"
