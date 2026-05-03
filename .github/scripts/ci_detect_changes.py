@@ -17,6 +17,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from typing import cast
 
 
 def run_git_command(args: list[str]) -> str:
@@ -46,7 +47,8 @@ def run_git_command(args: list[str]) -> str:
         )
         return result.stdout.strip()
     except subprocess.CalledProcessError as e:
-        error_msg = (e.stderr or str(e)).strip()
+        stderr: str | None = cast(str | None, e.stderr)
+        error_msg = (stderr if stderr else str(e)).strip()
         raise RuntimeError(f"git command failed: {error_msg}") from e
 
 
@@ -344,7 +346,7 @@ def print_summary(output: dict[str, bool | list[str]], files: list[str]) -> None
 
     if output["has_go_changes"]:
         print(
-            f"✅ Go services changed: {', '.join(output['go_modules'])}",
+            f"✅ Go services changed: {', '.join(cast(list[str], output['go_modules']))}",
             file=sys.stderr,
         )
     else:
@@ -352,7 +354,7 @@ def print_summary(output: dict[str, bool | list[str]], files: list[str]) -> None
 
     if output["has_java_changes"]:
         print(
-            f"✅ Java services changed: {', '.join(output['java_modules'])}",
+            f"✅ Java services changed: {', '.join(cast(list[str], output['java_modules']))}",
             file=sys.stderr,
         )
     else:
@@ -360,7 +362,7 @@ def print_summary(output: dict[str, bool | list[str]], files: list[str]) -> None
 
     if output["has_react_changes"]:
         print(
-            f"✅ React services changed: {', '.join(output['react_modules'])}",
+            f"✅ React services changed: {', '.join(cast(list[str], output['react_modules']))}",
             file=sys.stderr,
         )
     else:
