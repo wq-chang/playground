@@ -16,10 +16,9 @@ echo "✓ Java code formatted"
 echo ""
 
 # Format Frontend
-# TODO: Add Prettier or ESLint formatting for frontend code
-# echo "Formatting frontend..."
-# cd frontend && npm run format && cd - > /dev/null
-# echo "✓ Frontend code formatted"
-# echo ""
+echo "Formatting frontend..."
+cd frontend && npm run format && cd - >/dev/null
+echo "✓ Frontend code formatted"
+echo ""
 
 echo "=== Code formatting completed ==="
