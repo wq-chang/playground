@@ -4,7 +4,7 @@
 
 Ensure you have the following installed before starting:
 
-- **Go** 1.25 or higher
+- **Go** 1.26 or higher
 - **Java** 21 or higher (for services in `services/java`)
 - **Docker** and **Docker Compose**
 - **Node.js** (v24+) and npm

@@ -70,10 +70,10 @@ For a detailed explanation of the architecture and system design, see [docs/ARCH
 This project implements a microservices architecture with the following components:
 
 - **Backend (Go/Java)**: Data services handling business logic and persistence
-- **BFF (Node.js/Express)**: Backend-for-Frontend API layer providing REST endpoints
+- **BFF (Go)**: Backend-for-Frontend API layer providing REST endpoints
 - **Frontend (React)**: Modern UI consuming BFF APIs
 - **Keycloak**: Identity provider for authentication and authorization
-- **Data Layer**: PostgreSQL + NATS for event-driven communication
+- **Data Layer**: PostgreSQL + Kafka for event-driven communication
 
 For a comprehensive services catalog, API documentation, and deployment info, see [docs/SERVICES.md](docs/SERVICES.md).
 
