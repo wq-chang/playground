@@ -46,6 +46,7 @@ python3 .github/scripts/ci_detect_changes.py --base 0 --current HEAD
 **Directory structure:** `services/go/{bff,backend,library}`
 
 **Detection:**
+
 - Files matching `services/go/bff/*` → trigger BFF module tests
 - Files matching `services/go/backend/*` → trigger Backend module tests
 - Files matching `services/go/library/*` → trigger **all Go modules** (BFF + Backend depend on shared library)
@@ -55,7 +56,11 @@ python3 .github/scripts/ci_detect_changes.py --base 0 --current HEAD
 ```json
 {
   "has_go_changes": true,
-  "go_modules": ["./services/go/library", "./services/go/bff", "./services/go/backend"]
+  "go_modules": [
+    "./services/go/library",
+    "./services/go/bff",
+    "./services/go/backend"
+  ]
 }
 ```
 
@@ -64,11 +69,13 @@ python3 .github/scripts/ci_detect_changes.py --base 0 --current HEAD
 **Directory structure:** Maven multi-module at `services/java/`
 
 **Detection:**
+
 - Finds all `pom.xml` files in `services/java/`
 - For each changed file, locates closest ancestor `pom.xml`
 - Determines which Maven module owns the file
 
 **Example:**
+
 - Change in `services/java/keycloak-custom/keycloak-user-event-listener/src/Main.java`
 - Script finds `services/java/keycloak-custom/keycloak-user-event-listener/pom.xml` as closest ancestor
 - Outputs: `./services/java/keycloak-custom/keycloak-user-event-listener`
@@ -87,6 +94,7 @@ python3 .github/scripts/ci_detect_changes.py --base 0 --current HEAD
 **Directory structure:** Single frontend at `frontend/`
 
 **Detection:**
+
 - Any file matching `frontend/*` → trigger React tests
 
 **Output:**
@@ -101,6 +109,7 @@ python3 .github/scripts/ci_detect_changes.py --base 0 --current HEAD
 ### Branch Handling
 
 **New branch detection:**
+
 - If base SHA is all zeros (`0000000000000000000000000000000000000000`), script treats it as a new branch
 - Automatically uses `origin/main` as comparison base
 - Falls back to `origin/master` if `origin/main` doesn't exist
@@ -109,13 +118,13 @@ python3 .github/scripts/ci_detect_changes.py --base 0 --current HEAD
 
 ```yaml
 if [ "${{ github.event_name }}" == "pull_request" ]; then
-  BASE_SHA="${{ github.event.pull_request.base.sha }}"
-  CURRENT_SHA="${{ github.event.pull_request.head.sha }}"
+BASE_SHA="${{ github.event.pull_request.base.sha }}"
+CURRENT_SHA="${{ github.event.pull_request.head.sha }}"
 fi
 
 python3 .github/scripts/ci_detect_changes.py \
-  --base "$BASE_SHA" \
-  --current "$CURRENT_SHA"
+--base "$BASE_SHA" \
+--current "$CURRENT_SHA"
 ```
 
 ### Error Handling
@@ -177,6 +186,7 @@ test-go-modules:
 ```
 
 This means:
+
 - If no Go files changed: `test-go-modules` skipped (saves CI minutes)
 - If Go files changed: `test-go-modules` runs
 
@@ -240,13 +250,13 @@ python3 .github/scripts/ci_detect_changes.py \
 
 **Jobs executed:**
 
-| Job | Condition | Action |
-|-----|-----------|--------|
-| detect-changes | Always | ✅ Ran |
-| test-go-modules | has_go_changes = true | ✅ Ran for all three modules |
-| test-java-modules | has_java_changes = true | ❌ Skipped |
-| test-react-modules | has_react_changes = true | ❌ Skipped |
-| post | Always | ✅ Ran, generated summary |
+| Job                | Condition                | Action                       |
+| ------------------ | ------------------------ | ---------------------------- |
+| detect-changes     | Always                   | ✅ Ran                       |
+| test-go-modules    | has_go_changes = true    | ✅ Ran for all three modules |
+| test-java-modules  | has_java_changes = true  | ❌ Skipped                   |
+| test-react-modules | has_react_changes = true | ❌ Skipped                   |
+| post               | Always                   | ✅ Ran, generated summary    |
 
 ### Step 3: Summary
 
@@ -297,9 +307,9 @@ For a go library change:
 
 ```bash
 # Do what CI does for Go modules
-cd services/go/library && go test ./... && cd -
-cd services/go/bff && go test ./... && cd -
-cd services/go/backend && go test ./... && cd -
+cd services/go/library && gotestsum ./... && cd -
+cd services/go/bff && gotestsum ./... && cd -
+cd services/go/backend && gotestsum ./... && cd -
 ```
 
 Or use Makefile:

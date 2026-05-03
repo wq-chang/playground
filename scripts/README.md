@@ -104,6 +104,6 @@ Run a typical development workflow:
 
 ## Notes
 
-- All scripts exit with error status if any step fails (except test-all.sh which reports but doesn't exit on failure)
+- All scripts exit with error status if any step fails
 - Scripts assume they are run from the monorepo root directory
 - Each script changes to the appropriate service directory and returns to the previous directory

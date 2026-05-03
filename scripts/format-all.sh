@@ -5,7 +5,7 @@ echo ""
 
 # Format Go services
 echo "Formatting Go services..."
-cd services/go && gofmt -w . && golangci-lint run --fix && cd - >/dev/null
+cd services/go && golangci-lint fmt ./... && golangci-lint run --fix && cd - >/dev/null
 echo "✓ Go code formatted"
 echo ""
 

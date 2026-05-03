@@ -7,7 +7,7 @@ FAILED=0
 
 # Test Go services
 echo "Testing Go services..."
-if cd services/go && go test ./...; then
+if cd services/go && gotestsum ./...; then
 	echo "✓ Go tests passed"
 else
 	echo "✗ Go tests failed"

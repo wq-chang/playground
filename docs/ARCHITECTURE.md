@@ -72,7 +72,6 @@ flake.nix                        # Nix development environment
 - **Bundler**: Outputs optimized static assets
 - **API Client**: Axios or fetch-based client pointing to BFF
 - **State**: Zustand
-- Commands: `npm install`, `npm run dev`, `npm run build`
 
 ## Data Flow
 
@@ -92,7 +91,7 @@ Backend ↔ Event Bus (Kafka-ready) ↔ Event Handlers
 - **Frontend ↔ BFF**: RESTful HTTP with JSON
 - **BFF ↔ Backend**: gRPC for performance & type safety
 - **Services ↔ Keycloak**: HTTP or event-driven
-- **Event Distribution**: Async messages (Kafka/RabbitMQ) for state changes
+- **Event Distribution**: Async messages (Kafka) for state changes
 
 ## Dependency Management
 
@@ -131,7 +130,6 @@ Start with: `cd localmock && docker compose up`
 
 **Future Evolution**:
 
-- **Build System**: Migrate to Bazel for fast, incremental multi-language builds
 - **Service Mesh**: Istio or Linkerd for traffic management and observability
 - **Code Generation**: OpenAPI specs and Protocol Buffers for stronger contracts
 - **Observability**: Distributed tracing (OpenTelemetry), metrics (Prometheus), logs (ELK)

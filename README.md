@@ -45,21 +45,9 @@ npm run dev
 
 This monorepo contains multiple services and applications organized as follows:
 
-```
-playground/
-├── services/              # Backend services (Go & Java)
-│   ├── go/               # Go services
-│   └── java/             # Java services
-├── frontend/              # React frontend application
-├── localmock/            # Local development mocks & fixtures
-├── scripts/              # Build, test, lint, and format scripts
-├── docs/                 # Project documentation
-│   ├── ARCHITECTURE.md   # System architecture overview
-│   ├── SERVICES.md       # Services catalog & API specs
-│   └── DEVELOPMENT.md    # Development guide
-├── .github/workflows/    # CI/CD pipelines
-└── flake.nix            # Nix development environment
-```
+- `services/`: Backend logic split by language.
+- `frontend/`: React/TypeScript web application.
+- `localmock/`: Dockerized environment for local development.
 
 For a detailed explanation of the architecture and system design, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 

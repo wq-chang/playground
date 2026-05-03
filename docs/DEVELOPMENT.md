@@ -4,11 +4,17 @@
 
 Ensure you have the following installed before starting:
 
-- **Go** 1.26 or higher
-- **Java** 21 or higher (for services in `services/java`)
-- **Docker** and **Docker Compose**
-- **Node.js** (v24+) and npm
-- **Git**
+- **Runtimes**
+  - **Go** 1.26 or higher
+  - **Java** 21 or higher (for services in `services/java`)
+  - **Node.js** (v24+) and npm
+- **Infrastructure & DevOps**
+  - **Docker** and **Docker Compose**
+  - **Git**
+  - **Direnv** (for environment variable management)
+- **Go Tooling**
+  - **Golangci-lint**
+  - **Gotestsum**
 
 ## Quick Start
 
@@ -24,7 +30,7 @@ Ensure you have the following installed before starting:
 3. **Start Docker services**:
 
    ```bash
-   docker compose up -d
+   make local-up
    ```
 
 4. **Run individual services** - Follow the steps in the next section
@@ -59,7 +65,7 @@ The frontend will typically run on `http://localhost:5173` by default (Vite deve
 
 ### Database Migrations
 
-Check the service-specific `migrations/` directories. Run migrations using your service's typical approach (Go migrations via `migrate`, Java via Flyway, etc.).
+Check the service-specific `migrations/` directories. Run migrations using your service's typical approach (Go migrations via `goose`, Java via Flyway, etc.).
 
 ### Code Generation
 
@@ -73,7 +79,7 @@ Run code generation tools as documented in individual service READMEs.
 
 ```bash
 # Go tests
-cd services/go && go test ./...
+cd services/go && gotestsum ./...
 
 # Java tests
 cd services/java && mvn test

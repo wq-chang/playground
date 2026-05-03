@@ -69,7 +69,7 @@ test: test-go test-java test-frontend
 # Test Go services
 test-go:
 	@echo "Testing Go services..."
-	@cd services/go && go test ./... && cd - > /dev/null
+	@cd services/go && gotestsum ./... && cd - > /dev/null
 	@echo "✓ Go tests passed"
 
 # Test Java services
