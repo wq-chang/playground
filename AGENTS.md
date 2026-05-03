@@ -113,6 +113,7 @@ make build              # Build Go, Java, Frontend
 make build-go           # Go only
 make build-java         # Java/Maven only
 make build-frontend     # Frontend/Vite only
+make build-docker       # Build docker images
 
 # Test
 make test               # Run all tests (passWithNoTests flag for empty suites)
@@ -193,6 +194,7 @@ See `docs/CI.md` for detailed architecture.
 ### GitHub Actions Workflow
 
 The `.github/workflows/ci.yml` workflow:
+
 1. Detects changes on every PR and push to main
 2. Runs selective tests based on detection results
 3. Conditional job execution: `if: needs.detect-changes.outputs.has_*_changes == 'true'`
