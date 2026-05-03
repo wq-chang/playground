@@ -1,4 +1,4 @@
-.PHONY: help build build-go build-java build-frontend test test-go test-java test-frontend lint format clean local-up local-down dev
+.PHONY: help build build-go build-java build-frontend build-docker test test-go test-java test-frontend lint format clean local-up local-down dev
 
 # Variables
 SCRIPTS_DIR := scripts
@@ -8,10 +8,11 @@ help:
 	@echo "Makefile targets for playground project"
 	@echo ""
 	@echo "Build Targets:"
-	@echo "  make build              - Build all services (Go, Java, frontend)"
+	@echo "  make build              - Build all services (Go, Java, frontend, Docker)"
 	@echo "  make build-go           - Build Go services"
 	@echo "  make build-java         - Build Java services"
 	@echo "  make build-frontend     - Build frontend"
+	@echo "  make build-docker       - Build Docker images for local environment"
 	@echo ""
 	@echo "Test Targets:"
 	@echo "  make test               - Run tests for all services"
@@ -37,7 +38,7 @@ help:
 # ============================================================================
 
 # Build all services
-build: build-go build-java build-frontend
+build: build-go build-java build-frontend build-docker
 	@echo "✓ All services built successfully"
 
 # Build Go services
@@ -57,6 +58,12 @@ build-frontend:
 	@echo "Building frontend..."
 	@cd frontend && npm install && npm run build && cd - > /dev/null
 	@echo "✓ Frontend built successfully"
+
+# Build Docker images for local environment
+build-docker:
+	@echo "Building Docker images..."
+	@direnv exec localmock docker compose -f localmock/docker-compose.yml build
+	@echo "✓ Docker images built successfully"
 
 # ============================================================================
 # TEST TARGETS

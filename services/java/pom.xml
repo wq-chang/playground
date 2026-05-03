@@ -17,7 +17,7 @@
     <java.version>25</java.version>
     <junit.version>6.0.3</junit.version>
     <kafka.version>4.2.0</kafka.version>
-    <keycloak.version>26.6.0</keycloak.version>
+    <keycloak.version>26.6.1</keycloak.version>
     <mockito.version>5.23.0</mockito.version>
     <plugin.compiler.version>3.15.0</plugin.compiler.version>
     <plugin.jar.version>3.5.0</plugin.jar.version>
