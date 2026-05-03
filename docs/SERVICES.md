@@ -19,7 +19,7 @@ The user-facing single-page application built with React and TypeScript. Provide
 
 - Modern SPA architecture with React Router (TanStack Router)
 - TypeScript for type safety
-- Tailwind CSS for styling
+- Mantine UI for styling
 - Vite for fast development and builds
 - ESLint + Prettier for code quality
 
@@ -39,7 +39,7 @@ npm run test   # Run tests with vitest
 - TanStack Router
 - Vite
 - TypeScript
-- Tailwind CSS
+- Mantine
 
 **Integration**:
 
@@ -84,7 +84,6 @@ go run ./bff/cmd  # Run BFF server
 - `KEYCLOAK_URL`: Keycloak server URL
 - `KEYCLOAK_CLIENT_ID`: OAuth client ID
 - `KEYCLOAK_CLIENT_SECRET`: OAuth client secret
-- `KAFKA_BROKERS`: Comma-separated Kafka broker addresses
 - `LOG_LEVEL`: Logging level (debug, info, warn, error)
 
 **Integration**:
@@ -112,7 +111,7 @@ The core business logic service handling domain operations, data persistence, an
 - SQL-first approach with SQLC for type-safe queries
 - PostgreSQL as primary data store
 - Kafka consumer for event-driven workflows
-- Database migrations managed with goose
+- Database migrations managed with `goose`
 - Comprehensive error handling
 - Structured logging
 
@@ -147,7 +146,7 @@ go run ./backend/cmd  # Run Backend server
 
 ## Keycloak (Authentication Provider)
 
-**Technology**: Keycloak 26.6.0 (Java 21)
+**Technology**: Keycloak 26.6.1 (Java 21)
 
 **Description**:
 The centralized authentication and authorization service using the OpenID Connect/OAuth2 protocols. Provides user management, single sign-on, and custom event listeners via SPIs.
@@ -180,13 +179,13 @@ The Keycloak Custom module provides pluggable extensions to Keycloak:
 1. User/admin updates a user in Keycloak UI or via API
 2. Keycloak triggers EventListener SPI
 3. Custom SPI implementation captures the event
-4. Event is serialized and published to Kafka topic: `user-events`
+4. Event is serialized and published to Kafka topic: `iam.user.event.v1`
 5. Backend service consumes the event for processing
 
 **Configuration**:
 
 - Kafka brokers configured via environment variables in Keycloak deployment
-- Topic name: `user-events`
+- Topic name: `iam.user.event.v1`
 - Event types: USER_CREATE, USER_UPDATE, USER_DELETE
 
 **Dependencies**:
@@ -215,22 +214,22 @@ Shared packages used across all Go services (BFF, Backend). Provides utilities f
 
 **Packages**:
 
-| Package       | Purpose                                                    |
-| ------------- | ---------------------------------------------------------- |
-| `auth/`       | Token validation and JWT handling                          |
-| `kafka/`      | Kafka client utilities using franz-go                      |
-| `keycloak/`   | Keycloak integration helpers                               |
-| `transactor/` | Database transaction management with PostgreSQL support    |
-| `testenv/`    | Test environment setup (Kafka, PostgreSQL, Testcontainers) |
-| `gsync/`      | Goroutine synchronization utilities                        |
-| `cmd/`        | CLI utilities                                              |
-| `apperror/`   | Application error handling                                 |
-| `assert/`     | Testing assertions                                         |
-| `internal/`   | Internal utilities                                         |
-| `pretty/`     | Pretty printing utilities                                  |
-| `redact/`     | Data redaction for logs                                    |
-| `require/`    | Requirement checks                                         |
-| `testlogger/` | Structured logging for tests                               |
+| Package       | Purpose                                                       |
+| ------------- | ------------------------------------------------------------- |
+| `auth/`       | Token validation and JWT handling                             |
+| `kafka/`      | Kafka client utilities using franz-go                         |
+| `keycloak/`   | Keycloak integration helpers                                  |
+| `transactor/` | Database transaction management with PostgreSQL support       |
+| `testenv/`    | Test environment setup (Kafka, PostgreSQL, Testcontainers)    |
+| `gsync/`      | Type-safe wrappers for the standard synchronization utilities |
+| `cmd/`        | CLI utilities                                                 |
+| `apperror/`   | Application error handling                                    |
+| `assert/`     | Testing assertions                                            |
+| `internal/`   | Internal utilities                                            |
+| `pretty/`     | Pretty printing utilities                                     |
+| `redact/`     | Data redaction for logs                                       |
+| `require/`    | Requirement checks                                            |
+| `testlogger/` | Structured logging for tests                                  |
 
 **How to Use**:
 
@@ -259,7 +258,7 @@ Central Maven parent POM for all Java services. Manages dependency versions, plu
 **Key Features**:
 
 - Java 25 as default version (can be overridden per module)
-- Keycloak 26.6.0 parent imported for dependency management
+- Keycloak parent imported for dependency management
 - JUnit 5 (Jupiter) for testing
 - Common plugin versions (compiler, surefire, etc.)
 - Consistent build directory structure
@@ -279,7 +278,7 @@ Child modules can override the default Java version:
 </properties>
 ```
 
-Example: keycloak-custom/pom.xml overrides to Java 21 because Keycloak 26.6.0 requires Java 21.
+Example: keycloak-custom/pom.xml overrides to Java 21 because Keycloak requires Java 21.
 
 **How to Use**:
 
@@ -389,51 +388,6 @@ For local development:
 ## CI/CD Integration
 
 The monorepo uses **automatic change detection** for selective testing on every PR and push to main.
-
-### Service Detection
-
-CI identifies service changes based on directory structure:
-
-- **Go services:** `services/go/{bff,backend,library}`
-- **Java services:** `services/java/` (Maven modules identified by closest ancestor `pom.xml`)
-- **React services:** `frontend/`
-
-### Change-Triggered Testing
-
-| Change | Triggers |
-|--------|----------|
-| `services/go/bff/*` | Test BFF module |
-| `services/go/backend/*` | Test Backend module |
-| `services/go/library/*` | Test **all Go modules** (BFF, Backend depend on library) |
-| `services/java/keycloak-custom/*` | Test keycloak-custom Maven module |
-| `services/java/[other-module]/*` | Test that Maven module |
-| `frontend/*` | Test React application |
-
-### Before Pushing
-
-Always test locally:
-
-```bash
-make test          # Run all tests for changed services
-make build-go      # Build Go only
-make test-frontend # Test React only
-```
-
-Or validate what CI will test:
-
-```bash
-python3 .github/scripts/ci_detect_changes.py --base origin/main --current HEAD
-```
-
-### Library Changes
-
-When `services/go/library/` changes, **all Go services are rebuilt and tested** because they depend on the shared library. This prevents integration issues from library updates.
-
-**Example:** Updating `services/go/library/auth/token.go` triggers:
-- ✅ Test `./services/go/library`
-- ✅ Test `./services/go/bff` (depends on library)
-- ✅ Test `./services/go/backend` (depends on library)
-- ❌ Skip Java and React (no changes)
 
 ### CI Pipeline
 

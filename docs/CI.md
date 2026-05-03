@@ -374,5 +374,4 @@ make build && make test
 
 - **Change detection script:** `.github/scripts/ci_detect_changes.py`
 - **Workflow:** `.github/workflows/ci.yml`
-- **Contributing guide:** `.github/CONTRIBUTING.md`
 - **Monorepo conventions:** `AGENTS.md`
