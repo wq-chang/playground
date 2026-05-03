@@ -11,11 +11,11 @@
     "test": "vitest"
   },
   "dependencies": {
-    "@mantine/core": "^9.0.1",
+    "@mantine/core": "^9.1.1",
     "@mantine/hooks": "^9.0.1",
-    "@tanstack/react-router": "^1.168.14",
-    "keycloak-js": "^26.2.3",
-    "lucide-react": "^1.8.0",
+    "@tanstack/react-router": "^1.169.1",
+    "keycloak-js": "^26.2.4",
+    "lucide-react": "^1.14.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "zustand": "^5.0.12"
@@ -23,25 +23,25 @@
   "devDependencies": {
     "@eslint/js": "^9.39.4",
     "@ianvs/prettier-plugin-sort-imports": "^4.7.1",
-    "@tanstack/router-devtools": "^1.166.12",
-    "@tanstack/router-plugin": "^1.167.14",
+    "@tanstack/router-devtools": "^1.166.13",
+    "@tanstack/router-plugin": "^1.167.32",
     "@types/node": "^25.6.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
     "eslint": "^9.39.4",
     "eslint-plugin-react": "^7.37.5",
-    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",
-    "globals": "^17.4.0",
-    "jsdom": "^29.0.2",
-    "postcss": "^8.5.9",
+    "globals": "^17.6.0",
+    "jsdom": "^29.1.1",
+    "postcss": "^8.5.13",
     "postcss-preset-mantine": "^1.18.0",
     "postcss-simple-vars": "^7.0.1",
-    "prettier": "^3.8.2",
+    "prettier": "^3.8.3",
     "typescript": "~6.0.2",
-    "typescript-eslint": "^8.58.1",
-    "vite": "^8.0.8",
-    "vitest": "^4.1.4"
+    "typescript-eslint": "^8.59.1",
+    "vite": "^8.0.10",
+    "vitest": "^4.1.5"
   }
 }
