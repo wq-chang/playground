@@ -4,7 +4,7 @@
 
 Ensure you have the following installed before starting:
 
-- **Go** 1.26 or higher
+- **Go** 1.25 or higher
 - **Java** 21 or higher (for services in `services/java`)
 - **Docker** and **Docker Compose**
 - **Node.js** (v24+) and npm
@@ -35,7 +35,7 @@ Ensure you have the following installed before starting:
 
 ```bash
 cd services/go
-go run ./cmd/backend
+go run ./backend/cmd/backend
 ```
 
 ### Java Services
