@@ -1,0 +1,54 @@
+{
+  "$schema": "./node_modules/nx/schemas/nx-schema.json",
+  "analytics": false,
+  "nxCloudSettings": {
+    "computedValues": [],
+    "encryptionKey": null
+  },
+  "workspaceLayout": {
+    "libsDir": "services",
+    "appsDir": ""
+  },
+  "plugins": [],
+  "defaultBase": "main",
+  "defaultProject": null,
+  "cacheDirectory": ".nx/cache",
+  "targetDefaults": {
+    "build": {
+      "cache": true,
+      "dependsOn": ["^build"]
+    },
+    "test": {
+      "cache": true
+    },
+    "lint": {
+      "cache": true
+    }
+  },
+  "namedInputs": {
+    "default": ["{projectRoot}/**"],
+    "goCode": [
+      "{projectRoot}/**/*.go",
+      "{projectRoot}/go.mod",
+      "{projectRoot}/go.sum"
+    ],
+    "javaCode": [
+      "{projectRoot}/**/*.java",
+      "{projectRoot}/**/pom.xml"
+    ],
+    "typescriptCode": [
+      "{projectRoot}/**/*.ts",
+      "{projectRoot}/**/*.tsx",
+      "{projectRoot}/**/*.js",
+      "{projectRoot}/**/package.json"
+    ]
+  },
+  "inputExclusions": [
+    "**/.git/**",
+    "**/.nx/**",
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/target/**"
+  ]
+}

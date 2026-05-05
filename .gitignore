@@ -85,3 +85,8 @@ hs_e_
 .envrc.local
 .direnv/
 volume/
+
+
+
+.nx/cache
+.nx/workspace-data

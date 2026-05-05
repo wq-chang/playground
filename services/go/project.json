@@ -1,0 +1,32 @@
+{
+  "name": "go-services",
+  "projectType": "library",
+  "sourceRoot": "services/go",
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "make build-go",
+        "cwd": "."
+      },
+      "outputs": [],
+      "dependsOn": ["^build"]
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "make test-go",
+        "cwd": "."
+      },
+      "dependsOn": ["^build"]
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "cd services/go && golangci-lint run",
+        "cwd": "."
+      }
+    }
+  },
+  "tags": ["type:lib", "scope:backend", "language:go"]
+}

@@ -49,6 +49,13 @@
             terraform-local
           ];
 
+          shellHook = ''
+            if [ ! -d "node_modules" ]; then
+                echo "📦 node_modules not found. Installing..."
+                npm install
+              fi
+              export PATH="$PWD/node_modules/.bin:$PATH"
+          '';
           JAVA_HOME = "${projectJdk}/lib/openjdk";
         };
       }

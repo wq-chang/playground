@@ -1,0 +1,55 @@
+{
+  "name": "frontend",
+  "projectType": "application",
+  "sourceRoot": "frontend/src",
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npm run build",
+        "cwd": "frontend"
+      },
+      "outputs": ["{projectRoot}/dist"]
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npm test",
+        "cwd": "frontend"
+      }
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npm run lint",
+        "cwd": "frontend"
+      }
+    },
+    "dev": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npm run dev",
+        "cwd": "frontend",
+        "forwardAllArgs": true
+      }
+    },
+    "docker": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "docker build -f .docker/Dockerfile.frontend -t frontend:${GIT_SHA:-latest} -t frontend:latest .",
+        "cwd": "."
+      },
+      "dependsOn": ["build", "test", "lint"],
+      "outputs": []
+    },
+    "docker-push": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "docker push frontend:${GIT_SHA:-latest} && docker push frontend:latest",
+        "cwd": "."
+      },
+      "dependsOn": ["docker"]
+    }
+  },
+  "tags": ["type:app", "scope:frontend"]
+}

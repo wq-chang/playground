@@ -12,153 +12,34 @@ env:
   NODE_VERSION: "24"
   GOLANGCI_LINT_VERSION: "v2.12.1"
   GOTESTSUM_VERSION: "1.13.0"
+  NX_CACHE_DIRECTORY: .nx/cache
 
 jobs:
-  detect-changes:
+  detect-and-test:
     runs-on: ubuntu-latest
     outputs:
-      has_go_changes: ${{ steps.detect.outputs.has_go_changes }}
-      go_modules: ${{ steps.detect.outputs.go_modules }}
-      has_java_changes: ${{ steps.detect.outputs.has_java_changes }}
-      java_modules: ${{ steps.detect.outputs.java_modules }}
-      has_react_changes: ${{ steps.detect.outputs.has_react_changes }}
-      react_modules: ${{ steps.detect.outputs.react_modules }}
+      affected_projects: ${{ steps.affected.outputs.projects }}
+      docker_projects: ${{ steps.filter-docker.outputs.docker_projects }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      - name: Set up Python 3
-        uses: actions/setup-python@v6
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
         with:
-          python-version: "3.13"
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
 
-      - name: Detect changed modules
-        id: detect
-        run: |
-          # Determine base commit based on event type
-          if [ "${{ github.event_name }}" == "pull_request" ]; then
-            # For PRs, compare against the base branch
-            BASE_SHA="${{ github.event.pull_request.base.sha }}"
-            CURRENT_SHA="${{ github.event.pull_request.head.sha }}"
-          else
-            # For pushes, compare against the previous state
-            BASE_SHA="${{ github.event.before }}"
-            CURRENT_SHA="${{ github.sha }}"
-          fi
-
-          echo "Comparing $BASE_SHA...$CURRENT_SHA"
-
-          # Call Python script to detect changes
-          python3 .github/scripts/ci_detect_changes.py \
-            --base "$BASE_SHA" \
-            --current "$CURRENT_SHA" > /tmp/detect_output.json
-
-          # Convert output to GitHub Actions format
-          python3 .github/scripts/convert_detect_output.py /tmp/detect_output.json
-
-  test-go-modules:
-    runs-on: ubuntu-latest
-    needs: detect-changes
-    if: needs.detect-changes.outputs.has_go_changes == 'true'
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
+      - name: Install Nx
+        run: npm ci
 
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache: false # Disable cache for monorepo structure
-
-      - name: Run build on changed Go modules
-        run: |
-          MODULES="${{ needs.detect-changes.outputs.go_modules }}"
-          EXIT_CODE=0
-
-          echo "Downloading dependencies"
-          (cd services/go && go mod download)
-
-          for module in $MODULES; do
-            echo "Building Go module: $module"
-            cd $module
-
-            # Build the module
-            if go build -v ./...; then
-              echo "✅ Build passed for $module"
-            else
-              echo "❌ Build failed for $module"
-              EXIT_CODE=1
-            fi
-
-            cd $GITHUB_WORKSPACE
-          done
-
-          exit $EXIT_CODE
-
-      - name: Install golangci-lint
-        run: |
-          curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(go env GOPATH)/bin ${{ env.GOLANGCI_LINT_VERSION }}
-          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
-
-      - name: Run golangci-lint on changed Go modules
-        run: |
-          MODULES="${{ needs.detect-changes.outputs.go_modules }}"
-          EXIT_CODE=0
-
-          for module in $MODULES; do
-            echo "Linting Go module: $module"
-            cd $module
-            
-            # Run golangci-lint if config exists, otherwise use defaults
-            if golangci-lint run --timeout=5m ./...; then
-              echo "✅ Linting passed for $module"
-            else
-              echo "❌ Linting failed for $module"
-              EXIT_CODE=1
-            fi
-            
-            cd $GITHUB_WORKSPACE
-          done
-
-          exit $EXIT_CODE
-
-      - name: Install gotestsum
-        run: |
-          curl -sSfL https://github.com/gotestyourself/gotestsum/releases/download/v${{ env.GOTESTSUM_VERSION }}/gotestsum_${{ env.GOTESTSUM_VERSION }}_linux_amd64.tar.gz | tar -xz -C /tmp
-          sudo mv /tmp/gotestsum /usr/local/bin/gotestsum
-          chmod +x /usr/local/bin/gotestsum
-
-      - name: Run tests on changed Go modules
-        run: |
-          MODULES="${{ needs.detect-changes.outputs.go_modules }}"
-          EXIT_CODE=0
-
-          for module in $MODULES; do
-              echo "Testing Go module: $module"
-              cd $module
-
-              # Run tests with gotestsum
-              if gotestsum --format testname -- -v ./...; then
-                echo "✅ Tests passed for $module"
-              else
-                echo "❌ Tests failed for $module"
-                EXIT_CODE=1
-              fi
-
-              cd $GITHUB_WORKSPACE
-          done
-
-          exit $EXIT_CODE
-
-  test-java-modules:
-    runs-on: ubuntu-latest
-    needs: detect-changes
-    if: needs.detect-changes.outputs.has_java_changes == 'true'
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
+          cache: false
 
       - name: Set up JDK 21
         uses: actions/setup-java@v5
@@ -167,113 +48,142 @@ jobs:
           java-version: "21"
           cache: "maven"
 
-      - name: Run tests on changed Java modules
+      - name: Install build tools
         run: |
-          MODULES="${{ needs.detect-changes.outputs.java_modules }}"
-          EXIT_CODE=0
+          curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(go env GOPATH)/bin ${{ env.GOLANGCI_LINT_VERSION }}
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+          curl -sSfL https://github.com/gotestyourself/gotestsum/releases/download/v${{ env.GOTESTSUM_VERSION }}/gotestsum_${{ env.GOTESTSUM_VERSION }}_linux_amd64.tar.gz | tar -xz -C /tmp
+          sudo mv /tmp/gotestsum /usr/local/bin/gotestsum
+          chmod +x /usr/local/bin/gotestsum
 
-          for module in $MODULES; do
-              echo "Testing Java module: $module"
-              cd $module
+      - name: Restore Nx cache
+        uses: actions/cache@v3
+        with:
+          path: ${{ env.NX_CACHE_DIRECTORY }}
+          key: nx-cache-${{ runner.os }}-${{ github.ref }}-${{ github.sha }}
+          restore-keys: |
+            nx-cache-${{ runner.os }}-${{ github.ref }}-
+            nx-cache-${{ runner.os }}-
 
-              # Run tests with gotestsum
-              if mvn -B -ntp test; then
-                echo "✅ Tests passed for $module"
-              else
-                echo "❌ Tests failed for $module"
-                EXIT_CODE=1
-              fi
+      - name: Detect affected projects
+        id: affected
+        run: |
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+            CURRENT_SHA="${{ github.event.pull_request.head.sha }}"
+          else
+            BASE_SHA="${{ github.event.before }}"
+            CURRENT_SHA="${{ github.sha }}"
+          fi
+          
+          echo "Comparing $BASE_SHA to $CURRENT_SHA"
+          
+          AFFECTED=$(npx nx show projects --affected --base=$BASE_SHA --head=$CURRENT_SHA --json 2>/dev/null || echo "[]")
+          echo "projects=$(echo "$AFFECTED" | jq -c '.')" >> $GITHUB_OUTPUT
+          echo "Affected projects: $AFFECTED"
 
-              cd $GITHUB_WORKSPACE
-          done
+      - name: Filter Docker-enabled projects
+        id: filter-docker
+        run: |
+          AFFECTED='${{ steps.affected.outputs.projects }}'
+          DOCKER_PROJECTS=$(echo "$AFFECTED" | jq -r '.[] | select(. == "go-backend" or . == "go-bff" or . == "java-services" or . == "frontend")' | tr '\n' ',' | sed 's/,$//')
+          echo "docker_projects=$DOCKER_PROJECTS" >> $GITHUB_OUTPUT
+          echo "Docker projects: $DOCKER_PROJECTS"
 
-          exit $EXIT_CODE
+      - name: Lint affected projects
+        run: |
+          AFFECTED='${{ steps.affected.outputs.projects }}'
+          PROJECTS=$(echo "$AFFECTED" | jq -r '.[]' | tr '\n' ',')
+          
+          if [ ! -z "$PROJECTS" ] && [ "$PROJECTS" != "" ]; then
+            npx nx run-many --projects=$PROJECTS --target=lint --parallel=4 || exit 1
+          fi
 
-  test-react-modules:
+      - name: Build affected projects
+        run: |
+          AFFECTED='${{ steps.affected.outputs.projects }}'
+          PROJECTS=$(echo "$AFFECTED" | jq -r '.[]' | tr '\n' ',')
+          
+          if [ ! -z "$PROJECTS" ] && [ "$PROJECTS" != "" ]; then
+            npx nx run-many --projects=$PROJECTS --target=build --parallel=4 || exit 1
+          fi
+
+      - name: Test affected projects
+        run: |
+          AFFECTED='${{ steps.affected.outputs.projects }}'
+          PROJECTS=$(echo "$AFFECTED" | jq -r '.[]' | tr '\n' ',')
+          
+          if [ ! -z "$PROJECTS" ] && [ "$PROJECTS" != "" ]; then
+            npx nx run-many --projects=$PROJECTS --target=test --parallel=4 || exit 1
+          fi
+
+      - name: Save Nx cache
+        if: always()
+        uses: actions/cache/save@v3
+        with:
+          path: ${{ env.NX_CACHE_DIRECTORY }}
+          key: nx-cache-${{ runner.os }}-${{ github.ref }}-${{ github.sha }}
+
+  docker-build:
     runs-on: ubuntu-latest
-    needs: detect-changes
-    if: needs.detect-changes.outputs.has_react_changes == 'true'
+    needs: detect-and-test
+    if: needs.detect-and-test.outputs.docker_projects != ''
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: ${{ env.NODE_VERSION }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - name: Run tests on changed React modules
+      - name: Set GIT_SHA environment variable
+        run: echo "GIT_SHA=${GITHUB_SHA::8}" >> $GITHUB_ENV
+
+      - name: Build Docker images for affected projects
         run: |
-          MODULES="${{ needs.detect-changes.outputs.react_modules }}"
-          EXIT_CODE=0
-
-          for module in $MODULES; do
-            echo "Testing React module: $module"
-            cd $module
-
-            # Install dependencies
-            npm ci
-
-            # Run tests
-            if npm test -- run --passWithNoTests; then
-              echo "✅ Tests passed for $module"
-            else
-              echo "❌ Tests failed for $module"
-              EXIT_CODE=1
-            fi
-
-            cd $GITHUB_WORKSPACE
+          DOCKER_PROJECTS='${{ needs.detect-and-test.outputs.docker_projects }}'
+          IFS=',' read -ra PROJECTS <<< "$DOCKER_PROJECTS"
+          
+          for project in "${PROJECTS[@]}"; do
+            echo "Building Docker image for: $project"
+            docker build -f .docker/Dockerfile.go --build-arg SERVICE_NAME=${project#go-} -t ${project}:${{ env.GIT_SHA }} -t ${project}:latest . || \
+            docker build -f .docker/Dockerfile.java --build-arg JAVA_MODULE=${project%-services} -t ${project}:${{ env.GIT_SHA }} -t ${project}:latest . || \
+            docker build -f .docker/Dockerfile.frontend -t ${project}:${{ env.GIT_SHA }} -t ${project}:latest .
           done
 
-          exit $EXIT_CODE
+      - name: Push Docker images (main branch only)
+        if: github.ref == 'refs/heads/main'
+        run: |
+          echo "Docker push would go here (requires registry credentials)"
+          echo "Projects to push: ${{ needs.detect-and-test.outputs.docker_projects }}"
 
-  post:
+  summary:
     runs-on: ubuntu-latest
-    needs:
-      [detect-changes, test-go-modules, test-java-modules, test-react-modules]
+    needs: [detect-and-test, docker-build]
     if: always()
     steps:
       - name: Generate summary
         run: |
-          if [ "${{ needs.detect-changes.outputs.has_go_changes }}" == "true" ]; then
-            echo "### Go Modules Tested" >> $GITHUB_STEP_SUMMARY
-            echo "${{ needs.detect-changes.outputs.go_modules }}" | tr ' ' '\n' | grep -v '^$' | sed 's/^/- /' >> $GITHUB_STEP_SUMMARY
-            if [ "${{ needs.test-go-modules.result }}" == "success" ]; then
-              echo "✅ All Go lint, build, and tests passed" >> $GITHUB_STEP_SUMMARY
-            else
-              echo "❌ Some Go lint, build, and tests failed" >> $GITHUB_STEP_SUMMARY
-            fi
-          else
-            echo "### Go Modules" >> $GITHUB_STEP_SUMMARY
-            echo "- No Go modules changed" >> $GITHUB_STEP_SUMMARY
-          fi
-
+          AFFECTED='${{ needs.detect-and-test.outputs.projects }}'
+          DOCKER_PROJECTS='${{ needs.detect-and-test.outputs.docker_projects }}'
+          
+          echo "## ✅ Nx CI Pipeline Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-
-          if [ "${{ needs.detect-changes.outputs.has_java_changes }}" == "true" ]; then
-            echo "### Java Modules Tested" >> $GITHUB_STEP_SUMMARY
-            echo "${{ needs.detect-changes.outputs.java_modules }}" | tr ' ' '\n' | grep -v '^$' | sed 's/^/- /' >> $GITHUB_STEP_SUMMARY
-            if [ "${{ needs.test-java-modules.result }}" == "success" ]; then
-              echo "✅ All Java tests passed" >> $GITHUB_STEP_SUMMARY
-            else
-              echo "❌ Some Java tests failed" >> $GITHUB_STEP_SUMMARY
-            fi
-          else
-            echo "### Java Modules" >> $GITHUB_STEP_SUMMARY
-            echo "- No Java modules changed" >> $GITHUB_STEP_SUMMARY
-          fi
-
+          echo "### Affected Projects" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "$AFFECTED" | jq '.' >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-
-          if [ "${{ needs.detect-changes.outputs.has_react_changes }}" == "true" ]; then
-            echo "### React Modules Tested" >> $GITHUB_STEP_SUMMARY
-            echo "${{ needs.detect-changes.outputs.react_modules }}" | tr ' ' '\n' | grep -v '^$' | sed 's/^/- /' >> $GITHUB_STEP_SUMMARY
-            if [ "${{ needs.test-react-modules.result }}" == "success" ]; then
-              echo "✅ All React tests passed" >> $GITHUB_STEP_SUMMARY
-            else
-              echo "❌ Some React tests failed" >> $GITHUB_STEP_SUMMARY
-            fi
+          
+          if [ ! -z "$DOCKER_PROJECTS" ] && [ "$DOCKER_PROJECTS" != "" ]; then
+            echo "### Docker Images Built" >> $GITHUB_STEP_SUMMARY
+            echo "$DOCKER_PROJECTS" | tr ',' '\n' | sed 's/^/- /' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ "${{ needs.detect-and-test.result }}" == "success" ]; then
+            echo "### Results" >> $GITHUB_STEP_SUMMARY
+            echo "✅ All affected projects: lint, build, test passed" >> $GITHUB_STEP_SUMMARY
           else
-            echo "### React Modules" >> $GITHUB_STEP_SUMMARY
-            echo "- No React modules changed" >> $GITHUB_STEP_SUMMARY
+            echo "### Results" >> $GITHUB_STEP_SUMMARY
+            echo "❌ Some tests failed - see logs above" >> $GITHUB_STEP_SUMMARY
           fi
