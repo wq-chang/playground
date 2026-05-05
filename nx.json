@@ -11,7 +11,6 @@
   },
   "plugins": [],
   "defaultBase": "main",
-  "defaultProject": null,
   "cacheDirectory": ".nx/cache",
   "targetDefaults": {
     "build": {
@@ -32,10 +31,7 @@
       "{projectRoot}/go.mod",
       "{projectRoot}/go.sum"
     ],
-    "javaCode": [
-      "{projectRoot}/**/*.java",
-      "{projectRoot}/**/pom.xml"
-    ],
+    "javaCode": ["{projectRoot}/**/*.java", "{projectRoot}/**/pom.xml"],
     "typescriptCode": [
       "{projectRoot}/**/*.ts",
       "{projectRoot}/**/*.tsx",

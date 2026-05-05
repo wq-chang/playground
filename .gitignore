@@ -40,8 +40,6 @@ dist/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-package-lock.json
-yarn.lock
 
 # ====================
 # TypeScript build info files
@@ -87,6 +85,10 @@ hs_e_
 volume/
 
 
-
+# ====================
+# nx
+# ====================
+.nx/installation
 .nx/cache
 .nx/workspace-data
+.nx/self-healing
