@@ -4,12 +4,12 @@ echo ""
 
 cd "$(git rev-parse --show-toplevel)" || exit 1
 
-# Check Dockerfiles
-echo "📦 Dockerfiles:"
-[ -f .docker/Dockerfile.go ] && echo "  ✓ Dockerfile.go" || echo "  ✗ Dockerfile.go MISSING"
-[ -f .docker/Dockerfile.java ] && echo "  ✓ Dockerfile.java" || echo "  ✗ Dockerfile.java MISSING"
-[ -f .docker/Dockerfile.frontend ] && echo "  ✓ Dockerfile.frontend" || echo "  ✗ Dockerfile.frontend MISSING"
-[ -f .docker/nginx.conf ] && echo "  ✓ nginx.conf" || echo "  ✗ nginx.conf MISSING"
+# Check Dockerfiles (distributed approach)
+echo "📦 Dockerfiles (distributed per project):"
+[ -f frontend/Dockerfile ] && echo "  ✓ frontend/Dockerfile" || echo "  ✗ frontend/Dockerfile MISSING"
+[ -f services/go/backend/Dockerfile ] && echo "  ✓ services/go/backend/Dockerfile" || echo "  ✗ services/go/backend/Dockerfile MISSING"
+[ -f services/go/bff/Dockerfile ] && echo "  ✓ services/go/bff/Dockerfile" || echo "  ✗ services/go/bff/Dockerfile MISSING"
+[ -f services/java/Dockerfile ] && echo "  ✓ services/java/Dockerfile" || echo "  ✗ services/java/Dockerfile MISSING"
 echo ""
 
 # Check project.json files
@@ -61,5 +61,11 @@ else
   echo "  ✗ Nx not working"
 fi
 echo ""
+
+# Check for centralized .docker directory (should be deleted)
+if [ -d .docker ]; then
+  echo "⚠️  WARNING: Centralized .docker/ directory still exists (should be deleted)"
+  echo ""
+fi
 
 echo "✅ Verification complete!"
