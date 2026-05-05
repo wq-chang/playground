@@ -2,7 +2,7 @@
 FROM maven:3.9-eclipse-temurin-21 AS builder
 WORKDIR /app
 
-# Copy pom.xml
+# Copy pom files
 COPY services/java/pom.xml .
 
 # Download dependencies
@@ -11,17 +11,15 @@ RUN mvn dependency:resolve
 # Copy source
 COPY services/java .
 
-# Build the application (ARG to specify which module)
-ARG JAVA_MODULE=reporting-service
-RUN mvn clean package -DskipTests -pl ${JAVA_MODULE} -am
+# Build all Java modules
+RUN mvn clean package -DskipTests
 
-# Runtime stage
+# Runtime stage - uses first built JAR
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 
-# Copy JAR from builder
-ARG JAVA_MODULE=reporting-service
-COPY --from=builder /app/${JAVA_MODULE}/target/*.jar app.jar
+# Copy JAR from builder (can be customized per deployment)
+COPY --from=builder /app/target/*.jar app.jar
 
 EXPOSE 8080
 ENTRYPOINT ["java", "-jar", "app.jar"]

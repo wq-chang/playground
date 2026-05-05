@@ -30,7 +30,7 @@
     "docker": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "docker build -f .docker/Dockerfile.go --build-arg SERVICE_NAME=bff -t go-bff:${GIT_SHA:-latest} -t go-bff:latest .",
+        "command": "docker build -f services/go/bff/Dockerfile -t go-bff:${GIT_SHA:-latest} -t go-bff:latest .",
         "cwd": "."
       },
       "dependsOn": ["build", "test", "lint"],

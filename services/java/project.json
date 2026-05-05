@@ -28,7 +28,7 @@
     "docker": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "docker build -f .docker/Dockerfile.java --build-arg JAVA_MODULE=reporting-service -t java-reporting:${GIT_SHA:-latest} -t java-reporting:latest .",
+        "command": "docker build -f services/java/Dockerfile -t java-services:${GIT_SHA:-latest} -t java-services:latest .",
         "cwd": "."
       },
       "dependsOn": ["build", "test", "lint"],
@@ -37,7 +37,7 @@
     "docker-push": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "docker push java-reporting:${GIT_SHA:-latest} && docker push java-reporting:latest",
+        "command": "docker push java-services:${GIT_SHA:-latest} && docker push java-services:latest",
         "cwd": "."
       },
       "dependsOn": ["docker"]

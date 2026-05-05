@@ -21,8 +21,5 @@ WORKDIR /usr/share/nginx/html
 # Copy built assets
 COPY --from=builder /app/dist .
 
-# Copy nginx config
-COPY .docker/nginx.conf /etc/nginx/conf.d/default.conf
-
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]

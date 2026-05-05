@@ -145,9 +145,20 @@ jobs:
           
           for project in "${PROJECTS[@]}"; do
             echo "Building Docker image for: $project"
-            docker build -f .docker/Dockerfile.go --build-arg SERVICE_NAME=${project#go-} -t ${project}:${{ env.GIT_SHA }} -t ${project}:latest . || \
-            docker build -f .docker/Dockerfile.java --build-arg JAVA_MODULE=${project%-services} -t ${project}:${{ env.GIT_SHA }} -t ${project}:latest . || \
-            docker build -f .docker/Dockerfile.frontend -t ${project}:${{ env.GIT_SHA }} -t ${project}:latest .
+            case $project in
+              go-backend)
+                docker build -f services/go/backend/Dockerfile -t $project:${{ env.GIT_SHA }} -t $project:latest . || exit 1
+                ;;
+              go-bff)
+                docker build -f services/go/bff/Dockerfile -t $project:${{ env.GIT_SHA }} -t $project:latest . || exit 1
+                ;;
+              java-services)
+                docker build -f services/java/Dockerfile -t $project:${{ env.GIT_SHA }} -t $project:latest . || exit 1
+                ;;
+              frontend)
+                docker build -f frontend/Dockerfile -t $project:${{ env.GIT_SHA }} -t $project:latest . || exit 1
+                ;;
+            esac
           done
 
       - name: Push Docker images (main branch only)
