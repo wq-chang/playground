@@ -6,45 +6,41 @@
     "build": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "cd services/go/bff && go build -v ./...",
-        "cwd": "."
-      },
-      "dependsOn": ["^build"],
-      "outputs": []
+        "command": "go build -v ./...",
+        "cwd": "services/go/bff"
+      }
     },
     "test": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "cd services/go/bff && gotestsum --format testname -- -v ./...",
-        "cwd": "."
+        "cwd": "services/go/bff",
+        "command": "gotestsum --format testname -- -v ./..."
       },
       "dependsOn": ["^build"]
     },
     "lint": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "cd services/go/bff && golangci-lint run ./...",
-        "cwd": "."
+        "command": "golangci-lint run ./...",
+        "cwd": "services/go/bff"
       }
     },
     "docker": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "docker build -f services/go/bff/Dockerfile -t go-bff:${GIT_SHA:-latest} -t go-bff:latest .",
-        "cwd": "."
+        "command": "docker build -t go-bff:${GIT_SHA:-latest} -t go-bff:latest .",
+        "cwd": "services/go/bff"
       },
-      "dependsOn": ["build", "test", "lint"],
-      "outputs": []
+      "dependsOn": ["build", "test", "lint"]
     },
     "docker-push": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "docker push go-bff:${GIT_SHA:-latest} && docker push go-bff:latest",
-        "cwd": "."
+        "command": "docker push go-bff:${GIT_SHA:-latest} && docker push go-bff:latest"
       },
       "dependsOn": ["docker"]
     }
   },
-  "implicitDependencies": ["go-library"],
+  "implicitDependencies": ["go-services", "go-library"],
   "tags": ["type:app", "scope:backend", "language:go"]
 }

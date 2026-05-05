@@ -6,10 +6,11 @@
     "lint": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "cd services/go/library && golangci-lint run",
-        "cwd": "."
+        "command": "golangci-lint run",
+        "cwd": "services/go/library"
       }
     }
   },
+  "implicitDependencies": ["go-services"],
   "tags": ["type:lib", "scope:backend", "language:go", "shared:true"]
 }

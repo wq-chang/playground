@@ -6,45 +6,41 @@
     "build": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "cd services/go/backend && go build -v ./...",
-        "cwd": "."
-      },
-      "dependsOn": ["^build"],
-      "outputs": []
+        "command": "go build -v ./...",
+        "cwd": "services/go/backend"
+      }
     },
     "test": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "cd services/go/backend && gotestsum --format testname -- -v ./...",
-        "cwd": "."
+        "command": "gotestsum --format testname -- -v ./...",
+        "cwd": "services/go/backend"
       },
       "dependsOn": ["^build"]
     },
     "lint": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "cd services/go/backend && golangci-lint run ./...",
-        "cwd": "."
+        "command": "golangci-lint run ./...",
+        "cwd": "services/go/backend"
       }
     },
     "docker": {
       "executor": "nx:run-commands",
       "options": {
         "command": "docker build -f services/go/backend/Dockerfile -t go-backend:${GIT_SHA:-latest} -t go-backend:latest .",
-        "cwd": "."
+        "cwd": "services/go/backend"
       },
-      "dependsOn": ["build", "test", "lint"],
-      "outputs": []
+      "dependsOn": ["build", "test", "lint"]
     },
     "docker-push": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "docker push go-backend:${GIT_SHA:-latest} && docker push go-backend:latest",
-        "cwd": "."
+        "command": "docker push go-backend:${GIT_SHA:-latest} && docker push go-backend:latest"
       },
       "dependsOn": ["docker"]
     }
   },
-  "implicitDependencies": ["go-library"],
+  "implicitDependencies": ["go-services", "go-library"],
   "tags": ["type:app", "scope:backend", "language:go"]
 }

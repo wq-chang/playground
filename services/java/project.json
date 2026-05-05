@@ -6,32 +6,39 @@
     "build": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "make build-java"
-      }
+        "command": "make build-java",
+        "cwd": "."
+      },
+      "outputs": []
     },
     "test": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "make test-java"
+        "command": "make test-java",
+        "cwd": "."
       }
     },
     "lint": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "cd services/java && mvn spotless:check"
+        "command": "cd services/java && mvn spotless:check",
+        "cwd": "."
       }
     },
     "docker": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "docker build -f services/java/Dockerfile -t java-services:${GIT_SHA:-latest} -t java-services:latest ."
+        "command": "docker build -f services/java/Dockerfile -t java-services:${GIT_SHA:-latest} -t java-services:latest .",
+        "cwd": "."
       },
-      "dependsOn": ["build", "test", "lint"]
+      "dependsOn": ["build", "test", "lint"],
+      "outputs": []
     },
     "docker-push": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "docker push java-services:${GIT_SHA:-latest} && docker push java-services:latest"
+        "command": "docker push java-services:${GIT_SHA:-latest} && docker push java-services:latest",
+        "cwd": "."
       },
       "dependsOn": ["docker"]
     }
