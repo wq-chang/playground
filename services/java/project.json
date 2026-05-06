@@ -1,46 +1,53 @@
 {
   "name": "java-services",
   "projectType": "library",
+  "root": "services/java",
   "sourceRoot": "services/java",
   "targets": {
+    "build-java": {
+      "metadata": {
+        "hidden": true
+      }
+    },
+    "test-java": {
+      "metadata": {
+        "hidden": true
+      }
+    },
+    "lint-java": {
+      "metadata": {
+        "hidden": true
+      }
+    },
+    "docker-java": {
+      "metadata": {
+        "hidden": true
+      }
+    },
+    "docker-push-java": {
+      "metadata": {
+        "hidden": true
+      }
+    },
     "build": {
-      "executor": "nx:run-commands",
-      "options": {
-        "command": "make build-java",
-        "cwd": "."
-      },
-      "outputs": []
+      "executor": "nx:noop",
+      "dependsOn": ["build-java"]
     },
     "test": {
-      "executor": "nx:run-commands",
-      "options": {
-        "command": "make test-java",
-        "cwd": "."
-      }
+      "executor": "nx:noop",
+      "dependsOn": ["test-java"]
     },
     "lint": {
-      "executor": "nx:run-commands",
-      "options": {
-        "command": "cd services/java && mvn spotless:check",
-        "cwd": "."
-      }
+      "executor": "nx:noop",
+      "dependsOn": ["lint-java"]
     },
     "docker": {
-      "executor": "nx:run-commands",
-      "options": {
-        "command": "docker build -f services/java/Dockerfile -t java-services:${GIT_SHA:-latest} -t java-services:latest .",
-        "cwd": "."
-      },
-      "dependsOn": ["build", "test", "lint"],
-      "outputs": []
+      "executor": "nx:noop",
+      "dependsOn": ["docker-java"]
     },
     "docker-push": {
-      "executor": "nx:run-commands",
-      "options": {
-        "command": "docker push java-services:${GIT_SHA:-latest} && docker push java-services:latest",
-        "cwd": "."
-      },
-      "dependsOn": ["docker"]
+      "executor": "nx:noop",
+      "dependsOn": ["docker-push-java"]
     }
   },
   "tags": ["type:lib", "scope:backend", "language:java"]

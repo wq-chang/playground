@@ -1,6 +1,7 @@
 {
   "name": "frontend",
   "projectType": "application",
+  "root": "frontend",
   "sourceRoot": "frontend/src",
   "targets": {
     "install": {
@@ -10,27 +11,20 @@
         "cwd": "frontend"
       }
     },
+    "build-web": {},
     "build": {
-      "executor": "nx:run-commands",
-      "options": {
-        "command": "npm run build",
-        "cwd": "frontend"
-      },
-      "outputs": ["{projectRoot}/dist"]
+      "executor": "nx:noop",
+      "dependsOn": ["build-web"]
     },
+    "test-web": {},
     "test": {
-      "executor": "nx:run-commands",
-      "options": {
-        "command": "npm test -- run --passWithNoTests",
-        "cwd": "frontend"
-      }
+      "executor": "nx:noop",
+      "dependsOn": ["test-web"]
     },
+    "lint-web": {},
     "lint": {
-      "executor": "nx:run-commands",
-      "options": {
-        "command": "npm run lint",
-        "cwd": "frontend"
-      }
+      "executor": "nx:noop",
+      "dependsOn": ["lint-web"]
     },
     "dev": {
       "executor": "nx:run-commands",
@@ -40,22 +34,15 @@
         "forwardAllArgs": true
       }
     },
+    "docker-web": {},
     "docker": {
-      "executor": "nx:run-commands",
-      "options": {
-        "command": "docker build -f frontend/Dockerfile -t frontend:${GIT_SHA:-latest} -t frontend:latest .",
-        "cwd": "."
-      },
-      "dependsOn": ["build", "test", "lint"],
-      "outputs": []
+      "executor": "nx:noop",
+      "dependsOn": ["docker-web"]
     },
+    "docker-push-web": {},
     "docker-push": {
-      "executor": "nx:run-commands",
-      "options": {
-        "command": "docker push frontend:${GIT_SHA:-latest} && docker push frontend:latest",
-        "cwd": "."
-      },
-      "dependsOn": ["docker"]
+      "executor": "nx:noop",
+      "dependsOn": ["docker-push-web"]
     }
   },
   "tags": ["type:app", "scope:frontend"]

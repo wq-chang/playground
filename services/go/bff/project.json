@@ -1,44 +1,33 @@
 {
   "name": "go-bff",
   "projectType": "application",
+  "root": "services/go/bff",
   "sourceRoot": "services/go/bff",
   "targets": {
+    "build-go": {},
     "build": {
-      "executor": "nx:run-commands",
-      "options": {
-        "command": "go build -v ./...",
-        "cwd": "services/go/bff"
-      }
+      "dependsOn": ["build-go"],
+      "executor": "nx:noop"
     },
+    "test-go": {},
     "test": {
-      "executor": "nx:run-commands",
-      "options": {
-        "cwd": "services/go/bff",
-        "command": "gotestsum --format testname -- -v ./..."
-      },
-      "dependsOn": ["^build"]
+      "dependsOn": ["test-go"],
+      "executor": "nx:noop"
     },
+    "lint-go": {},
     "lint": {
-      "executor": "nx:run-commands",
-      "options": {
-        "command": "golangci-lint run ./...",
-        "cwd": "services/go/bff"
-      }
+      "dependsOn": ["lint-go"],
+      "executor": "nx:noop"
     },
+    "docker-go": {},
     "docker": {
-      "executor": "nx:run-commands",
-      "options": {
-        "command": "docker build -t go-bff:${GIT_SHA:-latest} -t go-bff:latest .",
-        "cwd": "services/go/bff"
-      },
-      "dependsOn": ["build", "test", "lint"]
+      "dependsOn": ["docker-go"],
+      "executor": "nx:noop"
     },
+    "docker-push-go": {},
     "docker-push": {
-      "executor": "nx:run-commands",
-      "options": {
-        "command": "docker push go-bff:${GIT_SHA:-latest} && docker push go-bff:latest"
-      },
-      "dependsOn": ["docker"]
+      "dependsOn": ["docker-push-go"],
+      "executor": "nx:noop"
     }
   },
   "implicitDependencies": ["go-services", "go-library"],

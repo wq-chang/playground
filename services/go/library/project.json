@@ -1,14 +1,13 @@
 {
   "name": "go-library",
   "projectType": "library",
+  "root": "services/go/library",
   "sourceRoot": "services/go/library",
   "targets": {
+    "lint-go": {},
     "lint": {
-      "executor": "nx:run-commands",
-      "options": {
-        "command": "golangci-lint run",
-        "cwd": "services/go/library"
-      }
+      "dependsOn": ["lint-go"],
+      "executor": "nx:noop"
     }
   },
   "implicitDependencies": ["go-services"],

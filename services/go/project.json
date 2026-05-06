@@ -1,6 +1,7 @@
 {
   "name": "go-services",
   "projectType": "library",
+  "root": "services/go",
   "sourceRoot": "services/go",
   "tags": ["type:lib", "scope:backend", "language:go"]
 }

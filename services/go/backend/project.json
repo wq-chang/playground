@@ -1,44 +1,33 @@
 {
   "name": "go-backend",
   "projectType": "application",
+  "root": "services/go/backend",
   "sourceRoot": "services/go/backend",
   "targets": {
+    "build-go": {},
     "build": {
-      "executor": "nx:run-commands",
-      "options": {
-        "command": "go build -v ./...",
-        "cwd": "services/go/backend"
-      }
+      "dependsOn": ["build-go"],
+      "executor": "nx:noop"
     },
+    "test-go": {},
     "test": {
-      "executor": "nx:run-commands",
-      "options": {
-        "command": "gotestsum --format testname -- -v ./...",
-        "cwd": "services/go/backend"
-      },
-      "dependsOn": ["^build"]
+      "dependsOn": ["test-go"],
+      "executor": "nx:noop"
     },
+    "lint-go": {},
     "lint": {
-      "executor": "nx:run-commands",
-      "options": {
-        "command": "golangci-lint run ./...",
-        "cwd": "services/go/backend"
-      }
+      "dependsOn": ["lint-go"],
+      "executor": "nx:noop"
     },
+    "docker-go": {},
     "docker": {
-      "executor": "nx:run-commands",
-      "options": {
-        "command": "docker build -f services/go/backend/Dockerfile -t go-backend:${GIT_SHA:-latest} -t go-backend:latest .",
-        "cwd": "services/go/backend"
-      },
-      "dependsOn": ["build", "test", "lint"]
+      "dependsOn": ["docker-go"],
+      "executor": "nx:noop"
     },
+    "docker-push-go": {},
     "docker-push": {
-      "executor": "nx:run-commands",
-      "options": {
-        "command": "docker push go-backend:${GIT_SHA:-latest} && docker push go-backend:latest"
-      },
-      "dependsOn": ["docker"]
+      "dependsOn": ["docker-push-go"],
+      "executor": "nx:noop"
     }
   },
   "implicitDependencies": ["go-services", "go-library"],

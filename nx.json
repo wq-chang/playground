@@ -22,6 +22,167 @@
     },
     "lint": {
       "cache": true
+    },
+    "build-go": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "dependsOn": [
+        "^build-go"
+      ],
+      "options": {
+        "command": "go build -v ./...",
+        "cwd": "{projectRoot}"
+      },
+      "outputs": []
+    },
+    "test-go": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "dependsOn": [
+        "^build-go"
+      ],
+      "options": {
+        "command": "gotestsum --format testname -- -v ./...",
+        "cwd": "{projectRoot}"
+      }
+    },
+    "lint-go": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "options": {
+        "command": "golangci-lint run ./...",
+        "cwd": "{projectRoot}"
+      }
+    },
+    "docker-go": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        "build-go",
+        "test-go",
+        "lint-go"
+      ],
+      "options": {
+        "command": "docker build -f {projectRoot}/Dockerfile -t {projectName}:${GIT_SHA:-latest} -t {projectName}:latest .",
+        "cwd": "."
+      },
+      "outputs": []
+    },
+    "docker-push-go": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        "docker-go"
+      ],
+      "options": {
+        "command": "docker push {projectName}:${GIT_SHA:-latest} && docker push {projectName}:latest",
+        "cwd": "."
+      },
+      "outputs": []
+    },
+    "build-java": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "dependsOn": [
+        "^build-java"
+      ],
+      "options": {
+        "command": "mvn clean package -DskipTests",
+        "cwd": "{projectRoot}"
+      },
+      "outputs": []
+    },
+    "test-java": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "options": {
+        "command": "mvn test",
+        "cwd": "{projectRoot}"
+      }
+    },
+    "lint-java": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "options": {
+        "command": "mvn spotless:check",
+        "cwd": "{projectRoot}"
+      }
+    },
+    "docker-java": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        "build-java",
+        "test-java",
+        "lint-java"
+      ],
+      "options": {
+        "command": "docker build -f {projectRoot}/Dockerfile -t {projectName}:${GIT_SHA:-latest} -t {projectName}:latest .",
+        "cwd": "."
+      },
+      "outputs": []
+    },
+    "docker-push-java": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        "docker-java"
+      ],
+      "options": {
+        "command": "docker push {projectName}:${GIT_SHA:-latest} && docker push {projectName}:latest",
+        "cwd": "."
+      },
+      "outputs": []
+    },
+    "build-web": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "dependsOn": [
+        "^build-web"
+      ],
+      "options": {
+        "command": "npm run build",
+        "cwd": "{projectRoot}"
+      },
+      "outputs": [
+        "{projectRoot}/dist"
+      ]
+    },
+    "test-web": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "options": {
+        "command": "npm test -- run --passWithNoTests",
+        "cwd": "{projectRoot}"
+      }
+    },
+    "lint-web": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "options": {
+        "command": "npm run lint",
+        "cwd": "{projectRoot}"
+      }
+    },
+    "docker-web": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        "build-web",
+        "test-web",
+        "lint-web"
+      ],
+      "options": {
+        "command": "docker build -f {projectRoot}/Dockerfile -t {projectName}:${GIT_SHA:-latest} -t {projectName}:latest .",
+        "cwd": "."
+      },
+      "outputs": []
+    },
+    "docker-push-web": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        "docker-web"
+      ],
+      "options": {
+        "command": "docker push {projectName}:${GIT_SHA:-latest} && docker push {projectName}:latest",
+        "cwd": "."
+      },
+      "outputs": []
     }
   },
   "namedInputs": {
