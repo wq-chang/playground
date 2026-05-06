@@ -1,0 +1,25 @@
+{
+  "name": "keycloak-custom",
+  "projectType": "library",
+  "root": "services/java/keycloak-custom",
+  "sourceRoot": "services/java/keycloak-custom",
+  "targets": {
+    "install-java": {},
+    "install": {
+      "executor": "nx:noop",
+      "dependsOn": ["install-java"]
+    },
+    "format-java": {},
+    "format": {
+      "executor": "nx:noop",
+      "dependsOn": ["format-java"]
+    },
+    "lint-java": {},
+    "lint": {
+      "dependsOn": ["lint-java"],
+      "executor": "nx:noop"
+    }
+  },
+  "implicitDependencies": ["java-services"],
+  "tags": ["type:lib", "scope:backend", "language:java", "platform:keycloak"]
+}

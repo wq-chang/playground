@@ -1,0 +1,34 @@
+{
+  "name": "go-backend",
+  "projectType": "application",
+  "root": "services/go/backend",
+  "sourceRoot": "services/go/backend",
+  "targets": {
+    "build-go": {},
+    "build": {
+      "dependsOn": ["build-go"],
+      "executor": "nx:noop"
+    },
+    "test-go": {},
+    "test": {
+      "dependsOn": ["test-go"],
+      "executor": "nx:noop"
+    },
+    "format-go": {},
+    "format": {
+      "dependsOn": ["format-go"],
+      "executor": "nx:noop"
+    },
+    "lint-go": {},
+    "lint": {
+      "dependsOn": ["lint-go"],
+      "executor": "nx:noop"
+    },
+    "docker": {
+      "dependsOn": ["build", "test", "lint"]
+    },
+    "docker-push": {}
+  },
+  "implicitDependencies": ["go-services", "go-library"],
+  "tags": ["type:app", "scope:backend", "language:go"]
+}

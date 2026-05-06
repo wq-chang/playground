@@ -1,0 +1,24 @@
+{
+  "name": "java-services",
+  "projectType": "library",
+  "root": "services/java",
+  "sourceRoot": "services/java",
+  "targets": {
+    "install-java": {},
+    "install": {
+      "executor": "nx:noop",
+      "dependsOn": ["install-java"]
+    },
+    "format-java": {},
+    "format": {
+      "executor": "nx:noop",
+      "dependsOn": ["format-java"]
+    },
+    "lint-java": {},
+    "lint": {
+      "dependsOn": ["lint-java"],
+      "executor": "nx:noop"
+    }
+  },
+  "tags": ["type:lib", "scope:backend", "language:java", "shared:true"]
+}

@@ -1,0 +1,200 @@
+{
+  "$schema": "./node_modules/nx/schemas/nx-schema.json",
+  "analytics": false,
+  "nxCloudSettings": {
+    "computedValues": [],
+    "encryptionKey": null
+  },
+  "workspaceLayout": {
+    "libsDir": "services",
+    "appsDir": ""
+  },
+  "plugins": [],
+  "defaultBase": "main",
+  "cacheDirectory": ".nx/cache",
+  "targetDefaults": {
+    "build": {
+      "cache": true,
+      "dependsOn": ["^build"]
+    },
+    "test": {
+      "cache": true
+    },
+    "lint": {
+      "cache": true
+    },
+    "install-go": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "go mod download",
+        "cwd": "{projectRoot}"
+      },
+      "outputs": []
+    },
+    "format-go": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "golangci-lint fmt ./...",
+        "cwd": "{projectRoot}"
+      },
+      "outputs": []
+    },
+    "build-go": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "dependsOn": ["^build-go"],
+      "options": {
+        "command": "go build -v ./...",
+        "cwd": "{projectRoot}"
+      },
+      "outputs": []
+    },
+    "test-go": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "dependsOn": ["^build-go"],
+      "options": {
+        "command": "gotestsum --format testname -- -v ./...",
+        "cwd": "{projectRoot}"
+      }
+    },
+    "lint-go": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "options": {
+        "command": "golangci-lint run ./... --allow-parallel-runners ",
+        "cwd": "{projectRoot}"
+      }
+    },
+    "install-java": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "mvn -B -ntp -N dependency:go-offline",
+        "cwd": "{projectRoot}"
+      },
+      "outputs": []
+    },
+    "format-java": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "mvn -B -ntp -N spotless:apply",
+        "cwd": "{projectRoot}"
+      },
+      "outputs": []
+    },
+    "build-java": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "dependsOn": ["^build-java"],
+      "options": {
+        "command": "mvn -B -ntp clean package -DskipTests",
+        "cwd": "{projectRoot}"
+      },
+      "outputs": []
+    },
+    "test-java": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "options": {
+        "command": "mvn -B -ntp test",
+        "cwd": "{projectRoot}"
+      }
+    },
+    "lint-java": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "options": {
+        "command": "mvn -B -ntp -N spotless:check",
+        "cwd": "{projectRoot}"
+      }
+    },
+    "build-web": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "dependsOn": ["^build-web"],
+      "options": {
+        "command": "npm run build",
+        "cwd": "{projectRoot}"
+      },
+      "outputs": ["{projectRoot}/dist"]
+    },
+    "install-web": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "npm ci",
+        "cwd": "{projectRoot}"
+      },
+      "outputs": []
+    },
+    "format-web": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "npm run format",
+        "cwd": "{projectRoot}"
+      },
+      "outputs": []
+    },
+    "test-web": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "options": {
+        "command": "npm test -- run --passWithNoTests",
+        "cwd": "{projectRoot}"
+      }
+    },
+    "lint-web": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "options": {
+        "command": "npm run lint",
+        "cwd": "{projectRoot}"
+      }
+    },
+    "docker": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "docker build -f {projectRoot}/Dockerfile -t {projectName}:${GIT_SHA:-latest} -t {projectName}:latest .",
+        "cwd": "."
+      },
+      "outputs": []
+    },
+    "docker-push": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["docker"],
+      "options": {
+        "command": "docker push {projectName}:${GIT_SHA:-latest} && docker push {projectName}:latest",
+        "cwd": "."
+      },
+      "outputs": []
+    }
+  },
+  "namedInputs": {
+    "default": ["{projectRoot}/**"],
+    "goCode": [
+      "{projectRoot}/**/*.go",
+      "{projectRoot}/go.mod",
+      "{projectRoot}/go.sum"
+    ],
+    "javaCode": ["{projectRoot}/**/*.java", "{projectRoot}/**/pom.xml"],
+    "typescriptCode": [
+      "{projectRoot}/**/*.ts",
+      "{projectRoot}/**/*.tsx",
+      "{projectRoot}/**/*.js",
+      "{projectRoot}/**/package.json"
+    ]
+  },
+  "inputExclusions": [
+    "**/.git/**",
+    "**/.nx/**",
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/target/**"
+  ]
+}

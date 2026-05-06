@@ -151,7 +151,7 @@ go run ./backend/cmd  # Run Backend server
 **Description**:
 The centralized authentication and authorization service using the OpenID Connect/OAuth2 protocols. Provides user management, single sign-on, and custom event listeners via SPIs.
 
-**Location**: `/services/java/keycloak-custom` (custom SPIs)
+**Location**: `/services/java/keycloak-custom` (custom SPIs and Keycloak image packaging)
 
 **Port**: 7777 (development)
 
@@ -165,6 +165,9 @@ The centralized authentication and authorization service using the OpenID Connec
 
 **Custom SPIs**:
 The Keycloak Custom module provides pluggable extensions to Keycloak:
+
+- Parent module: `/services/java/keycloak-custom/pom.xml`
+- Image packaging project: `/services/java/keycloak-custom/image`
 
 ### Keycloak User Event Listener SPI
 
@@ -191,14 +194,22 @@ The Keycloak Custom module provides pluggable extensions to Keycloak:
 **Dependencies**:
 
 - Keycloak Server libraries (Java 21)
-- Kafka client (franz-go via Gradle)
-- SLF4J for logging
+- Apache Kafka client (`kafka-clients`)
+- JBoss Logging / Keycloak logging
 
 **How to Build**:
 
 ```bash
 cd services/java/keycloak-custom
 mvn clean package
+
+# Build a single SPI module
+cd keycloak-user-event-listener
+mvn clean package
+cd ..
+
+# Build the packaged Keycloak image from the repository root
+docker build -f services/java/keycloak-custom/image/Dockerfile -t keycloak-custom-image:latest .
 ```
 
 ---
@@ -254,6 +265,13 @@ Shared packages used across all Go services (BFF, Backend). Provides utilities f
 
 **Purpose**:
 Central Maven parent POM for all Java services. Manages dependency versions, plugin configurations, and provides consistent build settings across Java modules.
+
+**Nx Relationship**:
+
+- `java-services` tracks the root parent POM
+- `keycloak-custom` tracks the Keycloak SPI parent POM
+- each SPI has its own Nx project for granular affected builds
+- `keycloak-custom-image` packages all SPI jars into a single Keycloak container build
 
 **Key Features**:
 

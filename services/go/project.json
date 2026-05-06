@@ -1,0 +1,25 @@
+{
+  "name": "go-services",
+  "projectType": "library",
+  "root": "services/go",
+  "sourceRoot": "services/go",
+  "targets": {
+    "install-go": {},
+    "install": {
+      "executor": "nx:noop",
+      "dependsOn": ["install-go"]
+    },
+    "format-go": {},
+    "format": {
+      "executor": "nx:noop",
+      "dependsOn": ["format-go"]
+    },
+    "docker": {
+      "executor": "nx:noop"
+    },
+    "docker-push": {
+      "executor": "nx:noop"
+    }
+  },
+  "tags": ["type:lib", "scope:backend", "language:go"]
+}

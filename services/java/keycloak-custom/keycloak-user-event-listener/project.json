@@ -1,0 +1,35 @@
+{
+  "name": "keycloak-user-event-listener",
+  "projectType": "library",
+  "root": "services/java/keycloak-custom/keycloak-user-event-listener",
+  "sourceRoot": "services/java/keycloak-custom/keycloak-user-event-listener/src",
+  "targets": {
+    "install-java": {},
+    "install": {
+      "dependsOn": ["install-java"],
+      "executor": "nx:noop"
+    },
+    "format-java": {},
+    "format": {
+      "dependsOn": ["format-java"],
+      "executor": "nx:noop"
+    },
+    "build-java": {},
+    "build": {
+      "dependsOn": ["build-java"],
+      "executor": "nx:noop"
+    },
+    "test-java": {},
+    "test": {
+      "dependsOn": ["test-java"],
+      "executor": "nx:noop"
+    },
+    "lint-java": {},
+    "lint": {
+      "dependsOn": ["lint-java"],
+      "executor": "nx:noop"
+    }
+  },
+  "implicitDependencies": ["keycloak-custom"],
+  "tags": ["type:lib", "scope:backend", "language:java", "platform:keycloak"]
+}

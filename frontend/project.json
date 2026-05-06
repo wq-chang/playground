@@ -1,0 +1,46 @@
+{
+  "name": "frontend",
+  "projectType": "application",
+  "root": "frontend",
+  "sourceRoot": "frontend/src",
+  "targets": {
+    "install-web": {},
+    "install": {
+      "executor": "nx:noop",
+      "dependsOn": ["install-web"]
+    },
+    "format-web": {},
+    "format": {
+      "executor": "nx:noop",
+      "dependsOn": ["format-web"]
+    },
+    "build-web": {},
+    "build": {
+      "executor": "nx:noop",
+      "dependsOn": ["build-web"]
+    },
+    "test-web": {},
+    "test": {
+      "executor": "nx:noop",
+      "dependsOn": ["test-web"]
+    },
+    "lint-web": {},
+    "lint": {
+      "executor": "nx:noop",
+      "dependsOn": ["lint-web"]
+    },
+    "dev": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npm run dev",
+        "cwd": "frontend",
+        "forwardAllArgs": true
+      }
+    },
+    "docker": {
+      "dependsOn": ["build", "test", "lint"]
+    },
+    "docker-push": {}
+  },
+  "tags": ["type:app", "scope:frontend", "language:ts"]
+}

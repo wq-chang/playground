@@ -49,8 +49,8 @@ services:
   keycloak:
     container_name: keycloak
     build:
-      context: ../services/java
-      dockerfile: keycloak-custom/Dockerfile
+      context: ..
+      dockerfile: services/java/keycloak-custom/image/Dockerfile
     command: ["start-dev"]
     environment:
       KC_DB: postgres

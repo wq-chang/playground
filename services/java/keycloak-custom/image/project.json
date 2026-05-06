@@ -1,0 +1,12 @@
+{
+  "name": "keycloak-custom-image",
+  "projectType": "application",
+  "root": "services/java/keycloak-custom/image",
+  "sourceRoot": "services/java/keycloak-custom/image",
+  "targets": {
+    "docker": {},
+    "docker-push": {}
+  },
+  "implicitDependencies": ["keycloak-custom", "keycloak-user-event-listener"],
+  "tags": ["type:app", "scope:backend", "language:java", "platform:keycloak"]
+}
