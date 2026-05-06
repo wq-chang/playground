@@ -1,147 +1,22 @@
 # CI Pipeline Architecture
 
-This document describes the Playground CI/CD system, including change detection, selective testing, and workflow execution.
+This document describes the current Nx-based CI/CD flow for the Playground monorepo.
 
 ---
 
 ## Overview
 
-The CI pipeline automatically detects which services changed and runs selective tests to speed up feedback. This is critical for a polyglot monorepo where not all changes require full test suite execution.
+The repository uses **Nx affected project detection** to limit lint, build, test, and Docker packaging work to the projects touched by a change. The current pipeline does not rely on the older Python change-detection script for CI execution.
 
 **Key components:**
 
-- **Change Detection Script** (`.github/scripts/ci_detect_changes.py`) - Identifies which services changed
-- **GitHub Actions Workflow** (`.github/workflows/ci.yml`) - Executes conditional jobs based on detection results
-- **Local Testing** - Developers can test detection locally before pushing
+- **Nx project graph** - determines which projects are affected by a change
+- **GitHub Actions CI workflow** (`.github/workflows/ci.yml`) - runs lint/build/test on affected projects
+- **GitHub Actions CD workflow** (`.github/workflows/cd.yml`) - identifies deployable affected projects after CI succeeds
 
 ---
 
-## Change Detection Script
-
-### Location
-
-`.github/scripts/ci_detect_changes.py`
-
-### Purpose
-
-Compares two git refs and determines which services (Go, Java, React) have changes. Outputs JSON for GitHub Actions workflow consumption.
-
-### Usage
-
-```bash
-# Compare current branch against origin/main
-python3 .github/scripts/ci_detect_changes.py --base origin/main --current HEAD
-
-# Compare specific commits
-python3 .github/scripts/ci_detect_changes.py --base abc1234 --current def5678
-
-# For new branches (no base commit)
-python3 .github/scripts/ci_detect_changes.py --base 0 --current HEAD
-```
-
-### Detection Logic
-
-#### Go Services
-
-**Directory structure:** `services/go/{bff,backend,library}`
-
-**Detection:**
-
-- Files matching `services/go/bff/*` → trigger BFF module tests
-- Files matching `services/go/backend/*` → trigger Backend module tests
-- Files matching `services/go/library/*` → trigger **all Go modules** (BFF + Backend depend on shared library)
-
-**Output:**
-
-```json
-{
-  "has_go_changes": true,
-  "go_modules": [
-    "./services/go/library",
-    "./services/go/bff",
-    "./services/go/backend"
-  ]
-}
-```
-
-#### Java Services
-
-**Directory structure:** Maven multi-module at `services/java/`
-
-**Detection:**
-
-- Finds all `pom.xml` files in `services/java/`
-- For each changed file, locates closest ancestor `pom.xml`
-- Determines which Maven module owns the file
-
-**Example:**
-
-- Change in `services/java/keycloak-custom/keycloak-user-event-listener/src/Main.java`
-- Script finds `services/java/keycloak-custom/keycloak-user-event-listener/pom.xml` as closest ancestor
-- Outputs: `./services/java/keycloak-custom/keycloak-user-event-listener`
-
-**Output:**
-
-```json
-{
-  "has_java_changes": true,
-  "java_modules": ["./services/java/keycloak-custom"]
-}
-```
-
-#### React Services
-
-**Directory structure:** Single frontend at `frontend/`
-
-**Detection:**
-
-- Any file matching `frontend/*` → trigger React tests
-
-**Output:**
-
-```json
-{
-  "has_react_changes": true,
-  "react_modules": ["./frontend"]
-}
-```
-
-### Branch Handling
-
-**New branch detection:**
-
-- If base SHA is all zeros (`0000000000000000000000000000000000000000`), script treats it as a new branch
-- Automatically uses `origin/main` as comparison base
-- Falls back to `origin/master` if `origin/main` doesn't exist
-
-**Example in CI:**
-
-```yaml
-if [ "${{ github.event_name }}" == "pull_request" ]; then
-BASE_SHA="${{ github.event.pull_request.base.sha }}"
-CURRENT_SHA="${{ github.event.pull_request.head.sha }}"
-fi
-
-python3 .github/scripts/ci_detect_changes.py \
---base "$BASE_SHA" \
---current "$CURRENT_SHA"
-```
-
-### Error Handling
-
-- If git command fails: Prints error to stderr, exits with code 1
-- If ref doesn't exist: Raises `RuntimeError` with helpful message
-- Script outputs both JSON (stdout) and human-readable summary (stderr)
-
-**Example error output:**
-
-```
-❌ Error: Base ref 'origin/main' does not exist
-```
-
----
-
-## GitHub Actions Workflow
+## CI Workflow
 
 ### Location
 
@@ -149,114 +24,153 @@ python3 .github/scripts/ci_detect_changes.py \
 
 ### Trigger Events
 
-- **Pull requests:** All PRs trigger change detection + selective tests
-- **Push to main:** Pushes to main branch trigger change detection + selective tests
-- **Pull request contexts:** Check out `github.event.pull_request.base.sha` (base branch) and `github.event.pull_request.head.sha` (PR branch)
-- **Push contexts:** Check out `github.event.before` (previous state) and `github.sha` (current commit)
+- Pull requests
+- Pushes to `main`
 
-### Job Structure
+### High-Level Flow
 
+1. Install toolchains (Node, Go, Java) and Nx.
+2. Compute the affected project list with:
+
+   ```bash
+   npx nx show projects --affected --base=<base-sha> --head=<head-sha> --json
+   ```
+
+3. Run `lint`, `build`, and `test` only for affected projects.
+4. Filter the affected list down to Docker-enabled projects.
+5. Build Docker images once per affected deployable project.
+6. Publish a workflow summary.
+
+### Current Docker-Enabled Projects
+
+- `go-backend`
+- `go-bff`
+- `frontend`
+- `keycloak-custom-image`
+
+---
+
+## Java / Keycloak Project Graph
+
+The Java area is intentionally split between Maven inheritance and Nx dependency orchestration.
+
+### Maven Hierarchy
+
+```text
+services/java/pom.xml
+└── services/java/keycloak-custom/pom.xml
+    └── services/java/keycloak-custom/keycloak-user-event-listener/pom.xml
 ```
-detect-changes (always runs)
-├─ detect-go-changes: true/false
-├─ go_modules: ["./services/go/..."]
-│
-test-go-modules (if go_changes)
-├─ Runs golangci-lint
-├─ Runs go build
-├─ Runs go test
-│
-test-java-modules (if java_changes)
-├─ Runs mvn test
-│
-test-react-modules (if react_changes)
-├─ Runs npm test
-│
-post (always runs, after all tests)
-└─ Generates GitHub Actions summary
+
+- `services/java/pom.xml` owns shared Java dependency and plugin versions.
+- `services/java/keycloak-custom/pom.xml` owns Keycloak-family defaults and the Java 21 override.
+- Each SPI owns its own module POM and artifact packaging.
+
+### Nx Projects
+
+```text
+java-services
+└── keycloak-custom
+    └── keycloak-user-event-listener
+        └── keycloak-custom-image
 ```
 
-### Conditional Job Execution
+- `java-services` tracks the root Java parent POM.
+- `keycloak-custom` tracks the Keycloak SPI parent POM.
+- Each SPI is its own Nx project with Maven-scoped build/test/lint targets.
+- `keycloak-custom-image` is the single Docker packaging project for the final Keycloak image.
 
-Jobs use GitHub Actions `if` conditions:
+### Why the Image Project Is Separate
 
-```yaml
-test-go-modules:
-  if: needs.detect-changes.outputs.has_go_changes == 'true'
-```
+The final Keycloak image is **not** another Maven parent/module. It is a downstream Nx/Docker project that packages the SPI jars into one Keycloak container image. That separation keeps the Maven dependency tree clean while still letting Nx propagate affected changes all the way to packaging.
 
-This means:
+---
 
-- If no Go files changed: `test-go-modules` skipped (saves CI minutes)
-- If Go files changed: `test-go-modules` runs
+## Affected Build Behavior
 
-### Summary Generation
+### Root Java Parent Change
 
-The `post` job generates a markdown summary for GitHub:
+If `services/java/pom.xml` changes:
 
-```
-### Go Modules Tested
-- ./services/go/library
-- ./services/go/bff
-- ./services/go/backend
-✅ All Go lint, build, and tests passed
+- `java-services` becomes affected directly
+- `keycloak-custom` becomes affected through Nx dependencies
+- all SPI projects become affected
+- `keycloak-custom-image` becomes affected
 
-### Java Modules Tested
-- No Java modules changed
+Result: the SPI modules are rebuilt and the final Keycloak image is packaged once.
 
-### React Modules Tested
-- ./frontend
-✅ All React tests passed
+### Keycloak Parent Change
+
+If `services/java/keycloak-custom/pom.xml` changes:
+
+- `keycloak-custom` becomes affected directly
+- SPI projects become affected
+- `keycloak-custom-image` becomes affected
+
+Result: SPI work stays granular, but the final image is still built exactly once.
+
+### Single SPI Change
+
+If only `services/java/keycloak-custom/keycloak-user-event-listener/**` changes:
+
+- only `keycloak-user-event-listener` is affected directly
+- `keycloak-custom-image` becomes affected downstream
+
+Result: only the changed SPI is built/tested/linted, and the image packaging step still runs once.
+
+### Multiple SPI Changes in One PR
+
+If several SPI modules change in the same PR:
+
+- each changed SPI is included in the affected set
+- `keycloak-custom-image` appears once in the affected project list
+
+Result: Docker packaging happens once per CI run, not once per SPI.
+
+---
+
+## CD Workflow
+
+### Location
+
+`.github/workflows/cd.yml`
+
+### Purpose
+
+The CD workflow runs after CI completes successfully on `main`. It computes the affected projects again and filters them to deployable projects.
+
+For Java / Keycloak work, the deployable project is:
+
+- `keycloak-custom-image`
+
+This preserves SPI-level change detection while keeping deployment centered on the single final Keycloak image.
+
+---
+
+## Local Verification Commands
+
+```bash
+# Show all Nx projects
+npx nx show projects
+
+# Show affected projects between two refs
+npx nx show projects --affected --base=origin/main --head=HEAD --json
+
+# Build/test/lint one SPI
+npx nx run keycloak-user-event-listener:build
+npx nx run keycloak-user-event-listener:test
+npx nx run keycloak-user-event-listener:lint
+
+# Build the packaged Keycloak image
+npx nx run keycloak-custom-image:docker
 ```
 
 ---
 
-## Complete Example: Library Change
+## Notes
 
-### Scenario
-
-Developer modifies `services/go/library/auth/token.go` and pushes PR.
-
-### Step 1: Change Detection
-
-```bash
-python3 .github/scripts/ci_detect_changes.py \
-  --base main \
-  --current pr-branch
-```
-
-**Files changed:** `services/go/library/auth/token.go`
-
-**Detection output:**
-
-```json
-{
-  "has_go_changes": true,
-  "go_modules": [
-    "./services/go/library",
-    "./services/go/bff",
-    "./services/go/backend"
-  ],
-  "has_java_changes": false,
-  "java_modules": [],
-  "has_react_changes": false,
-  "react_modules": []
-}
-```
-
-**Why three modules?** Because BFF and Backend depend on the shared library, they must be retested.
-
-### Step 2: Workflow Execution
-
-**Jobs executed:**
-
-| Job                | Condition                | Action                       |
-| ------------------ | ------------------------ | ---------------------------- |
-| detect-changes     | Always                   | ✅ Ran                       |
-| test-go-modules    | has_go_changes = true    | ✅ Ran for all three modules |
-| test-java-modules  | has_java_changes = true  | ❌ Skipped                   |
-| test-react-modules | has_react_changes = true | ❌ Skipped                   |
-| post               | Always                   | ✅ Ran, generated summary    |
+- The legacy `.github/scripts/ci_detect_changes.py` script remains in the repository as a standalone utility, but the primary CI workflow uses Nx affected projects.
+- Parent Java Nx projects intentionally use no-op `build`, `test`, and `lint` targets. Their job is to propagate change impact, not to duplicate the heavy Maven work already performed by child SPI projects.
 
 ### Step 3: Summary
 

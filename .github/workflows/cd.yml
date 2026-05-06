@@ -36,7 +36,7 @@ jobs:
           echo "projects=$(echo "$AFFECTED" | jq -c '.')" >> $GITHUB_OUTPUT
           
           # Filter deployable projects
-          DEPLOYABLE=$(echo "$AFFECTED" | jq -r '.[] | select(. == "go-backend" or . == "go-bff" or . == "java-services" or . == "frontend")' | tr '\n' ',' | sed 's/,$//')
+          DEPLOYABLE=$(echo "$AFFECTED" | jq -r '.[] | select(. == "go-backend" or . == "go-bff" or . == "keycloak-custom-image" or . == "frontend")' | tr '\n' ',' | sed 's/,$//')
           echo "deployable=$DEPLOYABLE" >> $GITHUB_OUTPUT
 
       - name: Deploy affected projects

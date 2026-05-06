@@ -1,8 +1,8 @@
 {
-  "name": "java-services",
+  "name": "keycloak-custom",
   "projectType": "library",
-  "root": "services/java",
-  "sourceRoot": "services/java",
+  "root": "services/java/keycloak-custom",
+  "sourceRoot": "services/java/keycloak-custom",
   "targets": {
     "build": {
       "executor": "nx:noop"
@@ -20,5 +20,6 @@
       "executor": "nx:noop"
     }
   },
-  "tags": ["type:lib", "scope:backend", "language:java", "shared:true"]
+  "implicitDependencies": ["java-services"],
+  "tags": ["type:lib", "scope:backend", "language:java", "platform:keycloak"]
 }

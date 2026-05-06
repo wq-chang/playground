@@ -86,7 +86,7 @@ jobs:
         id: filter-docker
         run: |
           AFFECTED='${{ steps.affected.outputs.projects }}'
-          DOCKER_PROJECTS=$(echo "$AFFECTED" | jq -r '.[] | select(. == "go-backend" or . == "go-bff" or . == "java-services" or . == "frontend")' | tr '\n' ',' | sed 's/,$//')
+          DOCKER_PROJECTS=$(echo "$AFFECTED" | jq -r '.[] | select(. == "go-backend" or . == "go-bff" or . == "keycloak-custom-image" or . == "frontend")' | tr '\n' ',' | sed 's/,$//')
           echo "docker_projects=$DOCKER_PROJECTS" >> $GITHUB_OUTPUT
           echo "Docker projects: $DOCKER_PROJECTS"
 
@@ -152,8 +152,8 @@ jobs:
               go-bff)
                 docker build -f services/go/bff/Dockerfile -t $project:${{ env.GIT_SHA }} -t $project:latest . || exit 1
                 ;;
-              java-services)
-                docker build -f services/java/Dockerfile -t $project:${{ env.GIT_SHA }} -t $project:latest . || exit 1
+              keycloak-custom-image)
+                docker build -f services/java/keycloak-custom/image/Dockerfile -t $project:${{ env.GIT_SHA }} -t $project:latest . || exit 1
                 ;;
               frontend)
                 docker build -f frontend/Dockerfile -t $project:${{ env.GIT_SHA }} -t $project:latest . || exit 1
@@ -174,7 +174,7 @@ jobs:
     steps:
       - name: Generate summary
         run: |
-          AFFECTED='${{ needs.detect-and-test.outputs.projects }}'
+          AFFECTED='${{ needs.detect-and-test.outputs.affected_projects }}'
           DOCKER_PROJECTS='${{ needs.detect-and-test.outputs.docker_projects }}'
           
           echo "## ✅ Nx CI Pipeline Summary" >> $GITHUB_STEP_SUMMARY

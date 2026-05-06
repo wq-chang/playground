@@ -1,0 +1,58 @@
+{
+  "name": "keycloak-custom-image",
+  "projectType": "application",
+  "root": "services/java/keycloak-custom/image",
+  "sourceRoot": "services/java/keycloak-custom/image",
+  "targets": {
+    "build-java": {
+      "executor": "nx:noop",
+      "metadata": {
+        "hidden": true
+      }
+    },
+    "build": {
+      "dependsOn": ["build-java"],
+      "executor": "nx:noop"
+    },
+    "test-java": {
+      "executor": "nx:noop",
+      "metadata": {
+        "hidden": true
+      }
+    },
+    "test": {
+      "dependsOn": ["test-java"],
+      "executor": "nx:noop"
+    },
+    "lint-java": {
+      "executor": "nx:noop",
+      "metadata": {
+        "hidden": true
+      }
+    },
+    "lint": {
+      "dependsOn": ["lint-java"],
+      "executor": "nx:noop"
+    },
+    "docker-java": {
+      "metadata": {
+        "hidden": true
+      }
+    },
+    "docker": {
+      "dependsOn": ["docker-java"],
+      "executor": "nx:noop"
+    },
+    "docker-push-java": {
+      "metadata": {
+        "hidden": true
+      }
+    },
+    "docker-push": {
+      "dependsOn": ["docker-push-java"],
+      "executor": "nx:noop"
+    }
+  },
+  "implicitDependencies": ["keycloak-custom", "keycloak-user-event-listener"],
+  "tags": ["type:app", "scope:backend", "language:java", "platform:keycloak"]
+}
