@@ -11,7 +11,7 @@ COPY services/java/keycloak-custom/pom.xml ./keycloak-custom/pom.xml
 COPY services/java/keycloak-custom/keycloak-user-event-listener/pom.xml ./keycloak-custom/keycloak-user-event-listener/pom.xml
 
 # Download dependencies before copying sources to maximize Docker layer reuse.
-RUN mvn -B -f keycloak-custom/pom.xml dependency:go-offline
+RUN mvn -B -f keycloak-custom/pom.xml dependency:go-offline --no-transfer-progress
 
 COPY services/java/keycloak-custom/keycloak-user-event-listener/src ./keycloak-custom/keycloak-user-event-listener/src
 

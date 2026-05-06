@@ -4,6 +4,11 @@
   "root": "services/java/keycloak-custom/keycloak-user-event-listener",
   "sourceRoot": "services/java/keycloak-custom/keycloak-user-event-listener/src",
   "targets": {
+    "install-java": {},
+    "install": {
+      "dependsOn": ["install-java"],
+      "executor": "nx:noop"
+    },
     "build-java": {},
     "build": {
       "dependsOn": ["build-java"],

@@ -50,6 +50,15 @@
         "cwd": "{projectRoot}"
       }
     },
+    "install-java": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "options": {
+        "command": "mvn -B -ntp dependency:go-offline",
+        "cwd": "{projectRoot}"
+      },
+      "outputs": []
+    },
     "build-java": {
       "executor": "nx:run-commands",
       "cache": true,
