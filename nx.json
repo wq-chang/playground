@@ -26,9 +26,7 @@
     "build-go": {
       "executor": "nx:run-commands",
       "cache": true,
-      "dependsOn": [
-        "^build-go"
-      ],
+      "dependsOn": ["^build-go"],
       "options": {
         "command": "go build -v ./...",
         "cwd": "{projectRoot}"
@@ -38,9 +36,7 @@
     "test-go": {
       "executor": "nx:run-commands",
       "cache": true,
-      "dependsOn": [
-        "^build-go"
-      ],
+      "dependsOn": ["^build-go"],
       "options": {
         "command": "gotestsum --format testname -- -v ./...",
         "cwd": "{projectRoot}"
@@ -50,16 +46,14 @@
       "executor": "nx:run-commands",
       "cache": true,
       "options": {
-        "command": "golangci-lint run ./...",
+        "command": "golangci-lint run ./... --allow-parallel-runners ",
         "cwd": "{projectRoot}"
       }
     },
     "build-java": {
       "executor": "nx:run-commands",
       "cache": true,
-      "dependsOn": [
-        "^build-java"
-      ],
+      "dependsOn": ["^build-java"],
       "options": {
         "command": "mvn clean package -DskipTests",
         "cwd": "{projectRoot}"
@@ -85,16 +79,12 @@
     "build-web": {
       "executor": "nx:run-commands",
       "cache": true,
-      "dependsOn": [
-        "^build-web"
-      ],
+      "dependsOn": ["^build-web"],
       "options": {
         "command": "npm run build",
         "cwd": "{projectRoot}"
       },
-      "outputs": [
-        "{projectRoot}/dist"
-      ]
+      "outputs": ["{projectRoot}/dist"]
     },
     "test-web": {
       "executor": "nx:run-commands",
@@ -122,9 +112,7 @@
     },
     "docker-push": {
       "executor": "nx:run-commands",
-      "dependsOn": [
-        "docker"
-      ],
+      "dependsOn": ["docker"],
       "options": {
         "command": "docker push {projectName}:${GIT_SHA:-latest} && docker push {projectName}:latest",
         "cwd": "."

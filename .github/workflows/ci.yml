@@ -75,9 +75,9 @@ jobs:
             BASE_SHA="${{ github.event.before }}"
             CURRENT_SHA="${{ github.sha }}"
           fi
-          
+
           echo "Comparing $BASE_SHA to $CURRENT_SHA"
-          
+
           AFFECTED=$(npx nx show projects --affected --base=$BASE_SHA --head=$CURRENT_SHA --json 2>/dev/null || echo "[]")
           echo "projects=$(echo "$AFFECTED" | jq -c '.')" >> $GITHUB_OUTPUT
           echo "Affected projects: $AFFECTED"
@@ -90,11 +90,20 @@ jobs:
           echo "docker_projects=$DOCKER_PROJECTS" >> $GITHUB_OUTPUT
           echo "Docker projects: $DOCKER_PROJECTS"
 
+      - name: Setup affected projects
+        run: |
+          AFFECTED='${{ steps.affected.outputs.projects }}'
+          PROJECTS=$(echo "$AFFECTED" | jq -r '.[]' | tr '\n' ',')
+
+          if [ ! -z "$PROJECTS" ] && [ "$PROJECTS" != "" ]; then
+            npx nx run-many --projects=$PROJECTS --target=install --parallel=4 || exit 1
+          fi
+
       - name: Lint affected projects
         run: |
           AFFECTED='${{ steps.affected.outputs.projects }}'
           PROJECTS=$(echo "$AFFECTED" | jq -r '.[]' | tr '\n' ',')
-          
+
           if [ ! -z "$PROJECTS" ] && [ "$PROJECTS" != "" ]; then
             npx nx run-many --projects=$PROJECTS --target=lint --parallel=4 || exit 1
           fi
@@ -103,7 +112,7 @@ jobs:
         run: |
           AFFECTED='${{ steps.affected.outputs.projects }}'
           PROJECTS=$(echo "$AFFECTED" | jq -r '.[]' | tr '\n' ',')
-          
+
           if [ ! -z "$PROJECTS" ] && [ "$PROJECTS" != "" ]; then
             npx nx run-many --projects=$PROJECTS --target=build --parallel=4 || exit 1
           fi
@@ -112,7 +121,7 @@ jobs:
         run: |
           AFFECTED='${{ steps.affected.outputs.projects }}'
           PROJECTS=$(echo "$AFFECTED" | jq -r '.[]' | tr '\n' ',')
-          
+
           if [ ! -z "$PROJECTS" ] && [ "$PROJECTS" != "" ]; then
             npx nx run-many --projects=$PROJECTS --target=test --parallel=4 || exit 1
           fi
@@ -142,7 +151,7 @@ jobs:
         run: |
           DOCKER_PROJECTS='${{ needs.detect-and-test.outputs.docker_projects }}'
           IFS=',' read -ra PROJECTS <<< "$DOCKER_PROJECTS"
-          
+
           for project in "${PROJECTS[@]}"; do
             echo "Building Docker image for: $project"
             case $project in
@@ -176,7 +185,7 @@ jobs:
         run: |
           AFFECTED='${{ needs.detect-and-test.outputs.affected_projects }}'
           DOCKER_PROJECTS='${{ needs.detect-and-test.outputs.docker_projects }}'
-          
+
           echo "## ✅ Nx CI Pipeline Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Affected Projects" >> $GITHUB_STEP_SUMMARY
@@ -184,13 +193,13 @@ jobs:
           echo "$AFFECTED" | jq '.' >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          
+
           if [ ! -z "$DOCKER_PROJECTS" ] && [ "$DOCKER_PROJECTS" != "" ]; then
             echo "### Docker Images Built" >> $GITHUB_STEP_SUMMARY
             echo "$DOCKER_PROJECTS" | tr ',' '\n' | sed 's/^/- /' >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
           fi
-          
+
           if [ "${{ needs.detect-and-test.result }}" == "success" ]; then
             echo "### Results" >> $GITHUB_STEP_SUMMARY
             echo "✅ All affected projects: lint, build, test passed" >> $GITHUB_STEP_SUMMARY
