@@ -14,6 +14,11 @@
       "dependsOn": ["test-go"],
       "executor": "nx:noop"
     },
+    "format-go": {},
+    "format": {
+      "dependsOn": ["format-go"],
+      "executor": "nx:noop"
+    },
     "lint-go": {},
     "lint": {
       "dependsOn": ["lint-go"],

@@ -23,6 +23,24 @@
     "lint": {
       "cache": true
     },
+    "install-go": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "go mod download",
+        "cwd": "{projectRoot}"
+      },
+      "outputs": []
+    },
+    "format-go": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "golangci-lint fmt ./...",
+        "cwd": "{projectRoot}"
+      },
+      "outputs": []
+    },
     "build-go": {
       "executor": "nx:run-commands",
       "cache": true,
@@ -52,9 +70,18 @@
     },
     "install-java": {
       "executor": "nx:run-commands",
-      "cache": true,
+      "cache": false,
       "options": {
-        "command": "mvn -B -ntp dependency:go-offline",
+        "command": "mvn -B -ntp -N dependency:go-offline",
+        "cwd": "{projectRoot}"
+      },
+      "outputs": []
+    },
+    "format-java": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "mvn -B -ntp -N spotless:apply",
         "cwd": "{projectRoot}"
       },
       "outputs": []
@@ -64,7 +91,7 @@
       "cache": true,
       "dependsOn": ["^build-java"],
       "options": {
-        "command": "mvn clean package -DskipTests",
+        "command": "mvn -B -ntp clean package -DskipTests",
         "cwd": "{projectRoot}"
       },
       "outputs": []
@@ -73,7 +100,7 @@
       "executor": "nx:run-commands",
       "cache": true,
       "options": {
-        "command": "mvn test",
+        "command": "mvn -B -ntp test",
         "cwd": "{projectRoot}"
       }
     },
@@ -81,7 +108,7 @@
       "executor": "nx:run-commands",
       "cache": true,
       "options": {
-        "command": "mvn spotless:check",
+        "command": "mvn -B -ntp -N spotless:check",
         "cwd": "{projectRoot}"
       }
     },
@@ -94,6 +121,24 @@
         "cwd": "{projectRoot}"
       },
       "outputs": ["{projectRoot}/dist"]
+    },
+    "install-web": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "npm ci",
+        "cwd": "{projectRoot}"
+      },
+      "outputs": []
+    },
+    "format-web": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "npm run format",
+        "cwd": "{projectRoot}"
+      },
+      "outputs": []
     },
     "test-web": {
       "executor": "nx:run-commands",

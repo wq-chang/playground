@@ -15,11 +15,15 @@ env:
   NX_CACHE_DIRECTORY: .nx/cache
 
 jobs:
-  detect-and-test:
+  detect-changes:
     runs-on: ubuntu-latest
     outputs:
+      base_sha: ${{ steps.refs.outputs.base_sha }}
+      current_sha: ${{ steps.refs.outputs.current_sha }}
       affected_projects: ${{ steps.affected.outputs.projects }}
-      docker_projects: ${{ steps.filter-docker.outputs.docker_projects }}
+      has_go_projects: ${{ steps.group.outputs.has_go_projects }}
+      has_java_projects: ${{ steps.group.outputs.has_java_projects }}
+      has_web_projects: ${{ steps.group.outputs.has_web_projects }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -35,20 +39,88 @@ jobs:
       - name: Install Nx
         run: npm ci
 
+      - name: Resolve comparison refs
+        id: refs
+        run: |
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+            CURRENT_SHA="${{ github.event.pull_request.head.sha }}"
+          else
+            BASE_SHA="${{ github.event.before }}"
+            CURRENT_SHA="${{ github.sha }}"
+          fi
+
+          echo "Comparing $BASE_SHA to $CURRENT_SHA"
+          echo "base_sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
+          echo "current_sha=$CURRENT_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Detect affected projects
+        id: affected
+        run: |
+          set -euo pipefail
+          BASE_SHA='${{ steps.refs.outputs.base_sha }}'
+          CURRENT_SHA='${{ steps.refs.outputs.current_sha }}'
+
+          AFFECTED=$(npx nx show projects --affected --base="$BASE_SHA" --head="$CURRENT_SHA" --json)
+          AFFECTED_JSON=$(echo "$AFFECTED" | jq -ce '.')
+
+          printf 'projects=%s\n' "$AFFECTED_JSON" >> "$GITHUB_OUTPUT"
+          echo "Affected projects: $AFFECTED_JSON"
+
+      - name: Group affected projects by language
+        id: group
+        run: |
+          set -euo pipefail
+          AFFECTED='${{ steps.affected.outputs.projects }}'
+          HAS_GO=false
+          HAS_JAVA=false
+          HAS_WEB=false
+
+          while IFS= read -r project; do
+            [ -z "$project" ] && continue
+            PROJECT_JSON=$(npx nx show project "$project" --json)
+
+            if echo "$PROJECT_JSON" | jq -e '.tags // [] | index("language:go")' >/dev/null; then
+              HAS_GO=true
+            fi
+
+            if echo "$PROJECT_JSON" | jq -e '.tags // [] | index("language:java")' >/dev/null; then
+              HAS_JAVA=true
+            fi
+
+            if echo "$PROJECT_JSON" | jq -e '.tags // [] | index("language:ts")' >/dev/null; then
+              HAS_WEB=true
+            fi
+          done < <(echo "$AFFECTED" | jq -r '.[]')
+
+          echo "has_go_projects=$HAS_GO" >> "$GITHUB_OUTPUT"
+          echo "has_java_projects=$HAS_JAVA" >> "$GITHUB_OUTPUT"
+          echo "has_web_projects=$HAS_WEB" >> "$GITHUB_OUTPUT"
+
+  go-ci:
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_go_projects == 'true'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install Nx
+        run: npm ci
+
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache: false
+          cache: true
 
-      - name: Set up JDK 21
-        uses: actions/setup-java@v5
-        with:
-          distribution: "temurin"
-          java-version: ${{ env.JAVA_VERSION }}
-          cache: "maven"
-
-      - name: Install build tools
+      - name: Install Go build tools
         run: |
           curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(go env GOPATH)/bin ${{ env.GOLANGCI_LINT_VERSION }}
           echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
@@ -60,131 +132,210 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ${{ env.NX_CACHE_DIRECTORY }}
-          key: nx-cache-${{ runner.os }}-${{ github.ref }}-${{ github.sha }}
+          key: nx-cache-${{ runner.os }}-${{ github.ref_name }}-${{ github.job }}-${{ github.sha }}
           restore-keys: |
-            nx-cache-${{ runner.os }}-${{ github.ref }}-
-            nx-cache-${{ runner.os }}-
+            nx-cache-${{ runner.os }}-${{ github.ref_name }}-${{ github.job }}-
+            nx-cache-${{ runner.os }}-${{ github.job }}-
 
-      - name: Detect affected projects
-        id: affected
+      - name: Install Go dependencies
+        run: npx nx run go-services:install-go
+
+      - name: Format Go code
+        run: npx nx run go-services:format-go
+
+      - name: Fail on Go formatting changes
         run: |
-          if [ "${{ github.event_name }}" == "pull_request" ]; then
-            BASE_SHA="${{ github.event.pull_request.base.sha }}"
-            CURRENT_SHA="${{ github.event.pull_request.head.sha }}"
-          else
-            BASE_SHA="${{ github.event.before }}"
-            CURRENT_SHA="${{ github.sha }}"
+          set -euo pipefail
+          if ! git diff --quiet -- services/go; then
+            echo "Formatting produced uncommitted changes in services/go."
+            git --no-pager diff -- services/go
+            exit 1
           fi
 
-          echo "Comparing $BASE_SHA to $CURRENT_SHA"
-
-          AFFECTED=$(npx nx show projects --affected --base=$BASE_SHA --head=$CURRENT_SHA --json 2>/dev/null || echo "[]")
-          echo "projects=$(echo "$AFFECTED" | jq -c '.')" >> $GITHUB_OUTPUT
-          echo "Affected projects: $AFFECTED"
-
-      - name: Filter Docker-enabled projects
-        id: filter-docker
+      - name: Lint affected Go projects
         run: |
-          AFFECTED='${{ steps.affected.outputs.projects }}'
-          DOCKER_PROJECTS=$(echo "$AFFECTED" | jq -r '.[] | select(. == "go-backend" or . == "go-bff" or . == "keycloak-custom-image" or . == "frontend")' | tr '\n' ',' | sed 's/,$//')
-          echo "docker_projects=$DOCKER_PROJECTS" >> $GITHUB_OUTPUT
-          echo "Docker projects: $DOCKER_PROJECTS"
+          npx nx affected --base='${{ needs.detect-changes.outputs.base_sha }}' --head='${{ needs.detect-changes.outputs.current_sha }}' --target=lint-go --parallel=1
 
-      - name: Setup affected projects
+      - name: Build affected Go projects
         run: |
-          AFFECTED='${{ steps.affected.outputs.projects }}'
-          PROJECTS=$(echo "$AFFECTED" | jq -r '.[]' | tr '\n' ',')
+          npx nx affected --base='${{ needs.detect-changes.outputs.base_sha }}' --head='${{ needs.detect-changes.outputs.current_sha }}' --target=build-go --parallel=4
 
-          if [ ! -z "$PROJECTS" ] && [ "$PROJECTS" != "" ]; then
-            npx nx run-many --projects=$PROJECTS --target=install --parallel=4 || exit 1
-          fi
-
-      - name: Lint affected projects
+      - name: Test affected Go projects
         run: |
-          AFFECTED='${{ steps.affected.outputs.projects }}'
-          PROJECTS=$(echo "$AFFECTED" | jq -r '.[]' | tr '\n' ',')
+          npx nx affected --base='${{ needs.detect-changes.outputs.base_sha }}' --head='${{ needs.detect-changes.outputs.current_sha }}' --target=test-go --parallel=4
 
-          if [ ! -z "$PROJECTS" ] && [ "$PROJECTS" != "" ]; then
-            npx nx run-many --projects=$PROJECTS --target=lint --parallel=4 || exit 1
-          fi
-
-      - name: Build affected projects
-        run: |
-          AFFECTED='${{ steps.affected.outputs.projects }}'
-          PROJECTS=$(echo "$AFFECTED" | jq -r '.[]' | tr '\n' ',')
-
-          if [ ! -z "$PROJECTS" ] && [ "$PROJECTS" != "" ]; then
-            npx nx run-many --projects=$PROJECTS --target=build --parallel=4 || exit 1
-          fi
-
-      - name: Test affected projects
-        run: |
-          AFFECTED='${{ steps.affected.outputs.projects }}'
-          PROJECTS=$(echo "$AFFECTED" | jq -r '.[]' | tr '\n' ',')
-
-          if [ ! -z "$PROJECTS" ] && [ "$PROJECTS" != "" ]; then
-            npx nx run-many --projects=$PROJECTS --target=test --parallel=4 || exit 1
-          fi
-
-      - name: Save Nx cache
-        if: always()
-        uses: actions/cache/save@v3
-        with:
-          path: ${{ env.NX_CACHE_DIRECTORY }}
-          key: nx-cache-${{ runner.os }}-${{ github.ref }}-${{ github.sha }}
-
-  docker-build:
+  java-ci:
     runs-on: ubuntu-latest
-    needs: detect-and-test
-    if: needs.detect-and-test.outputs.docker_projects != ''
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_java_projects == 'true'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install Nx
+        run: npm ci
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: "temurin"
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: "maven"
+
+      - name: Restore Nx cache
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.NX_CACHE_DIRECTORY }}
+          key: nx-cache-${{ runner.os }}-${{ github.ref_name }}-${{ github.job }}-${{ github.sha }}
+          restore-keys: |
+            nx-cache-${{ runner.os }}-${{ github.ref_name }}-${{ github.job }}-
+            nx-cache-${{ runner.os }}-${{ github.job }}-
+
+      - name: Install affected Java projects
+        run: |
+          npx nx affected --base='${{ needs.detect-changes.outputs.base_sha }}' --head='${{ needs.detect-changes.outputs.current_sha }}' --target=install-java --parallel=4
+
+      - name: Format affected Java projects
+        run: |
+          npx nx affected --base='${{ needs.detect-changes.outputs.base_sha }}' --head='${{ needs.detect-changes.outputs.current_sha }}' --target=format-java --parallel=4
+
+      - name: Fail on Java formatting changes
+        run: |
+          set -euo pipefail
+          if ! git diff --quiet -- services/java; then
+            echo "Formatting produced uncommitted changes in services/java."
+            git --no-pager diff -- services/java
+            exit 1
+          fi
+
+      - name: Lint affected Java projects
+        run: |
+          npx nx affected --base='${{ needs.detect-changes.outputs.base_sha }}' --head='${{ needs.detect-changes.outputs.current_sha }}' --target=lint-java --parallel=4
+
+      - name: Build affected Java projects
+        run: |
+          npx nx affected --base='${{ needs.detect-changes.outputs.base_sha }}' --head='${{ needs.detect-changes.outputs.current_sha }}' --target=build-java --parallel=4
+
+      - name: Test affected Java projects
+        run: |
+          npx nx affected --base='${{ needs.detect-changes.outputs.base_sha }}' --head='${{ needs.detect-changes.outputs.current_sha }}' --target=test-java --parallel=4
+
+  web-ci:
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_web_projects == 'true'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install Nx
+        run: npm ci
+
+      - name: Restore Nx cache
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.NX_CACHE_DIRECTORY }}
+          key: nx-cache-${{ runner.os }}-${{ github.ref_name }}-${{ github.job }}-${{ github.sha }}
+          restore-keys: |
+            nx-cache-${{ runner.os }}-${{ github.ref_name }}-${{ github.job }}-
+            nx-cache-${{ runner.os }}-${{ github.job }}-
+
+      - name: Install affected web projects
+        run: |
+          npx nx affected --base='${{ needs.detect-changes.outputs.base_sha }}' --head='${{ needs.detect-changes.outputs.current_sha }}' --target=install-web --parallel=4
+
+      - name: Format affected web projects
+        run: |
+          npx nx affected --base='${{ needs.detect-changes.outputs.base_sha }}' --head='${{ needs.detect-changes.outputs.current_sha }}' --target=format-web --parallel=4
+
+      - name: Fail on web formatting changes
+        run: |
+          set -euo pipefail
+          if ! git diff --quiet -- frontend; then
+            echo "Formatting produced uncommitted changes in frontend."
+            git --no-pager diff -- frontend
+            exit 1
+          fi
+
+      - name: Lint affected web projects
+        run: |
+          npx nx affected --base='${{ needs.detect-changes.outputs.base_sha }}' --head='${{ needs.detect-changes.outputs.current_sha }}' --target=lint-web --parallel=4
+
+      - name: Build affected web projects
+        run: |
+          npx nx affected --base='${{ needs.detect-changes.outputs.base_sha }}' --head='${{ needs.detect-changes.outputs.current_sha }}' --target=build-web --parallel=4
+
+      - name: Test affected web projects
+        run: |
+          npx nx affected --base='${{ needs.detect-changes.outputs.base_sha }}' --head='${{ needs.detect-changes.outputs.current_sha }}' --target=test-web --parallel=4
+
+  docker-build:
+    runs-on: ubuntu-latest
+    needs: [detect-changes, go-ci, java-ci, web-ci]
+    if: |
+      always() &&
+      needs.detect-changes.result == 'success' &&
+      needs.detect-changes.outputs.affected_projects != '[]' &&
+      needs.go-ci.result != 'failure' &&
+      needs.java-ci.result != 'failure' &&
+      needs.web-ci.result != 'failure'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install Nx
+        run: npm ci
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
+
+      - name: Restore Nx cache
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.NX_CACHE_DIRECTORY }}
+          key: nx-cache-${{ runner.os }}-${{ github.ref_name }}-${{ github.job }}-${{ github.sha }}
+          restore-keys: |
+            nx-cache-${{ runner.os }}-${{ github.ref_name }}-${{ github.job }}-
+            nx-cache-${{ runner.os }}-${{ github.job }}-
 
       - name: Set GIT_SHA environment variable
         run: echo "GIT_SHA=${GITHUB_SHA::8}" >> $GITHUB_ENV
 
       - name: Build Docker images for affected projects
         run: |
-          DOCKER_PROJECTS='${{ needs.detect-and-test.outputs.docker_projects }}'
-          IFS=',' read -ra PROJECTS <<< "$DOCKER_PROJECTS"
-
-          for project in "${PROJECTS[@]}"; do
-            echo "Building Docker image for: $project"
-            case $project in
-              go-backend)
-                docker build -f services/go/backend/Dockerfile -t $project:${{ env.GIT_SHA }} -t $project:latest . || exit 1
-                ;;
-              go-bff)
-                docker build -f services/go/bff/Dockerfile -t $project:${{ env.GIT_SHA }} -t $project:latest . || exit 1
-                ;;
-              keycloak-custom-image)
-                docker build -f services/java/keycloak-custom/image/Dockerfile -t $project:${{ env.GIT_SHA }} -t $project:latest . || exit 1
-                ;;
-              frontend)
-                docker build -f frontend/Dockerfile -t $project:${{ env.GIT_SHA }} -t $project:latest . || exit 1
-                ;;
-            esac
-          done
+          npx nx affected --base='${{ needs.detect-changes.outputs.base_sha }}' --head='${{ needs.detect-changes.outputs.current_sha }}' --target=docker --parallel=4
 
       - name: Push Docker images (main branch only)
         if: github.ref == 'refs/heads/main'
         run: |
-          echo "Docker push would go here (requires registry credentials)"
-          echo "Projects to push: ${{ needs.detect-and-test.outputs.docker_projects }}"
+          npx nx affected --base='${{ needs.detect-changes.outputs.base_sha }}' --head='${{ needs.detect-changes.outputs.current_sha }}' --target=docker-push --parallel=4
 
   summary:
     runs-on: ubuntu-latest
-    needs: [detect-and-test, docker-build]
+    needs: [detect-changes, go-ci, java-ci, web-ci, docker-build]
     if: always()
     steps:
       - name: Generate summary
         run: |
-          AFFECTED='${{ needs.detect-and-test.outputs.affected_projects }}'
-          DOCKER_PROJECTS='${{ needs.detect-and-test.outputs.docker_projects }}'
+          AFFECTED='${{ needs.detect-changes.outputs.affected_projects }}'
 
           echo "## ✅ Nx CI Pipeline Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -194,15 +345,16 @@ jobs:
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          if [ ! -z "$DOCKER_PROJECTS" ] && [ "$DOCKER_PROJECTS" != "" ]; then
-            echo "### Docker Images Built" >> $GITHUB_STEP_SUMMARY
-            echo "$DOCKER_PROJECTS" | tr ',' '\n' | sed 's/^/- /' >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-          fi
+          echo "### Job Results" >> $GITHUB_STEP_SUMMARY
+          echo "- Go CI: ${{ needs.go-ci.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Java CI: ${{ needs.java-ci.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Web CI: ${{ needs.web-ci.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Docker: ${{ needs.docker-build.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
 
-          if [ "${{ needs.detect-and-test.result }}" == "success" ]; then
+          if [ "${{ needs.go-ci.result }}" != "failure" ] && [ "${{ needs.java-ci.result }}" != "failure" ] && [ "${{ needs.web-ci.result }}" != "failure" ] && [ "${{ needs.docker-build.result }}" != "failure" ]; then
             echo "### Results" >> $GITHUB_STEP_SUMMARY
-            echo "✅ All affected projects: lint, build, test passed" >> $GITHUB_STEP_SUMMARY
+            echo "✅ All affected language stages completed successfully" >> $GITHUB_STEP_SUMMARY
           else
             echo "### Results" >> $GITHUB_STEP_SUMMARY
             echo "❌ Some tests failed - see logs above" >> $GITHUB_STEP_SUMMARY

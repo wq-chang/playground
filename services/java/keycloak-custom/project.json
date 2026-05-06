@@ -4,13 +4,19 @@
   "root": "services/java/keycloak-custom",
   "sourceRoot": "services/java/keycloak-custom",
   "targets": {
-    "build": {
-      "executor": "nx:noop"
+    "install-java": {},
+    "install": {
+      "executor": "nx:noop",
+      "dependsOn": ["install-java"]
     },
-    "test": {
-      "executor": "nx:noop"
+    "format-java": {},
+    "format": {
+      "executor": "nx:noop",
+      "dependsOn": ["format-java"]
     },
+    "lint-java": {},
     "lint": {
+      "dependsOn": ["lint-java"],
       "executor": "nx:noop"
     }
   },

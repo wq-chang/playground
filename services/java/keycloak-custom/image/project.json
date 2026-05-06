@@ -4,15 +4,6 @@
   "root": "services/java/keycloak-custom/image",
   "sourceRoot": "services/java/keycloak-custom/image",
   "targets": {
-    "build": {
-      "executor": "nx:noop"
-    },
-    "test": {
-      "executor": "nx:noop"
-    },
-    "lint": {
-      "executor": "nx:noop"
-    },
     "docker": {},
     "docker-push": {}
   },
