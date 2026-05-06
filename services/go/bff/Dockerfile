@@ -12,7 +12,7 @@ RUN go mod download
 COPY services/go ./
 
 # Build the BFF service
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o /app/bin/bff ./bff
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o /app/bin/bff ./bff/cmd/bff
 
 # Runtime stage
 FROM alpine:latest

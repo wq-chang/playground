@@ -19,16 +19,10 @@
       "dependsOn": ["lint-go"],
       "executor": "nx:noop"
     },
-    "docker-go": {},
     "docker": {
-      "dependsOn": ["docker-go"],
-      "executor": "nx:noop"
+      "dependsOn": ["build", "test", "lint"]
     },
-    "docker-push-go": {},
-    "docker-push": {
-      "dependsOn": ["docker-push-go"],
-      "executor": "nx:noop"
-    }
+    "docker-push": {}
   },
   "implicitDependencies": ["go-services", "go-library"],
   "tags": ["type:app", "scope:backend", "language:go"]

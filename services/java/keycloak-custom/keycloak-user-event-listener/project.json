@@ -4,29 +4,17 @@
   "root": "services/java/keycloak-custom/keycloak-user-event-listener",
   "sourceRoot": "services/java/keycloak-custom/keycloak-user-event-listener/src",
   "targets": {
-    "build-java": {
-      "metadata": {
-        "hidden": true
-      }
-    },
+    "build-java": {},
     "build": {
       "dependsOn": ["build-java"],
       "executor": "nx:noop"
     },
-    "test-java": {
-      "metadata": {
-        "hidden": true
-      }
-    },
+    "test-java": {},
     "test": {
       "dependsOn": ["test-java"],
       "executor": "nx:noop"
     },
-    "lint-java": {
-      "metadata": {
-        "hidden": true
-      }
-    },
+    "lint-java": {},
     "lint": {
       "dependsOn": ["lint-java"],
       "executor": "nx:noop"

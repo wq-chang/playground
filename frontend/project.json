@@ -34,16 +34,10 @@
         "forwardAllArgs": true
       }
     },
-    "docker-web": {},
     "docker": {
-      "executor": "nx:noop",
-      "dependsOn": ["docker-web"]
+      "dependsOn": ["build", "test", "lint"]
     },
-    "docker-push-web": {},
-    "docker-push": {
-      "executor": "nx:noop",
-      "dependsOn": ["docker-push-web"]
-    }
+    "docker-push": {}
   },
   "tags": ["type:app", "scope:frontend"]
 }

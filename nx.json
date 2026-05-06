@@ -54,30 +54,6 @@
         "cwd": "{projectRoot}"
       }
     },
-    "docker-go": {
-      "executor": "nx:run-commands",
-      "dependsOn": [
-        "build-go",
-        "test-go",
-        "lint-go"
-      ],
-      "options": {
-        "command": "docker build -f {projectRoot}/Dockerfile -t {projectName}:${GIT_SHA:-latest} -t {projectName}:latest .",
-        "cwd": "."
-      },
-      "outputs": []
-    },
-    "docker-push-go": {
-      "executor": "nx:run-commands",
-      "dependsOn": [
-        "docker-go"
-      ],
-      "options": {
-        "command": "docker push {projectName}:${GIT_SHA:-latest} && docker push {projectName}:latest",
-        "cwd": "."
-      },
-      "outputs": []
-    },
     "build-java": {
       "executor": "nx:run-commands",
       "cache": true,
@@ -105,30 +81,6 @@
         "command": "mvn spotless:check",
         "cwd": "{projectRoot}"
       }
-    },
-    "docker-java": {
-      "executor": "nx:run-commands",
-      "dependsOn": [
-        "build-java",
-        "test-java",
-        "lint-java"
-      ],
-      "options": {
-        "command": "docker build -f {projectRoot}/Dockerfile -t {projectName}:${GIT_SHA:-latest} -t {projectName}:latest .",
-        "cwd": "."
-      },
-      "outputs": []
-    },
-    "docker-push-java": {
-      "executor": "nx:run-commands",
-      "dependsOn": [
-        "docker-java"
-      ],
-      "options": {
-        "command": "docker push {projectName}:${GIT_SHA:-latest} && docker push {projectName}:latest",
-        "cwd": "."
-      },
-      "outputs": []
     },
     "build-web": {
       "executor": "nx:run-commands",
@@ -160,23 +112,18 @@
         "cwd": "{projectRoot}"
       }
     },
-    "docker-web": {
+    "docker": {
       "executor": "nx:run-commands",
-      "dependsOn": [
-        "build-web",
-        "test-web",
-        "lint-web"
-      ],
       "options": {
         "command": "docker build -f {projectRoot}/Dockerfile -t {projectName}:${GIT_SHA:-latest} -t {projectName}:latest .",
         "cwd": "."
       },
       "outputs": []
     },
-    "docker-push-web": {
+    "docker-push": {
       "executor": "nx:run-commands",
       "dependsOn": [
-        "docker-web"
+        "docker"
       ],
       "options": {
         "command": "docker push {projectName}:${GIT_SHA:-latest} && docker push {projectName}:latest",
