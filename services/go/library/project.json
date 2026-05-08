@@ -23,12 +23,6 @@
     "lint": {
       "dependsOn": ["lint-go"],
       "executor": "nx:noop"
-    },
-    "docker": {
-      "executor": "nx:noop"
-    },
-    "docker-push": {
-      "executor": "nx:noop"
     }
   },
   "implicitDependencies": ["go-services"],

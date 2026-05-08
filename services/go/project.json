@@ -13,12 +13,6 @@
     "format": {
       "executor": "nx:noop",
       "dependsOn": ["format-go"]
-    },
-    "docker": {
-      "executor": "nx:noop"
-    },
-    "docker-push": {
-      "executor": "nx:noop"
     }
   },
   "tags": ["type:lib", "scope:backend", "language:go"]

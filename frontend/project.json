@@ -37,9 +37,7 @@
         "forwardAllArgs": true
       }
     },
-    "docker": {
-      "dependsOn": ["build", "test", "lint"]
-    },
+    "docker": {},
     "docker-push": {}
   },
   "tags": ["type:app", "scope:frontend", "language:ts"]

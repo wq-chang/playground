@@ -24,9 +24,7 @@
       "dependsOn": ["lint-go"],
       "executor": "nx:noop"
     },
-    "docker": {
-      "dependsOn": ["build", "test", "lint"]
-    },
+    "docker": {},
     "docker-push": {}
   },
   "implicitDependencies": ["go-services", "go-library"],
