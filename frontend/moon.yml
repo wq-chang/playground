@@ -3,77 +3,10 @@ layer: 'application'
 stack: 'frontend'
 tags:
   - 'frontend'
+  - 'language-typescript'
 
 tasks:
-  install-web:
-    command: 'npm ci'
-    options:
-      cache: false
-    toolchains: 'system'
-
-  install:
-    deps:
-      - '~:install-web'
-
-  format-web:
-    command: 'npm run format'
-    options:
-      cache: false
-    toolchains: 'system'
-
-  format:
-    deps:
-      - '~:format-web'
-
-  build-web:
-    command: 'npm run build'
-    options:
-      cache: true
-    outputs:
-      - 'dist'
-    toolchains: 'system'
-
-  build:
-    deps:
-      - '~:build-web'
-
-  test-web:
-    command: 'npm test -- run --passWithNoTests'
-    options:
-      cache: true
-    toolchains: 'system'
-
-  test:
-    deps:
-      - '~:test-web'
-
-  lint-web:
-    command: 'npm run lint'
-    options:
-      cache: true
-    toolchains: 'system'
-
-  lint:
-    deps:
-      - '~:lint-web'
-
   dev:
     command: 'npm run dev'
     preset: 'server'
-    toolchains: 'system'
-
-  docker:
-    script: 'docker build -f frontend/Dockerfile -t frontend:${GIT_SHA:-latest} -t frontend:latest .'
-    options:
-      cache: false
-      runFromWorkspaceRoot: true
-    toolchains: 'system'
-
-  docker-push:
-    deps:
-      - '~:docker'
-    script: 'docker push frontend:${GIT_SHA:-latest} && docker push frontend:latest'
-    options:
-      cache: false
-      runFromWorkspaceRoot: true
     toolchains: 'system'

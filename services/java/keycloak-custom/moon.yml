@@ -6,34 +6,5 @@ stack: 'backend'
 tags:
   - 'java'
   - 'keycloak'
-
-tasks:
-  install-java:
-    command: 'mvn -B -ntp -N dependency:go-offline'
-    options:
-      cache: false
-    toolchains: 'system'
-
-  install:
-    deps:
-      - '~:install-java'
-
-  format-java:
-    command: 'mvn -B -ntp -N spotless:apply'
-    options:
-      cache: false
-    toolchains: 'system'
-
-  format:
-    deps:
-      - '~:format-java'
-
-  lint-java:
-    command: 'mvn -B -ntp -N spotless:check'
-    options:
-      cache: true
-    toolchains: 'system'
-
-  lint:
-    deps:
-      - '~:lint-java'
+  - 'language-java'
+  - 'aggregator'

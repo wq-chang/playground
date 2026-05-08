@@ -7,20 +7,4 @@ stack: 'backend'
 tags:
   - 'java'
   - 'keycloak'
-
-tasks:
-  docker:
-    script: 'docker build -f services/java/keycloak-custom/image/Dockerfile -t keycloak-custom-image:${GIT_SHA:-latest} -t keycloak-custom-image:latest .'
-    options:
-      cache: false
-      runFromWorkspaceRoot: true
-    toolchains: 'system'
-
-  docker-push:
-    deps:
-      - '~:docker'
-    script: 'docker push keycloak-custom-image:${GIT_SHA:-latest} && docker push keycloak-custom-image:latest'
-    options:
-      cache: false
-      runFromWorkspaceRoot: true
-    toolchains: 'system'
+  - 'language-java'

@@ -1,0 +1,49 @@
+inheritedBy:
+  tags:
+    and:
+      - 'language-go'
+    not:
+      - 'aggregator'
+
+tasks:
+  build-go:
+    command: 'go build -v ./...'
+    deps:
+      - target: '^:build-go'
+        optional: true
+    options:
+      cache: true
+    toolchains: 'system'
+
+  build:
+    deps:
+      - '~:build-go'
+
+  test-go:
+    command: 'gotestsum --format testname -- -v ./...'
+    deps:
+      - target: '^:build-go'
+        optional: true
+    options:
+      cache: true
+    toolchains: 'system'
+
+  test:
+    deps:
+      - '~:test-go'
+
+  generate-go:
+    command: 'go generate ./...'
+    options:
+      cache: false
+    toolchains: 'system'
+
+  lint-go:
+    command: 'golangci-lint run ./... --allow-parallel-runners'
+    options:
+      cache: true
+    toolchains: 'system'
+
+  lint:
+    deps:
+      - '~:lint-go'

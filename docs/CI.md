@@ -11,7 +11,8 @@ The repository uses the moon project graph plus Git-based affected detection to 
 **Key components:**
 
 - **Moon project graph** - defines explicit project IDs and cross-project `dependsOn` relationships
-- **GitHub Actions CI workflow** (`.github/workflows/ci.yml`) - detects affected projects once, groups them by ecosystem, and runs per-language stages
+- **Inherited Moon tasks** - `.moon/tasks/*.yml` defines shared tasks by language and by application Docker support
+- **GitHub Actions CI workflow** (`.github/workflows/ci.yml`) - detects affected projects once, groups them by language tags, and runs per-language stages
 - **GitHub Actions CD workflow** (`.github/workflows/cd.yml`) - identifies deployable affected projects after CI succeeds
 
 ---
@@ -31,9 +32,11 @@ The repository uses the moon project graph plus Git-based affected detection to 
 
 1. Compute the affected project list once in a dedicated detect job.
 2. Expand that list with `--downstream deep` so project dependents keep the previous dependency propagation behavior.
-3. Build explicit target lists from that affected project set for each language stage.
-4. Run Docker packaging afterward with explicit `docker` / `docker-push` targets derived from the same affected project list.
-5. Publish a workflow summary.
+3. Derive `has_go_projects`, `has_java_projects`, and `has_web_projects` from language tags on the affected projects.
+4. Build explicit target lists from that affected project set for each language stage.
+5. Restore `.moon/cache/hashes` and `.moon/cache/outputs` with `actions/cache@v5` in each task-running job.
+6. Run Docker packaging afterward with explicit `docker` / `docker-push` targets derived from the same affected project list.
+7. Publish a workflow summary.
 
 ### Detect Job
 
@@ -55,16 +58,22 @@ The command output is converted to the stable project ID list:
 - `keycloak-user-event-listener`
 - `keycloak-custom-image`
 
-Then it emits:
+It also inspects project tags and emits:
 
 - `has_go_projects`
 - `has_java_projects`
 - `has_web_projects`
 - `affected_projects`
 
+Current language tags:
+
+- `language-go`
+- `language-java`
+- `language-typescript`
+
 ### Language Stage Jobs
 
-Each language job runs only when its boolean is `true`. Inside the job, moon queries the affected projects again and turns only projects that actually own the requested task into explicit targets like `go-backend:build-go`.
+Each language job runs only when its boolean is `true`. Inside the job, moon queries the affected projects once, stores the resulting project objects, and turns only projects that actually own the requested task into explicit targets like `go-backend:build-go`.
 
 #### Go
 
@@ -109,11 +118,30 @@ On the main branch, push uses:
 
 Push follows the same pattern, but targets `docker-push`.
 
+### Shared Task Layout
+
+The repository now uses Moon task inheritance to avoid repeating the same commands in every project file:
+
+- `.moon/tasks/go-common.yml` - shared Go formatting
+- `.moon/tasks/go-root.yml` - Go workspace-root install task
+- `.moon/tasks/go-build.yml` - Go build/test/lint/generate tasks for non-aggregator Go projects
+- `.moon/tasks/java-common.yml` - shared Java install/format/lint tasks for Maven projects
+- `.moon/tasks/java-build.yml` - Java build/test tasks for non-aggregator Maven projects
+- `.moon/tasks/typescript.yml` - frontend web install/format/build/test/lint tasks
+- `.moon/tasks/docker.yml` - shared Docker build/push tasks for application projects with a `Dockerfile`
+
+Aggregator projects are tagged with `aggregator` so they only inherit the subset of tasks they should own.
+
 ### Cache Strategy
 
-The migration intentionally avoids a paid remote cache. Moon still uses its local `.moon/cache` directory within each job, but the workflow currently does **not** persist `.moon/cache/hashes` or `.moon/cache/outputs` across runners.
+The workflow intentionally avoids a paid remote cache, but it **does** persist the safe, portable portions of Moon's local cache with GitHub Actions cache v5:
 
-This keeps the setup simple and deterministic while preserving the project graph and affected behavior first. Shared cache persistence can be added later if needed.
+- `.moon/cache/hashes`
+- `.moon/cache/outputs`
+
+This cache is restored in each task-running CI job with `actions/cache@v5`.
+
+`moonrepo/setup-toolchain` is still used, but only for installing and caching the Moon CLI/toolchain setup. It does **not** automatically persist `.moon/cache` task outputs across jobs, which is why the explicit GitHub cache step is required.
 
 ---
 
@@ -248,6 +276,7 @@ moon run keycloak-custom-image:docker
 ## Notes
 
 - Generic `install` / `format` / `lint` / `build` / `test` tasks remain for local developer use, while CI calls the language-specific tasks (`*-go`, `*-java`, `*-web`) directly.
+- Shared language tasks are inherited from `.moon/tasks/*.yml`, while project-local `moon.yml` files mainly keep metadata, `dependsOn`, and true per-project overrides like `frontend:dev`.
 - Parent Java projects intentionally keep orchestration-style tasks where affected parent POM changes need formatting, linting, or dependency warmup at the parent level.
 - Docker packaging stays on explicit application projects only: `frontend`, `go-backend`, `go-bff`, and `keycloak-custom-image`.
 
@@ -263,7 +292,9 @@ moon run keycloak-custom-image:docker
 
 ### Shared cache is not being used between jobs
 
-**Expected behavior.** The current migration intentionally avoids cross-runner cache persistence and any paid remote cache service.
+**Cause:** GitHub Actions cache did not restore a matching `.moon/cache/hashes` / `.moon/cache/outputs` entry for the current job.
+
+**Solution:** Check the `Restore Moon cache` step in the relevant job. Also remember that `moonrepo/setup-toolchain` does not replace the explicit Moon task cache step.
 
 ---
 

@@ -21,9 +21,9 @@ jobs:
       base_sha: ${{ steps.refs.outputs.base_sha }}
       current_sha: ${{ steps.refs.outputs.current_sha }}
       affected_projects: ${{ steps.affected.outputs.projects }}
-      has_go_projects: ${{ steps.group.outputs.has_go_projects }}
-      has_java_projects: ${{ steps.group.outputs.has_java_projects }}
-      has_web_projects: ${{ steps.group.outputs.has_web_projects }}
+      has_go_projects: ${{ steps.affected.outputs.has_go_projects }}
+      has_java_projects: ${{ steps.affected.outputs.has_java_projects }}
+      has_web_projects: ${{ steps.affected.outputs.has_web_projects }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -61,31 +61,24 @@ jobs:
           BASE_SHA='${{ steps.refs.outputs.base_sha }}'
           CURRENT_SHA='${{ steps.refs.outputs.current_sha }}'
 
-          AFFECTED_JSON=$(
+          AFFECTED=$(
             moon query projects \
               --affected \
               --downstream deep \
               --base "$BASE_SHA" \
-              --head "$CURRENT_SHA" |
-            jq -ce '.projects | map(.id)'
+              --head "$CURRENT_SHA"
           )
 
+          AFFECTED_JSON=$(echo "$AFFECTED" | jq -ce '.projects | map(.id)')
+          HAS_GO=$(echo "$AFFECTED" | jq -r 'any(.projects[]?; (.config.tags // [] | index("language-go")) != null)')
+          HAS_JAVA=$(echo "$AFFECTED" | jq -r 'any(.projects[]?; (.config.tags // [] | index("language-java")) != null)')
+          HAS_WEB=$(echo "$AFFECTED" | jq -r 'any(.projects[]?; (.config.tags // [] | index("language-typescript")) != null)')
+
           printf 'projects=%s\n' "$AFFECTED_JSON" >> "$GITHUB_OUTPUT"
+          printf 'has_go_projects=%s\n' "$HAS_GO" >> "$GITHUB_OUTPUT"
+          printf 'has_java_projects=%s\n' "$HAS_JAVA" >> "$GITHUB_OUTPUT"
+          printf 'has_web_projects=%s\n' "$HAS_WEB" >> "$GITHUB_OUTPUT"
           echo "Affected projects: $AFFECTED_JSON"
-
-      - name: Group affected projects by language
-        id: group
-        run: |
-          set -euo pipefail
-          AFFECTED='${{ steps.affected.outputs.projects }}'
-
-          HAS_GO=$(echo "$AFFECTED" | jq -r 'any(.[]; . == "go-services" or . == "go-library" or . == "go-backend" or . == "go-bff")')
-          HAS_JAVA=$(echo "$AFFECTED" | jq -r 'any(.[]; . == "java-services" or . == "keycloak-custom" or . == "keycloak-user-event-listener" or . == "keycloak-custom-image")')
-          HAS_WEB=$(echo "$AFFECTED" | jq -r 'any(.[]; . == "frontend")')
-
-          echo "has_go_projects=$HAS_GO" >> "$GITHUB_OUTPUT"
-          echo "has_java_projects=$HAS_JAVA" >> "$GITHUB_OUTPUT"
-          echo "has_web_projects=$HAS_WEB" >> "$GITHUB_OUTPUT"
 
   go-ci:
     runs-on: ubuntu-latest
@@ -101,6 +94,17 @@ jobs:
         uses: moonrepo/setup-toolchain@v0
         with:
           moon-version: ${{ env.MOON_VERSION }}
+
+      - name: Restore Moon cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            .moon/cache/hashes
+            .moon/cache/outputs
+          key: moon-cache-${{ runner.os }}-${{ github.ref_name }}-${{ github.job }}-${{ github.sha }}
+          restore-keys: |
+            moon-cache-${{ runner.os }}-${{ github.ref_name }}-${{ github.job }}-
+            moon-cache-${{ runner.os }}-${{ github.job }}-
 
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -123,17 +127,25 @@ jobs:
       - name: Install Go dependencies
         run: moon run go-services:install-go --summary minimal
 
-      - name: Generate affected Go code
+      - name: Query affected Go projects
+        id: affected
         run: |
           set -euo pipefail
-          mapfile -t TARGETS < <(
+          PROJECTS=$(
             moon query projects \
               --affected \
               --downstream deep \
               --base='${{ needs.detect-changes.outputs.base_sha }}' \
               --head='${{ needs.detect-changes.outputs.current_sha }}' |
-            jq -r '.projects[] | select(.tasks["generate-go"] != null) | "\(.id):generate-go"'
+            jq -ce '.projects'
           )
+          printf 'projects=%s\n' "$PROJECTS" >> "$GITHUB_OUTPUT"
+
+      - name: Generate affected Go code
+        run: |
+          set -euo pipefail
+          PROJECTS='${{ steps.affected.outputs.projects }}'
+          mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["generate-go"] != null) | "\(.id):generate-go"')
           if [ "${#TARGETS[@]}" -gt 0 ]; then
             moon run "${TARGETS[@]}" --summary minimal
           fi
@@ -153,14 +165,8 @@ jobs:
       - name: Lint affected Go projects
         run: |
           set -euo pipefail
-          mapfile -t TARGETS < <(
-            moon query projects \
-              --affected \
-              --downstream deep \
-              --base='${{ needs.detect-changes.outputs.base_sha }}' \
-              --head='${{ needs.detect-changes.outputs.current_sha }}' |
-            jq -r '.projects[] | select(.tasks["lint-go"] != null) | "\(.id):lint-go"'
-          )
+          PROJECTS='${{ steps.affected.outputs.projects }}'
+          mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["lint-go"] != null) | "\(.id):lint-go"')
           if [ "${#TARGETS[@]}" -gt 0 ]; then
             moon run --concurrency 1 "${TARGETS[@]}" --summary minimal
           fi
@@ -168,14 +174,8 @@ jobs:
       - name: Build affected Go projects
         run: |
           set -euo pipefail
-          mapfile -t TARGETS < <(
-            moon query projects \
-              --affected \
-              --downstream deep \
-              --base='${{ needs.detect-changes.outputs.base_sha }}' \
-              --head='${{ needs.detect-changes.outputs.current_sha }}' |
-            jq -r '.projects[] | select(.tasks["build-go"] != null) | "\(.id):build-go"'
-          )
+          PROJECTS='${{ steps.affected.outputs.projects }}'
+          mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["build-go"] != null) | "\(.id):build-go"')
           if [ "${#TARGETS[@]}" -gt 0 ]; then
             moon run "${TARGETS[@]}" --summary minimal
           fi
@@ -183,14 +183,8 @@ jobs:
       - name: Test affected Go projects
         run: |
           set -euo pipefail
-          mapfile -t TARGETS < <(
-            moon query projects \
-              --affected \
-              --downstream deep \
-              --base='${{ needs.detect-changes.outputs.base_sha }}' \
-              --head='${{ needs.detect-changes.outputs.current_sha }}' |
-            jq -r '.projects[] | select(.tasks["test-go"] != null) | "\(.id):test-go"'
-          )
+          PROJECTS='${{ steps.affected.outputs.projects }}'
+          mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["test-go"] != null) | "\(.id):test-go"')
           if [ "${#TARGETS[@]}" -gt 0 ]; then
             moon run "${TARGETS[@]}" --summary minimal
           fi
@@ -210,6 +204,17 @@ jobs:
         with:
           moon-version: ${{ env.MOON_VERSION }}
 
+      - name: Restore Moon cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            .moon/cache/hashes
+            .moon/cache/outputs
+          key: moon-cache-${{ runner.os }}-${{ github.ref_name }}-${{ github.job }}-${{ github.sha }}
+          restore-keys: |
+            moon-cache-${{ runner.os }}-${{ github.ref_name }}-${{ github.job }}-
+            moon-cache-${{ runner.os }}-${{ github.job }}-
+
       - name: Set up JDK
         uses: actions/setup-java@v5
         with:
@@ -217,17 +222,25 @@ jobs:
           java-version: ${{ env.JAVA_VERSION }}
           cache: "maven"
 
-      - name: Install affected Java projects
+      - name: Query affected Java projects
+        id: affected
         run: |
           set -euo pipefail
-          mapfile -t TARGETS < <(
+          PROJECTS=$(
             moon query projects \
               --affected \
               --downstream deep \
               --base='${{ needs.detect-changes.outputs.base_sha }}' \
               --head='${{ needs.detect-changes.outputs.current_sha }}' |
-            jq -r '.projects[] | select(.tasks["install-java"] != null) | "\(.id):install-java"'
+            jq -ce '.projects'
           )
+          printf 'projects=%s\n' "$PROJECTS" >> "$GITHUB_OUTPUT"
+
+      - name: Install affected Java projects
+        run: |
+          set -euo pipefail
+          PROJECTS='${{ steps.affected.outputs.projects }}'
+          mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["install-java"] != null) | "\(.id):install-java"')
           if [ "${#TARGETS[@]}" -gt 0 ]; then
             moon run "${TARGETS[@]}" --summary minimal
           fi
@@ -235,14 +248,8 @@ jobs:
       - name: Format affected Java projects
         run: |
           set -euo pipefail
-          mapfile -t TARGETS < <(
-            moon query projects \
-              --affected \
-              --downstream deep \
-              --base='${{ needs.detect-changes.outputs.base_sha }}' \
-              --head='${{ needs.detect-changes.outputs.current_sha }}' |
-            jq -r '.projects[] | select(.tasks["format-java"] != null) | "\(.id):format-java"'
-          )
+          PROJECTS='${{ steps.affected.outputs.projects }}'
+          mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["format-java"] != null) | "\(.id):format-java"')
           if [ "${#TARGETS[@]}" -gt 0 ]; then
             moon run "${TARGETS[@]}" --summary minimal
           fi
@@ -259,14 +266,8 @@ jobs:
       - name: Lint affected Java projects
         run: |
           set -euo pipefail
-          mapfile -t TARGETS < <(
-            moon query projects \
-              --affected \
-              --downstream deep \
-              --base='${{ needs.detect-changes.outputs.base_sha }}' \
-              --head='${{ needs.detect-changes.outputs.current_sha }}' |
-            jq -r '.projects[] | select(.tasks["lint-java"] != null) | "\(.id):lint-java"'
-          )
+          PROJECTS='${{ steps.affected.outputs.projects }}'
+          mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["lint-java"] != null) | "\(.id):lint-java"')
           if [ "${#TARGETS[@]}" -gt 0 ]; then
             moon run "${TARGETS[@]}" --summary minimal
           fi
@@ -274,14 +275,8 @@ jobs:
       - name: Build affected Java projects
         run: |
           set -euo pipefail
-          mapfile -t TARGETS < <(
-            moon query projects \
-              --affected \
-              --downstream deep \
-              --base='${{ needs.detect-changes.outputs.base_sha }}' \
-              --head='${{ needs.detect-changes.outputs.current_sha }}' |
-            jq -r '.projects[] | select(.tasks["build-java"] != null) | "\(.id):build-java"'
-          )
+          PROJECTS='${{ steps.affected.outputs.projects }}'
+          mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["build-java"] != null) | "\(.id):build-java"')
           if [ "${#TARGETS[@]}" -gt 0 ]; then
             moon run "${TARGETS[@]}" --summary minimal
           fi
@@ -289,14 +284,8 @@ jobs:
       - name: Test affected Java projects
         run: |
           set -euo pipefail
-          mapfile -t TARGETS < <(
-            moon query projects \
-              --affected \
-              --downstream deep \
-              --base='${{ needs.detect-changes.outputs.base_sha }}' \
-              --head='${{ needs.detect-changes.outputs.current_sha }}' |
-            jq -r '.projects[] | select(.tasks["test-java"] != null) | "\(.id):test-java"'
-          )
+          PROJECTS='${{ steps.affected.outputs.projects }}'
+          mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["test-java"] != null) | "\(.id):test-java"')
           if [ "${#TARGETS[@]}" -gt 0 ]; then
             moon run "${TARGETS[@]}" --summary minimal
           fi
@@ -316,6 +305,17 @@ jobs:
         with:
           moon-version: ${{ env.MOON_VERSION }}
 
+      - name: Restore Moon cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            .moon/cache/hashes
+            .moon/cache/outputs
+          key: moon-cache-${{ runner.os }}-${{ github.ref_name }}-${{ github.job }}-${{ github.sha }}
+          restore-keys: |
+            moon-cache-${{ runner.os }}-${{ github.ref_name }}-${{ github.job }}-
+            moon-cache-${{ runner.os }}-${{ github.job }}-
+
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
@@ -323,17 +323,25 @@ jobs:
           cache: "npm"
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Install affected web projects
+      - name: Query affected web projects
+        id: affected
         run: |
           set -euo pipefail
-          mapfile -t TARGETS < <(
+          PROJECTS=$(
             moon query projects \
               --affected \
               --downstream deep \
               --base='${{ needs.detect-changes.outputs.base_sha }}' \
               --head='${{ needs.detect-changes.outputs.current_sha }}' |
-            jq -r '.projects[] | select(.tasks["install-web"] != null) | "\(.id):install-web"'
+            jq -ce '.projects'
           )
+          printf 'projects=%s\n' "$PROJECTS" >> "$GITHUB_OUTPUT"
+
+      - name: Install affected web projects
+        run: |
+          set -euo pipefail
+          PROJECTS='${{ steps.affected.outputs.projects }}'
+          mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["install-web"] != null) | "\(.id):install-web"')
           if [ "${#TARGETS[@]}" -gt 0 ]; then
             moon run "${TARGETS[@]}" --summary minimal
           fi
@@ -341,14 +349,8 @@ jobs:
       - name: Format affected web projects
         run: |
           set -euo pipefail
-          mapfile -t TARGETS < <(
-            moon query projects \
-              --affected \
-              --downstream deep \
-              --base='${{ needs.detect-changes.outputs.base_sha }}' \
-              --head='${{ needs.detect-changes.outputs.current_sha }}' |
-            jq -r '.projects[] | select(.tasks["format-web"] != null) | "\(.id):format-web"'
-          )
+          PROJECTS='${{ steps.affected.outputs.projects }}'
+          mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["format-web"] != null) | "\(.id):format-web"')
           if [ "${#TARGETS[@]}" -gt 0 ]; then
             moon run "${TARGETS[@]}" --summary minimal
           fi
@@ -365,14 +367,8 @@ jobs:
       - name: Lint affected web projects
         run: |
           set -euo pipefail
-          mapfile -t TARGETS < <(
-            moon query projects \
-              --affected \
-              --downstream deep \
-              --base='${{ needs.detect-changes.outputs.base_sha }}' \
-              --head='${{ needs.detect-changes.outputs.current_sha }}' |
-            jq -r '.projects[] | select(.tasks["lint-web"] != null) | "\(.id):lint-web"'
-          )
+          PROJECTS='${{ steps.affected.outputs.projects }}'
+          mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["lint-web"] != null) | "\(.id):lint-web"')
           if [ "${#TARGETS[@]}" -gt 0 ]; then
             moon run "${TARGETS[@]}" --summary minimal
           fi
@@ -380,14 +376,8 @@ jobs:
       - name: Build affected web projects
         run: |
           set -euo pipefail
-          mapfile -t TARGETS < <(
-            moon query projects \
-              --affected \
-              --downstream deep \
-              --base='${{ needs.detect-changes.outputs.base_sha }}' \
-              --head='${{ needs.detect-changes.outputs.current_sha }}' |
-            jq -r '.projects[] | select(.tasks["build-web"] != null) | "\(.id):build-web"'
-          )
+          PROJECTS='${{ steps.affected.outputs.projects }}'
+          mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["build-web"] != null) | "\(.id):build-web"')
           if [ "${#TARGETS[@]}" -gt 0 ]; then
             moon run "${TARGETS[@]}" --summary minimal
           fi
@@ -395,14 +385,8 @@ jobs:
       - name: Test affected web projects
         run: |
           set -euo pipefail
-          mapfile -t TARGETS < <(
-            moon query projects \
-              --affected \
-              --downstream deep \
-              --base='${{ needs.detect-changes.outputs.base_sha }}' \
-              --head='${{ needs.detect-changes.outputs.current_sha }}' |
-            jq -r '.projects[] | select(.tasks["test-web"] != null) | "\(.id):test-web"'
-          )
+          PROJECTS='${{ steps.affected.outputs.projects }}'
+          mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["test-web"] != null) | "\(.id):test-web"')
           if [ "${#TARGETS[@]}" -gt 0 ]; then
             moon run "${TARGETS[@]}" --summary minimal
           fi
@@ -428,23 +412,42 @@ jobs:
         with:
           moon-version: ${{ env.MOON_VERSION }}
 
+      - name: Restore Moon cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            .moon/cache/hashes
+            .moon/cache/outputs
+          key: moon-cache-${{ runner.os }}-${{ github.ref_name }}-${{ github.job }}-${{ github.sha }}
+          restore-keys: |
+            moon-cache-${{ runner.os }}-${{ github.ref_name }}-${{ github.job }}-
+            moon-cache-${{ runner.os }}-${{ github.job }}-
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
       - name: Set GIT_SHA environment variable
         run: echo "GIT_SHA=${GITHUB_SHA::8}" >> "$GITHUB_ENV"
 
-      - name: Build Docker images for affected projects
+      - name: Query affected Docker projects
+        id: affected
         run: |
           set -euo pipefail
-          mapfile -t TARGETS < <(
+          PROJECTS=$(
             moon query projects \
               --affected \
               --downstream deep \
               --base='${{ needs.detect-changes.outputs.base_sha }}' \
               --head='${{ needs.detect-changes.outputs.current_sha }}' |
-            jq -r '.projects[] | select(.tasks["docker"] != null) | "\(.id):docker"'
+            jq -ce '.projects'
           )
+          printf 'projects=%s\n' "$PROJECTS" >> "$GITHUB_OUTPUT"
+
+      - name: Build Docker images for affected projects
+        run: |
+          set -euo pipefail
+          PROJECTS='${{ steps.affected.outputs.projects }}'
+          mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["docker"] != null) | "\(.id):docker"')
           if [ "${#TARGETS[@]}" -gt 0 ]; then
             moon run "${TARGETS[@]}" --summary minimal
           fi
@@ -453,14 +456,8 @@ jobs:
         if: github.ref == 'refs/heads/main'
         run: |
           set -euo pipefail
-          mapfile -t TARGETS < <(
-            moon query projects \
-              --affected \
-              --downstream deep \
-              --base='${{ needs.detect-changes.outputs.base_sha }}' \
-              --head='${{ needs.detect-changes.outputs.current_sha }}' |
-            jq -r '.projects[] | select(.tasks["docker-push"] != null) | "\(.id):docker-push"'
-          )
+          PROJECTS='${{ steps.affected.outputs.projects }}'
+          mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["docker-push"] != null) | "\(.id):docker-push"')
           if [ "${#TARGETS[@]}" -gt 0 ]; then
             moon run "${TARGETS[@]}" --summary minimal
           fi

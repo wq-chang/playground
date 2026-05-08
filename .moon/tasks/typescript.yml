@@ -1,0 +1,59 @@
+inheritedBy:
+  files:
+    - 'package.json'
+  tags:
+    and:
+      - 'language-typescript'
+
+tasks:
+  install-web:
+    command: 'npm ci'
+    options:
+      cache: false
+    toolchains: 'system'
+
+  install:
+    deps:
+      - '~:install-web'
+
+  format-web:
+    command: 'npm run format'
+    options:
+      cache: false
+    toolchains: 'system'
+
+  format:
+    deps:
+      - '~:format-web'
+
+  build-web:
+    command: 'npm run build'
+    options:
+      cache: true
+    outputs:
+      - 'dist'
+    toolchains: 'system'
+
+  build:
+    deps:
+      - '~:build-web'
+
+  test-web:
+    command: 'npm test -- run --passWithNoTests'
+    options:
+      cache: true
+    toolchains: 'system'
+
+  test:
+    deps:
+      - '~:test-web'
+
+  lint-web:
+    command: 'npm run lint'
+    options:
+      cache: true
+    toolchains: 'system'
+
+  lint:
+    deps:
+      - '~:lint-web'

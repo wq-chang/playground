@@ -1,0 +1,21 @@
+inheritedBy:
+  files:
+    - 'Dockerfile'
+  layer: 'application'
+
+tasks:
+  docker:
+    script: 'docker build -f $projectSource/Dockerfile -t $project:${GIT_SHA:-latest} -t $project:latest .'
+    options:
+      cache: false
+      runFromWorkspaceRoot: true
+    toolchains: 'system'
+
+  docker-push:
+    deps:
+      - '~:docker'
+    script: 'docker push $project:${GIT_SHA:-latest} && docker push $project:latest'
+    options:
+      cache: false
+      runFromWorkspaceRoot: true
+    toolchains: 'system'
