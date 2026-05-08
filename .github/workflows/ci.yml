@@ -11,6 +11,7 @@ env:
   NODE_VERSION: "24"
   GOLANGCI_LINT_VERSION: "v2.12.1"
   GOTESTSUM_VERSION: "1.13.0"
+  SQLC_VERSION: "1.31.1"
   NX_KEY: ${{ secrets.NX_KEY }}
   NX_CACHE_DIRECTORY: .nx/cache
 
@@ -130,6 +131,9 @@ jobs:
           curl -sSfL https://github.com/gotestyourself/gotestsum/releases/download/v${{ env.GOTESTSUM_VERSION }}/gotestsum_${{ env.GOTESTSUM_VERSION }}_linux_amd64.tar.gz | tar -xz -C /tmp
           sudo mv /tmp/gotestsum /usr/local/bin/gotestsum
           chmod +x /usr/local/bin/gotestsum
+          curl -sSfL https://github.com/sqlc-dev/sqlc/releases/download/v${{ env.SQLC_VERSION }}/sqlc_${{ env.SQLC_VERSION }}_linux_amd64.tar.gz | tar -xz -C /tmp
+          sudo mv /tmp/sqlc /usr/local/bin/sqlc
+          chmod +x /usr/local/bin/sqlc
 
       - name: Restore shared Nx cache
         if: env.NX_KEY != ''
@@ -144,14 +148,18 @@ jobs:
       - name: Install Go dependencies
         run: npx nx run go-services:install-go
 
+      - name: Generate affected Go code
+        run: |
+          npx nx affected --base='${{ needs.detect-changes.outputs.base_sha }}' --head='${{ needs.detect-changes.outputs.current_sha }}' --target=generate-go --parallel=4
+
       - name: Format Go code
         run: npx nx run go-services:format-go
 
-      - name: Fail on Go formatting changes
+      - name: Fail on generated or formatted Go changes
         run: |
           set -euo pipefail
           if ! git diff --quiet -- services/go; then
-            echo "Formatting produced uncommitted changes in services/go."
+            echo "Generate or format steps produced uncommitted changes in services/go."
             git --no-pager diff -- services/go
             exit 1
           fi

@@ -41,6 +41,15 @@
       },
       "outputs": []
     },
+    "generate-go": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "go generate ./...",
+        "cwd": "{projectRoot}"
+      },
+      "outputs": []
+    },
     "build-go": {
       "executor": "nx:run-commands",
       "cache": true,

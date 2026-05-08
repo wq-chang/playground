@@ -67,8 +67,9 @@ When it runs, it uses `nx affected -t <language-target>` with the resolved base/
 #### Go
 
 - `go-services:install-go`
+- `npx nx affected -t generate-go`
 - `go-services:format-go`
-- fail if formatting changed tracked Go files
+- fail if generation or formatting changed tracked Go files
 - `npx nx affected -t lint-go`
 - `npx nx affected -t build-go`
 - `npx nx affected -t test-go`
@@ -249,6 +250,8 @@ npx nx run keycloak-user-event-listener:lint
 
 # Run language-specific targets directly
 npx nx run go-services:install-go
+npx nx run go-backend:generate-go
+npx nx run go-library:generate-go
 npx nx run go-services:format-go
 npx nx run frontend:install-web
 npx nx run frontend:format-web

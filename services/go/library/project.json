@@ -19,6 +19,7 @@
       "dependsOn": ["format-go"],
       "executor": "nx:noop"
     },
+    "generate-go": {},
     "lint-go": {},
     "lint": {
       "dependsOn": ["lint-go"],
