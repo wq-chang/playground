@@ -1,0 +1,27 @@
+language: 'go'
+layer: 'library'
+stack: 'backend'
+tags:
+  - 'go'
+  - 'shared'
+
+tasks:
+  install-go:
+    command: 'go mod download'
+    options:
+      cache: false
+    toolchains: 'system'
+
+  install:
+    deps:
+      - '~:install-go'
+
+  format-go:
+    command: 'golangci-lint fmt ./...'
+    options:
+      cache: false
+    toolchains: 'system'
+
+  format:
+    deps:
+      - '~:format-go'

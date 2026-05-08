@@ -86,10 +86,6 @@ volume/
 
 
 # ====================
-# nx
+# task runner caches
 # ====================
-.nx/installation
-.nx/cache
-.nx/workspace-data
-.nx/self-healing
-.nx/key
+.moon/cache/

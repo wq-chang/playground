@@ -266,11 +266,11 @@ Shared packages used across all Go services (BFF, Backend). Provides utilities f
 **Purpose**:
 Central Maven parent POM for all Java services. Manages dependency versions, plugin configurations, and provides consistent build settings across Java modules.
 
-**Nx Relationship**:
+**Moon Relationship**:
 
 - `java-services` tracks the root parent POM
 - `keycloak-custom` tracks the Keycloak SPI parent POM
-- each SPI has its own Nx project for granular affected builds
+- each SPI has its own moon project for granular affected builds
 - `keycloak-custom-image` packages all SPI jars into a single Keycloak container build
 
 **Key Features**:

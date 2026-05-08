@@ -12,8 +12,7 @@ env:
   GOLANGCI_LINT_VERSION: "v2.12.1"
   GOTESTSUM_VERSION: "1.13.0"
   SQLC_VERSION: "1.31.1"
-  NX_KEY: ${{ secrets.NX_KEY }}
-  NX_CACHE_DIRECTORY: .nx/cache
+  MOON_VERSION: "2.2.3"
 
 jobs:
   detect-changes:
@@ -31,24 +30,24 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
+      - name: Set up moon
+        uses: moonrepo/setup-toolchain@v0
         with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
-
-      - name: Install Nx
-        run: npm ci
+          moon-version: ${{ env.MOON_VERSION }}
 
       - name: Resolve comparison refs
         id: refs
         run: |
-          if [ "${{ github.event_name }}" == "pull_request" ]; then
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
             BASE_SHA="${{ github.event.pull_request.base.sha }}"
             CURRENT_SHA="${{ github.event.pull_request.head.sha }}"
           else
             BASE_SHA="${{ github.event.before }}"
             CURRENT_SHA="${{ github.sha }}"
+          fi
+
+          if [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            BASE_SHA="origin/main"
           fi
 
           echo "Comparing $BASE_SHA to $CURRENT_SHA"
@@ -62,8 +61,14 @@ jobs:
           BASE_SHA='${{ steps.refs.outputs.base_sha }}'
           CURRENT_SHA='${{ steps.refs.outputs.current_sha }}'
 
-          AFFECTED=$(npx nx show projects --affected --base="$BASE_SHA" --head="$CURRENT_SHA" --json)
-          AFFECTED_JSON=$(echo "$AFFECTED" | jq -ce '.')
+          AFFECTED_JSON=$(
+            moon query projects \
+              --affected \
+              --downstream deep \
+              --base "$BASE_SHA" \
+              --head "$CURRENT_SHA" |
+            jq -ce '.projects | map(.id)'
+          )
 
           printf 'projects=%s\n' "$AFFECTED_JSON" >> "$GITHUB_OUTPUT"
           echo "Affected projects: $AFFECTED_JSON"
@@ -73,26 +78,10 @@ jobs:
         run: |
           set -euo pipefail
           AFFECTED='${{ steps.affected.outputs.projects }}'
-          HAS_GO=false
-          HAS_JAVA=false
-          HAS_WEB=false
 
-          while IFS= read -r project; do
-            [ -z "$project" ] && continue
-            PROJECT_JSON=$(npx nx show project "$project" --json)
-
-            if echo "$PROJECT_JSON" | jq -e '.tags // [] | index("language:go")' >/dev/null; then
-              HAS_GO=true
-            fi
-
-            if echo "$PROJECT_JSON" | jq -e '.tags // [] | index("language:java")' >/dev/null; then
-              HAS_JAVA=true
-            fi
-
-            if echo "$PROJECT_JSON" | jq -e '.tags // [] | index("language:ts")' >/dev/null; then
-              HAS_WEB=true
-            fi
-          done < <(echo "$AFFECTED" | jq -r '.[]')
+          HAS_GO=$(echo "$AFFECTED" | jq -r 'any(.[]; . == "go-services" or . == "go-library" or . == "go-backend" or . == "go-bff")')
+          HAS_JAVA=$(echo "$AFFECTED" | jq -r 'any(.[]; . == "java-services" or . == "keycloak-custom" or . == "keycloak-user-event-listener" or . == "keycloak-custom-image")')
+          HAS_WEB=$(echo "$AFFECTED" | jq -r 'any(.[]; . == "frontend")')
 
           echo "has_go_projects=$HAS_GO" >> "$GITHUB_OUTPUT"
           echo "has_java_projects=$HAS_JAVA" >> "$GITHUB_OUTPUT"
@@ -108,14 +97,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
+      - name: Set up moon
+        uses: moonrepo/setup-toolchain@v0
         with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
-
-      - name: Install Nx
-        run: npm ci
+          moon-version: ${{ env.MOON_VERSION }}
 
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -126,34 +111,35 @@ jobs:
 
       - name: Install Go build tools
         run: |
-          curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(go env GOPATH)/bin ${{ env.GOLANGCI_LINT_VERSION }}
-          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
-          curl -sSfL https://github.com/gotestyourself/gotestsum/releases/download/v${{ env.GOTESTSUM_VERSION }}/gotestsum_${{ env.GOTESTSUM_VERSION }}_linux_amd64.tar.gz | tar -xz -C /tmp
+          curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b "$(go env GOPATH)/bin" ${{ env.GOLANGCI_LINT_VERSION }}
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          curl -sSfL "https://github.com/gotestyourself/gotestsum/releases/download/v${{ env.GOTESTSUM_VERSION }}/gotestsum_${{ env.GOTESTSUM_VERSION }}_linux_amd64.tar.gz" | tar -xz -C /tmp
           sudo mv /tmp/gotestsum /usr/local/bin/gotestsum
           chmod +x /usr/local/bin/gotestsum
-          curl -sSfL https://github.com/sqlc-dev/sqlc/releases/download/v${{ env.SQLC_VERSION }}/sqlc_${{ env.SQLC_VERSION }}_linux_amd64.tar.gz | tar -xz -C /tmp
+          curl -sSfL "https://github.com/sqlc-dev/sqlc/releases/download/v${{ env.SQLC_VERSION }}/sqlc_${{ env.SQLC_VERSION }}_linux_amd64.tar.gz" | tar -xz -C /tmp
           sudo mv /tmp/sqlc /usr/local/bin/sqlc
           chmod +x /usr/local/bin/sqlc
 
-      - name: Restore shared Nx cache
-        if: env.NX_KEY != ''
-        uses: actions/cache@v5
-        with:
-          path: ${{ env.NX_CACHE_DIRECTORY }}
-          key: nx-cache-${{ runner.os }}-${{ github.ref_name }}-${{ github.job }}-${{ github.sha }}
-          restore-keys: |
-            nx-cache-${{ runner.os }}-${{ github.ref_name }}-${{ github.job }}-
-            nx-cache-${{ runner.os }}-${{ github.job }}-
-
       - name: Install Go dependencies
-        run: npx nx run go-services:install-go
+        run: moon run go-services:install-go --summary minimal
 
       - name: Generate affected Go code
         run: |
-          npx nx affected --base='${{ needs.detect-changes.outputs.base_sha }}' --head='${{ needs.detect-changes.outputs.current_sha }}' --target=generate-go --parallel=4
+          set -euo pipefail
+          mapfile -t TARGETS < <(
+            moon query projects \
+              --affected \
+              --downstream deep \
+              --base='${{ needs.detect-changes.outputs.base_sha }}' \
+              --head='${{ needs.detect-changes.outputs.current_sha }}' |
+            jq -r '.projects[] | select(.tasks["generate-go"] != null) | "\(.id):generate-go"'
+          )
+          if [ "${#TARGETS[@]}" -gt 0 ]; then
+            moon run "${TARGETS[@]}" --summary minimal
+          fi
 
       - name: Format Go code
-        run: npx nx run go-services:format-go
+        run: moon run go-services:format-go --summary minimal
 
       - name: Fail on generated or formatted Go changes
         run: |
@@ -166,15 +152,48 @@ jobs:
 
       - name: Lint affected Go projects
         run: |
-          npx nx affected --base='${{ needs.detect-changes.outputs.base_sha }}' --head='${{ needs.detect-changes.outputs.current_sha }}' --target=lint-go --parallel=1
+          set -euo pipefail
+          mapfile -t TARGETS < <(
+            moon query projects \
+              --affected \
+              --downstream deep \
+              --base='${{ needs.detect-changes.outputs.base_sha }}' \
+              --head='${{ needs.detect-changes.outputs.current_sha }}' |
+            jq -r '.projects[] | select(.tasks["lint-go"] != null) | "\(.id):lint-go"'
+          )
+          if [ "${#TARGETS[@]}" -gt 0 ]; then
+            moon run --concurrency 1 "${TARGETS[@]}" --summary minimal
+          fi
 
       - name: Build affected Go projects
         run: |
-          npx nx affected --base='${{ needs.detect-changes.outputs.base_sha }}' --head='${{ needs.detect-changes.outputs.current_sha }}' --target=build-go --parallel=4
+          set -euo pipefail
+          mapfile -t TARGETS < <(
+            moon query projects \
+              --affected \
+              --downstream deep \
+              --base='${{ needs.detect-changes.outputs.base_sha }}' \
+              --head='${{ needs.detect-changes.outputs.current_sha }}' |
+            jq -r '.projects[] | select(.tasks["build-go"] != null) | "\(.id):build-go"'
+          )
+          if [ "${#TARGETS[@]}" -gt 0 ]; then
+            moon run "${TARGETS[@]}" --summary minimal
+          fi
 
       - name: Test affected Go projects
         run: |
-          npx nx affected --base='${{ needs.detect-changes.outputs.base_sha }}' --head='${{ needs.detect-changes.outputs.current_sha }}' --target=test-go --parallel=4
+          set -euo pipefail
+          mapfile -t TARGETS < <(
+            moon query projects \
+              --affected \
+              --downstream deep \
+              --base='${{ needs.detect-changes.outputs.base_sha }}' \
+              --head='${{ needs.detect-changes.outputs.current_sha }}' |
+            jq -r '.projects[] | select(.tasks["test-go"] != null) | "\(.id):test-go"'
+          )
+          if [ "${#TARGETS[@]}" -gt 0 ]; then
+            moon run "${TARGETS[@]}" --summary minimal
+          fi
 
   java-ci:
     runs-on: ubuntu-latest
@@ -186,14 +205,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
+      - name: Set up moon
+        uses: moonrepo/setup-toolchain@v0
         with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
-
-      - name: Install Nx
-        run: npm ci
+          moon-version: ${{ env.MOON_VERSION }}
 
       - name: Set up JDK
         uses: actions/setup-java@v5
@@ -202,23 +217,35 @@ jobs:
           java-version: ${{ env.JAVA_VERSION }}
           cache: "maven"
 
-      - name: Restore shared Nx cache
-        if: env.NX_KEY != ''
-        uses: actions/cache@v5
-        with:
-          path: ${{ env.NX_CACHE_DIRECTORY }}
-          key: nx-cache-${{ runner.os }}-${{ github.ref_name }}-${{ github.job }}-${{ github.sha }}
-          restore-keys: |
-            nx-cache-${{ runner.os }}-${{ github.ref_name }}-${{ github.job }}-
-            nx-cache-${{ runner.os }}-${{ github.job }}-
-
       - name: Install affected Java projects
         run: |
-          npx nx affected --base='${{ needs.detect-changes.outputs.base_sha }}' --head='${{ needs.detect-changes.outputs.current_sha }}' --target=install-java --parallel=4
+          set -euo pipefail
+          mapfile -t TARGETS < <(
+            moon query projects \
+              --affected \
+              --downstream deep \
+              --base='${{ needs.detect-changes.outputs.base_sha }}' \
+              --head='${{ needs.detect-changes.outputs.current_sha }}' |
+            jq -r '.projects[] | select(.tasks["install-java"] != null) | "\(.id):install-java"'
+          )
+          if [ "${#TARGETS[@]}" -gt 0 ]; then
+            moon run "${TARGETS[@]}" --summary minimal
+          fi
 
       - name: Format affected Java projects
         run: |
-          npx nx affected --base='${{ needs.detect-changes.outputs.base_sha }}' --head='${{ needs.detect-changes.outputs.current_sha }}' --target=format-java --parallel=4
+          set -euo pipefail
+          mapfile -t TARGETS < <(
+            moon query projects \
+              --affected \
+              --downstream deep \
+              --base='${{ needs.detect-changes.outputs.base_sha }}' \
+              --head='${{ needs.detect-changes.outputs.current_sha }}' |
+            jq -r '.projects[] | select(.tasks["format-java"] != null) | "\(.id):format-java"'
+          )
+          if [ "${#TARGETS[@]}" -gt 0 ]; then
+            moon run "${TARGETS[@]}" --summary minimal
+          fi
 
       - name: Fail on Java formatting changes
         run: |
@@ -231,15 +258,48 @@ jobs:
 
       - name: Lint affected Java projects
         run: |
-          npx nx affected --base='${{ needs.detect-changes.outputs.base_sha }}' --head='${{ needs.detect-changes.outputs.current_sha }}' --target=lint-java --parallel=4
+          set -euo pipefail
+          mapfile -t TARGETS < <(
+            moon query projects \
+              --affected \
+              --downstream deep \
+              --base='${{ needs.detect-changes.outputs.base_sha }}' \
+              --head='${{ needs.detect-changes.outputs.current_sha }}' |
+            jq -r '.projects[] | select(.tasks["lint-java"] != null) | "\(.id):lint-java"'
+          )
+          if [ "${#TARGETS[@]}" -gt 0 ]; then
+            moon run "${TARGETS[@]}" --summary minimal
+          fi
 
       - name: Build affected Java projects
         run: |
-          npx nx affected --base='${{ needs.detect-changes.outputs.base_sha }}' --head='${{ needs.detect-changes.outputs.current_sha }}' --target=build-java --parallel=4
+          set -euo pipefail
+          mapfile -t TARGETS < <(
+            moon query projects \
+              --affected \
+              --downstream deep \
+              --base='${{ needs.detect-changes.outputs.base_sha }}' \
+              --head='${{ needs.detect-changes.outputs.current_sha }}' |
+            jq -r '.projects[] | select(.tasks["build-java"] != null) | "\(.id):build-java"'
+          )
+          if [ "${#TARGETS[@]}" -gt 0 ]; then
+            moon run "${TARGETS[@]}" --summary minimal
+          fi
 
       - name: Test affected Java projects
         run: |
-          npx nx affected --base='${{ needs.detect-changes.outputs.base_sha }}' --head='${{ needs.detect-changes.outputs.current_sha }}' --target=test-java --parallel=4
+          set -euo pipefail
+          mapfile -t TARGETS < <(
+            moon query projects \
+              --affected \
+              --downstream deep \
+              --base='${{ needs.detect-changes.outputs.base_sha }}' \
+              --head='${{ needs.detect-changes.outputs.current_sha }}' |
+            jq -r '.projects[] | select(.tasks["test-java"] != null) | "\(.id):test-java"'
+          )
+          if [ "${#TARGETS[@]}" -gt 0 ]; then
+            moon run "${TARGETS[@]}" --summary minimal
+          fi
 
   web-ci:
     runs-on: ubuntu-latest
@@ -251,32 +311,47 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Set up moon
+        uses: moonrepo/setup-toolchain@v0
+        with:
+          moon-version: ${{ env.MOON_VERSION }}
+
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
-
-      - name: Install Nx
-        run: npm ci
-
-      - name: Restore shared Nx cache
-        if: env.NX_KEY != ''
-        uses: actions/cache@v5
-        with:
-          path: ${{ env.NX_CACHE_DIRECTORY }}
-          key: nx-cache-${{ runner.os }}-${{ github.ref_name }}-${{ github.job }}-${{ github.sha }}
-          restore-keys: |
-            nx-cache-${{ runner.os }}-${{ github.ref_name }}-${{ github.job }}-
-            nx-cache-${{ runner.os }}-${{ github.job }}-
+          cache-dependency-path: frontend/package-lock.json
 
       - name: Install affected web projects
         run: |
-          npx nx affected --base='${{ needs.detect-changes.outputs.base_sha }}' --head='${{ needs.detect-changes.outputs.current_sha }}' --target=install-web --parallel=4
+          set -euo pipefail
+          mapfile -t TARGETS < <(
+            moon query projects \
+              --affected \
+              --downstream deep \
+              --base='${{ needs.detect-changes.outputs.base_sha }}' \
+              --head='${{ needs.detect-changes.outputs.current_sha }}' |
+            jq -r '.projects[] | select(.tasks["install-web"] != null) | "\(.id):install-web"'
+          )
+          if [ "${#TARGETS[@]}" -gt 0 ]; then
+            moon run "${TARGETS[@]}" --summary minimal
+          fi
 
       - name: Format affected web projects
         run: |
-          npx nx affected --base='${{ needs.detect-changes.outputs.base_sha }}' --head='${{ needs.detect-changes.outputs.current_sha }}' --target=format-web --parallel=4
+          set -euo pipefail
+          mapfile -t TARGETS < <(
+            moon query projects \
+              --affected \
+              --downstream deep \
+              --base='${{ needs.detect-changes.outputs.base_sha }}' \
+              --head='${{ needs.detect-changes.outputs.current_sha }}' |
+            jq -r '.projects[] | select(.tasks["format-web"] != null) | "\(.id):format-web"'
+          )
+          if [ "${#TARGETS[@]}" -gt 0 ]; then
+            moon run "${TARGETS[@]}" --summary minimal
+          fi
 
       - name: Fail on web formatting changes
         run: |
@@ -289,15 +364,48 @@ jobs:
 
       - name: Lint affected web projects
         run: |
-          npx nx affected --base='${{ needs.detect-changes.outputs.base_sha }}' --head='${{ needs.detect-changes.outputs.current_sha }}' --target=lint-web --parallel=4
+          set -euo pipefail
+          mapfile -t TARGETS < <(
+            moon query projects \
+              --affected \
+              --downstream deep \
+              --base='${{ needs.detect-changes.outputs.base_sha }}' \
+              --head='${{ needs.detect-changes.outputs.current_sha }}' |
+            jq -r '.projects[] | select(.tasks["lint-web"] != null) | "\(.id):lint-web"'
+          )
+          if [ "${#TARGETS[@]}" -gt 0 ]; then
+            moon run "${TARGETS[@]}" --summary minimal
+          fi
 
       - name: Build affected web projects
         run: |
-          npx nx affected --base='${{ needs.detect-changes.outputs.base_sha }}' --head='${{ needs.detect-changes.outputs.current_sha }}' --target=build-web --parallel=4
+          set -euo pipefail
+          mapfile -t TARGETS < <(
+            moon query projects \
+              --affected \
+              --downstream deep \
+              --base='${{ needs.detect-changes.outputs.base_sha }}' \
+              --head='${{ needs.detect-changes.outputs.current_sha }}' |
+            jq -r '.projects[] | select(.tasks["build-web"] != null) | "\(.id):build-web"'
+          )
+          if [ "${#TARGETS[@]}" -gt 0 ]; then
+            moon run "${TARGETS[@]}" --summary minimal
+          fi
 
       - name: Test affected web projects
         run: |
-          npx nx affected --base='${{ needs.detect-changes.outputs.base_sha }}' --head='${{ needs.detect-changes.outputs.current_sha }}' --target=test-web --parallel=4
+          set -euo pipefail
+          mapfile -t TARGETS < <(
+            moon query projects \
+              --affected \
+              --downstream deep \
+              --base='${{ needs.detect-changes.outputs.base_sha }}' \
+              --head='${{ needs.detect-changes.outputs.current_sha }}' |
+            jq -r '.projects[] | select(.tasks["test-web"] != null) | "\(.id):test-web"'
+          )
+          if [ "${#TARGETS[@]}" -gt 0 ]; then
+            moon run "${TARGETS[@]}" --summary minimal
+          fi
 
   docker-build:
     runs-on: ubuntu-latest
@@ -315,39 +423,47 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
+      - name: Set up moon
+        uses: moonrepo/setup-toolchain@v0
         with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
-
-      - name: Install Nx
-        run: npm ci
+          moon-version: ${{ env.MOON_VERSION }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Restore shared Nx cache
-        if: env.NX_KEY != ''
-        uses: actions/cache@v5
-        with:
-          path: ${{ env.NX_CACHE_DIRECTORY }}
-          key: nx-cache-${{ runner.os }}-${{ github.ref_name }}-${{ github.job }}-${{ github.sha }}
-          restore-keys: |
-            nx-cache-${{ runner.os }}-${{ github.ref_name }}-${{ github.job }}-
-            nx-cache-${{ runner.os }}-${{ github.job }}-
-
       - name: Set GIT_SHA environment variable
-        run: echo "GIT_SHA=${GITHUB_SHA::8}" >> $GITHUB_ENV
+        run: echo "GIT_SHA=${GITHUB_SHA::8}" >> "$GITHUB_ENV"
 
       - name: Build Docker images for affected projects
         run: |
-          npx nx affected --base='${{ needs.detect-changes.outputs.base_sha }}' --head='${{ needs.detect-changes.outputs.current_sha }}' --target=docker --parallel=4
+          set -euo pipefail
+          mapfile -t TARGETS < <(
+            moon query projects \
+              --affected \
+              --downstream deep \
+              --base='${{ needs.detect-changes.outputs.base_sha }}' \
+              --head='${{ needs.detect-changes.outputs.current_sha }}' |
+            jq -r '.projects[] | select(.tasks["docker"] != null) | "\(.id):docker"'
+          )
+          if [ "${#TARGETS[@]}" -gt 0 ]; then
+            moon run "${TARGETS[@]}" --summary minimal
+          fi
 
       - name: Push Docker images (main branch only)
         if: github.ref == 'refs/heads/main'
         run: |
-          npx nx affected --base='${{ needs.detect-changes.outputs.base_sha }}' --head='${{ needs.detect-changes.outputs.current_sha }}' --target=docker-push --parallel=4
+          set -euo pipefail
+          mapfile -t TARGETS < <(
+            moon query projects \
+              --affected \
+              --downstream deep \
+              --base='${{ needs.detect-changes.outputs.base_sha }}' \
+              --head='${{ needs.detect-changes.outputs.current_sha }}' |
+            jq -r '.projects[] | select(.tasks["docker-push"] != null) | "\(.id):docker-push"'
+          )
+          if [ "${#TARGETS[@]}" -gt 0 ]; then
+            moon run "${TARGETS[@]}" --summary minimal
+          fi
 
   summary:
     runs-on: ubuntu-latest
@@ -358,25 +474,25 @@ jobs:
         run: |
           AFFECTED='${{ needs.detect-changes.outputs.affected_projects }}'
 
-          echo "## ✅ Nx CI Pipeline Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Affected Projects" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          echo "$AFFECTED" | jq '.' >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## ✅ Moon CI Pipeline Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Affected Projects" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`\`\`json" >> "$GITHUB_STEP_SUMMARY"
+          echo "$AFFECTED" | jq '.' >> "$GITHUB_STEP_SUMMARY"
+          echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
 
-          echo "### Job Results" >> $GITHUB_STEP_SUMMARY
-          echo "- Go CI: ${{ needs.go-ci.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Java CI: ${{ needs.java-ci.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Web CI: ${{ needs.web-ci.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Docker: ${{ needs.docker-build.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Job Results" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Go CI: ${{ needs.go-ci.result }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Java CI: ${{ needs.java-ci.result }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Web CI: ${{ needs.web-ci.result }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Docker: ${{ needs.docker-build.result }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
 
           if [ "${{ needs.go-ci.result }}" != "failure" ] && [ "${{ needs.java-ci.result }}" != "failure" ] && [ "${{ needs.web-ci.result }}" != "failure" ] && [ "${{ needs.docker-build.result }}" != "failure" ]; then
-            echo "### Results" >> $GITHUB_STEP_SUMMARY
-            echo "✅ All affected language stages completed successfully" >> $GITHUB_STEP_SUMMARY
+            echo "### Results" >> "$GITHUB_STEP_SUMMARY"
+            echo "✅ All affected language stages completed successfully" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "### Results" >> $GITHUB_STEP_SUMMARY
-            echo "❌ Some tests failed - see logs above" >> $GITHUB_STEP_SUMMARY
+            echo "### Results" >> "$GITHUB_STEP_SUMMARY"
+            echo "❌ Some stages failed - see job logs above" >> "$GITHUB_STEP_SUMMARY"
           fi
