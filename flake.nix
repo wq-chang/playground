@@ -16,7 +16,7 @@
       system:
       let
         pkgs = import nixpkgs { inherit system; };
-        projectJdk = pkgs.jdk21;
+        projectJdk = pkgs.jdk25;
       in
       {
         devShells.default = pkgs.mkShell {
