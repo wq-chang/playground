@@ -31,7 +31,6 @@ The repository uses **Nx affected project detection** to limit install, format, 
 
 1. Compute the affected project list once in a dedicated detect job.
 2. Group affected projects by language tag:
-
    - `language:go`
    - `language:java`
    - `language:ts`
@@ -44,9 +43,9 @@ The repository uses **Nx affected project detection** to limit install, format, 
 
 The detect job computes affected projects with:
 
-   ```bash
-   npx nx show projects --affected --base=<base-sha> --head=<head-sha> --json
-   ```
+```bash
+npx nx show projects --affected --base=<base-sha> --head=<head-sha> --json
+```
 
 The detect job fails if Nx cannot resolve the affected list or if the output is not valid JSON. CI does not silently convert detection errors into an empty project list.
 
@@ -66,9 +65,9 @@ When it runs, it uses `nx affected -t <language-target>` with the resolved base/
 
 #### Go
 
-- `go-services:install-go`
+- `npx nx affected -t install-go`
 - `npx nx affected -t generate-go`
-- `go-services:format-go`
+- `npx nx affected -t format-go`
 - fail if generation or formatting changed tracked Go files
 - `npx nx affected -t lint-go`
 - `npx nx affected -t build-go`
@@ -108,13 +107,9 @@ On the main branch, push uses:
 npx nx affected -t docker-push --base=<base-sha> --head=<head-sha>
 ```
 
-Metadata-only projects keep no-op `docker` / `docker-push` targets where needed so the full affected project set can be passed to the Docker stage without a separate filtering phase.
-
 ### Nx Cache
 
 Because the workflow is split into multiple jobs and each job runs on a different runner, CI uses the `@nx/shared-fs-cache` plugin together with GitHub Actions cache to share `.nx/cache` safely across runners.
-
-The workflow sets `NX_KEY` from `secrets.NX_KEY` and installs a pinned `@nx/shared-fs-cache` version only inside the jobs that execute cacheable Nx targets (`go-ci`, `java-ci`, `web-ci`, and `docker-build`).
 
 When `NX_KEY` is present:
 
@@ -264,87 +259,9 @@ npx nx run keycloak-custom-image:docker
 
 ## Notes
 
-- The legacy `.github/scripts/ci_detect_changes.py` script remains in the repository as a standalone utility, but the primary CI workflow uses Nx affected projects.
 - Generic `install` / `format` / `lint` / `build` / `test` targets remain for local developer use, but CI calls the language-specific targets (`*-go`, `*-java`, `*-web`) directly.
 - Parent Java Nx projects intentionally keep orchestration/no-op targets where mixed affected batches need them.
 - Metadata-only projects may also keep no-op `docker` / `docker-push` targets so the Docker job can run against the full affected project set.
-
-### Step 3: Summary
-
-```
-### Go Modules Tested
-- ./services/go/backend
-- ./services/go/bff
-- ./services/go/library
-✅ All Go lint, build, and tests passed
-
-### Java Modules
-- No Java modules changed
-
-### React Modules
-- No React modules changed
-```
-
----
-
-## Running Locally
-
-### Test Change Detection
-
-```bash
-# See what would be tested for your current branch
-python3 .github/scripts/ci_detect_changes.py \
-  --base origin/main \
-  --current HEAD
-```
-
-**Example output:**
-
-```
-======================================================================
-📊 Change Detection Summary
-======================================================================
-
-📝 Total changed files: 3
-✅ Go services changed: ./services/go/library, ./services/go/bff, ./services/go/backend
-⏭️  No Java services changed
-⏭️  No React services changed
-======================================================================
-```
-
-### Replicate CI Locally
-
-For a go library change:
-
-```bash
-# Do what CI does for Go modules
-cd services/go/library && gotestsum ./... && cd -
-cd services/go/bff && gotestsum ./... && cd -
-cd services/go/backend && gotestsum ./... && cd -
-```
-
-Or use Makefile:
-
-```bash
-make build && make test
-```
-
----
-
-## Performance Implications
-
-### Without Change Detection (Old Approach)
-
-- All tests run on every PR/push
-- Average CI time: ~5-10 minutes
-- Wastes CI minutes on irrelevant tests
-
-### With Change Detection (New Approach)
-
-- Only modified services tested
-- Frontend-only change: ~2 minutes (skip Go, Java)
-- Go library change: ~8 minutes (test all Go modules)
-- Average: 30-50% faster
 
 ---
 
@@ -380,8 +297,6 @@ make build && make test
 
 ## Future Improvements
 
-- **Build cache:** Use GitHub Actions cache for Go modules, Maven, and npm
-- **Parallel test execution:** Run test-go, test-java, test-react in parallel (they're independent)
 - **Artifact uploads:** Store build artifacts for verification
 - **Release automation:** Detect version bumps and auto-tag releases
 
@@ -389,6 +304,5 @@ make build && make test
 
 ## References
 
-- **Change detection script:** `.github/scripts/ci_detect_changes.py`
 - **Workflow:** `.github/workflows/ci.yml`
 - **Monorepo conventions:** `AGENTS.md`
