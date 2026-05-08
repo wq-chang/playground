@@ -111,13 +111,25 @@ Metadata-only projects keep no-op `docker` / `docker-push` targets where needed 
 
 ### Nx Cache
 
-Because the workflow is split into multiple jobs and each job runs on a different runner, `.nx/cache` is restored inside each language job with a per-job cache key.
+Because the workflow is split into multiple jobs and each job runs on a different runner, CI uses the `@nx/shared-fs-cache` plugin together with GitHub Actions cache to share `.nx/cache` safely across runners.
+
+The workflow sets `NX_KEY` from `secrets.NX_KEY` and installs a pinned `@nx/shared-fs-cache` version only inside the jobs that execute cacheable Nx targets (`go-ci`, `java-ci`, `web-ci`, and `docker-build`).
+
+When `NX_KEY` is present:
+
+- the job installs `@nx/shared-fs-cache`
+- GitHub Actions restores `.nx/cache`
+- Nx recognizes the restored cache metadata and can reuse cached task results across runners
+
+When `NX_KEY` is not available (for example, on forked pull requests), the workflow skips both the plugin install and the `.nx/cache` restore step. This avoids the `NX Unrecognized Cache Artifacts` warning that occurs when plain local cache artifacts are restored without a supported shared-cache layer.
 
 Recommended key shape:
 
 ```text
 nx-cache-${runner.os}-${github.ref_name}-${github.job}-${github.sha}
 ```
+
+The detect job does not install the shared cache plugin because `nx show projects --affected` does not use task-output remote caching.
 
 This avoids collisions between parallel language jobs while still letting each job reuse prior Nx results from the same branch.
 
@@ -354,6 +366,12 @@ make build && make test
 ### "git find didn't work, using fallback poms"
 
 **Info message.** Script falls back to hardcoded pom list if git find fails. Not a problem.
+
+### Shared Nx cache is not being used
+
+**Cause:** `NX_KEY` is not available in the workflow environment, so CI skips installing `@nx/shared-fs-cache` and skips restoring `.nx/cache`.
+
+**Solution:** Set the `NX_KEY` GitHub Actions secret for the repository. Forked pull requests will still run without shared Nx cache because secrets are not exposed there.
 
 ---
 

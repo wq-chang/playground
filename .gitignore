@@ -92,3 +92,4 @@ volume/
 .nx/cache
 .nx/workspace-data
 .nx/self-healing
+.nx/key
