@@ -127,7 +127,7 @@ jobs:
           chmod +x /usr/local/bin/sqlc
 
       - name: Install Go dependencies
-        run: moon run go-services:install-go --summary minimal
+        run: moon run go-services:install-go --affected --summary minimal
 
       - name: Query affected Go projects
         id: affected
@@ -149,11 +149,11 @@ jobs:
           PROJECTS='${{ steps.affected.outputs.projects }}'
           mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["generate-go"] != null) | "\(.id):generate-go"')
           if [ "${#TARGETS[@]}" -gt 0 ]; then
-            moon run "${TARGETS[@]}" --summary minimal
+            moon run "${TARGETS[@]}" --affected --summary minimal
           fi
 
       - name: Format Go code
-        run: moon run go-services:format-go --summary minimal
+        run: moon run go-services:format-go --affected --summary minimal
 
       - name: Fail on generated or formatted Go changes
         run: |
@@ -170,7 +170,7 @@ jobs:
           PROJECTS='${{ steps.affected.outputs.projects }}'
           mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["lint-go"] != null) | "\(.id):lint-go"')
           if [ "${#TARGETS[@]}" -gt 0 ]; then
-            moon run "${TARGETS[@]}" --summary minimal
+            moon run "${TARGETS[@]}" --affected --summary minimal
           fi
 
       - name: Build affected Go projects
@@ -179,7 +179,7 @@ jobs:
           PROJECTS='${{ steps.affected.outputs.projects }}'
           mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["build-go"] != null) | "\(.id):build-go"')
           if [ "${#TARGETS[@]}" -gt 0 ]; then
-            moon run "${TARGETS[@]}" --summary minimal
+            moon run "${TARGETS[@]}" --affected --summary minimal
           fi
 
       - name: Test affected Go projects
@@ -188,7 +188,7 @@ jobs:
           PROJECTS='${{ steps.affected.outputs.projects }}'
           mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["test-go"] != null) | "\(.id):test-go"')
           if [ "${#TARGETS[@]}" -gt 0 ]; then
-            moon run "${TARGETS[@]}" --summary minimal
+            moon run "${TARGETS[@]}" --affected --summary minimal
           fi
 
   java-ci:
@@ -247,7 +247,7 @@ jobs:
           PROJECTS='${{ steps.affected.outputs.projects }}'
           mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["install-java"] != null) | "\(.id):install-java"')
           if [ "${#TARGETS[@]}" -gt 0 ]; then
-            moon run "${TARGETS[@]}" --summary minimal
+            moon run "${TARGETS[@]}" --affected --summary minimal
           fi
 
       - name: Format affected Java projects
@@ -256,7 +256,7 @@ jobs:
           PROJECTS='${{ steps.affected.outputs.projects }}'
           mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["format-java"] != null) | "\(.id):format-java"')
           if [ "${#TARGETS[@]}" -gt 0 ]; then
-            moon run "${TARGETS[@]}" --summary minimal
+            moon run "${TARGETS[@]}" --affected --summary minimal
           fi
 
       - name: Fail on Java formatting changes
@@ -274,7 +274,7 @@ jobs:
           PROJECTS='${{ steps.affected.outputs.projects }}'
           mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["lint-java"] != null) | "\(.id):lint-java"')
           if [ "${#TARGETS[@]}" -gt 0 ]; then
-            moon run "${TARGETS[@]}" --summary minimal
+            moon run "${TARGETS[@]}" --affected --summary minimal
           fi
 
       - name: Build affected Java projects
@@ -283,7 +283,7 @@ jobs:
           PROJECTS='${{ steps.affected.outputs.projects }}'
           mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["build-java"] != null) | "\(.id):build-java"')
           if [ "${#TARGETS[@]}" -gt 0 ]; then
-            moon run "${TARGETS[@]}" --summary minimal
+            moon run "${TARGETS[@]}" --affected --summary minimal
           fi
 
       - name: Test affected Java projects
@@ -292,7 +292,7 @@ jobs:
           PROJECTS='${{ steps.affected.outputs.projects }}'
           mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["test-java"] != null) | "\(.id):test-java"')
           if [ "${#TARGETS[@]}" -gt 0 ]; then
-            moon run "${TARGETS[@]}" --summary minimal
+            moon run "${TARGETS[@]}" --affected --summary minimal
           fi
 
   web-ci:
@@ -351,7 +351,7 @@ jobs:
           PROJECTS='${{ steps.affected.outputs.projects }}'
           mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["install-web"] != null) | "\(.id):install-web"')
           if [ "${#TARGETS[@]}" -gt 0 ]; then
-            moon run "${TARGETS[@]}" --summary minimal
+            moon run "${TARGETS[@]}" --affected --summary minimal
           fi
 
       - name: Format affected web projects
@@ -360,7 +360,7 @@ jobs:
           PROJECTS='${{ steps.affected.outputs.projects }}'
           mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["format-web"] != null) | "\(.id):format-web"')
           if [ "${#TARGETS[@]}" -gt 0 ]; then
-            moon run "${TARGETS[@]}" --summary minimal
+            moon run "${TARGETS[@]}" --affected --summary minimal
           fi
 
       - name: Fail on web formatting changes
@@ -378,7 +378,7 @@ jobs:
           PROJECTS='${{ steps.affected.outputs.projects }}'
           mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["lint-web"] != null) | "\(.id):lint-web"')
           if [ "${#TARGETS[@]}" -gt 0 ]; then
-            moon run "${TARGETS[@]}" --summary minimal
+            moon run "${TARGETS[@]}" --affected --summary minimal
           fi
 
       - name: Build affected web projects
@@ -387,7 +387,7 @@ jobs:
           PROJECTS='${{ steps.affected.outputs.projects }}'
           mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["build-web"] != null) | "\(.id):build-web"')
           if [ "${#TARGETS[@]}" -gt 0 ]; then
-            moon run "${TARGETS[@]}" --summary minimal
+            moon run "${TARGETS[@]}" --affected --summary minimal
           fi
 
       - name: Test affected web projects
@@ -396,7 +396,7 @@ jobs:
           PROJECTS='${{ steps.affected.outputs.projects }}'
           mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["test-web"] != null) | "\(.id):test-web"')
           if [ "${#TARGETS[@]}" -gt 0 ]; then
-            moon run "${TARGETS[@]}" --summary minimal
+            moon run "${TARGETS[@]}" --affected --summary minimal
           fi
 
   docker-build:
@@ -459,7 +459,7 @@ jobs:
           PROJECTS='${{ steps.affected.outputs.projects }}'
           mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["docker"] != null) | "\(.id):docker"')
           if [ "${#TARGETS[@]}" -gt 0 ]; then
-            moon run "${TARGETS[@]}" --summary minimal
+            moon run "${TARGETS[@]}" --affected --summary minimal
           fi
 
       - name: Push Docker images (main branch only)
@@ -469,7 +469,7 @@ jobs:
           PROJECTS='${{ steps.affected.outputs.projects }}'
           mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["docker-push"] != null) | "\(.id):docker-push"')
           if [ "${#TARGETS[@]}" -gt 0 ]; then
-            moon run "${TARGETS[@]}" --summary minimal
+            moon run "${TARGETS[@]}" --affected --summary minimal
           fi
 
   summary:
