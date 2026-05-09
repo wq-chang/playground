@@ -10,6 +10,8 @@ permissions:
   contents: read
 
 env:
+  ENABLE_REGISTRY_DOCKER_CACHE: ${{ github.ref == 'refs/heads/main' }}
+  IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
   JAVA_VERSION: "25"
   NODE_VERSION: "24"
   GOLANGCI_LINT_VERSION: "v2.12.1"
@@ -19,6 +21,7 @@ env:
   SQLC_VERSION: "1.31.1"
   SQLC_SHA256: "497ae4fcdfa64c5b0c311ffe4c2bd991e43991e82e5367792ed78bc2dca27354"
   MOON_VERSION: "2.2.3"
+  USE_BUILDX_DOCKER: "true"
 
 jobs:
   detect-changes:
@@ -112,15 +115,12 @@ jobs:
     runs-on: ubuntu-latest
     needs: detect-changes
     if: needs.detect-changes.outputs.has_go_projects == 'true' || needs.detect-changes.outputs.has_go_docker_projects == 'true'
-    permissions: &language-job-permissions
+    permissions:
       contents: read
       packages: write
-    env: &common-language-job-env
-      ENABLE_REGISTRY_DOCKER_CACHE: ${{ github.ref == 'refs/heads/main' }}
-      IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
+    env:
       MOON_BASE: ${{ needs.detect-changes.outputs.base_sha }}
       MOON_HEAD: ${{ needs.detect-changes.outputs.current_sha }}
-      USE_BUILDX_DOCKER: "true"
       HAS_LANGUAGE_PROJECTS: ${{ needs.detect-changes.outputs.has_go_projects }}
       HAS_LANGUAGE_DOCKER_PROJECTS: ${{ needs.detect-changes.outputs.has_go_docker_projects }}
       JOB_LANGUAGE_QUERY: "language=go"
@@ -256,9 +256,12 @@ jobs:
     runs-on: ubuntu-latest
     needs: detect-changes
     if: needs.detect-changes.outputs.has_java_projects == 'true' || needs.detect-changes.outputs.has_java_docker_projects == 'true'
-    permissions: *language-job-permissions
+    permissions:
+      contents: read
+      packages: write
     env:
-      <<: *common-language-job-env
+      MOON_BASE: ${{ needs.detect-changes.outputs.base_sha }}
+      MOON_HEAD: ${{ needs.detect-changes.outputs.current_sha }}
       HAS_LANGUAGE_PROJECTS: ${{ needs.detect-changes.outputs.has_java_projects }}
       HAS_LANGUAGE_DOCKER_PROJECTS: ${{ needs.detect-changes.outputs.has_java_docker_projects }}
       JOB_LANGUAGE_QUERY: "language=java"
@@ -315,9 +318,12 @@ jobs:
     runs-on: ubuntu-latest
     needs: detect-changes
     if: needs.detect-changes.outputs.has_web_projects == 'true' || needs.detect-changes.outputs.has_web_docker_projects == 'true'
-    permissions: *language-job-permissions
+    permissions:
+      contents: read
+      packages: write
     env:
-      <<: *common-language-job-env
+      MOON_BASE: ${{ needs.detect-changes.outputs.base_sha }}
+      MOON_HEAD: ${{ needs.detect-changes.outputs.current_sha }}
       HAS_LANGUAGE_PROJECTS: ${{ needs.detect-changes.outputs.has_web_projects }}
       HAS_LANGUAGE_DOCKER_PROJECTS: ${{ needs.detect-changes.outputs.has_web_docker_projects }}
       JOB_LANGUAGE_QUERY: "language=typescript"
