@@ -35,7 +35,7 @@ The repository uses the moon project graph plus Git-based affected detection to 
 3. Derive `has_go_projects`, `has_java_projects`, `has_web_projects`, and `has_docker_projects` with `moon query projects --language ... --tasks ...`.
 4. Run most task families directly with `moon run :<task> --affected --summary minimal` instead of building explicit target lists inside each job.
 5. Restore `.moon/cache/hashes` and `.moon/cache/outputs` with `actions/cache@v5` in each task-running job.
-6. Run Docker packaging afterward only when affected projects define Docker tasks, tagging images for GitHub Container Registry.
+6. Run Docker packaging with a two-layer strategy: Moon affected execution on PRs, and Buildx layer caching underneath the Docker build process.
 7. Publish a workflow summary.
 
 ### Detect Job
@@ -102,12 +102,16 @@ Go lint remains serial because `golangci-lint` has workspace locking issues when
 
 ### Docker Stage
 
-After language verification completes, the Docker job runs only when `has_docker_projects` is `true`.
+After language verification completes, the Docker stage behaves differently by event:
 
 - images are tagged as `ghcr.io/${{ github.repository_owner }}/<project-id>:<tag>`
-- `docker/login-action` authenticates to GHCR before the main-branch push step
-- `moon run :docker --affected` builds affected Docker projects
-- `moon run :docker-push --affected` pushes affected Docker projects on `main`
+- pull requests use `moon run :docker --affected`, so unaffected image projects are skipped by Moon's affected/project-graph logic
+- pushes to `main` always run `moon run :docker-push`, so all deployable images are rebuilt and pushed
+- `docker/setup-buildx-action` enables Buildx for cached CI builds underneath the Moon task execution
+- pull requests use Buildx layer cache with `type=gha,scope=<project>`
+- `main` uses both `type=gha` and GHCR registry cache (`:buildcache`) per image while rebuilding and pushing all deployable images
+- `docker/login-action` authenticates to GHCR before main-branch pushes
+- final image push happens through the Moon `docker-push` task on `main`
 
 ### Shared Task Layout
 
@@ -119,7 +123,7 @@ The repository now uses Moon task inheritance to avoid repeating the same comman
 - `.moon/tasks/java-common.yml` - shared Java install/format/lint tasks for Maven projects
 - `.moon/tasks/java-build.yml` - Java build/test tasks for non-aggregator Maven projects
 - `.moon/tasks/typescript.yml` - frontend web install/format/build/test/lint tasks
-- `.moon/tasks/docker.yml` - shared Docker build/push tasks for application projects with a `Dockerfile`; CI provides `IMAGE_REGISTRY` for GHCR, while local Moon usage still defaults to bare project image names
+- `.moon/tasks/docker.yml` - shared Docker build/push tasks for application projects with a `Dockerfile`; CI enables Buildx cache through environment variables, while local Moon usage still defaults to plain Docker with bare project image names
 
 Aggregator projects are tagged with `aggregator` so they only inherit the subset of tasks they should own, while the shared language task files now match projects by their `language` field instead of custom `language-*` tags.
 
@@ -130,9 +134,18 @@ The workflow intentionally avoids a paid remote cache, but it **does** persist t
 - `.moon/cache/hashes`
 - `.moon/cache/outputs`
 
-This cache is restored in each task-running CI job with `actions/cache@v5`.
+This cache is restored in each Moon task-running CI job with `actions/cache@v5`.
 
 `moonrepo/setup-toolchain` is still used, but only for installing and caching the Moon CLI/toolchain setup. It does **not** automatically persist `.moon/cache` task outputs across jobs, which is why the explicit GitHub cache step is required.
+
+The Docker stage uses two layers of caching/avoidance:
+
+1. **Moon affected execution on PRs** — `moon run :docker --affected` skips unrelated image projects entirely.
+2. **Docker layer cache when builds do run** — Buildx uses:
+   - **PR builds:** `cache-from/to=type=gha`
+   - **main builds:** `cache-from/to=type=gha` plus `cache-from/to=type=registry` in GHCR
+
+This means PRs avoid unnecessary Docker work at the task level, while main always rebuilds and pushes deployable images with warm layer cache.
 
 ### Download Hardening
 

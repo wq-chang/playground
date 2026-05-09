@@ -5,9 +5,32 @@ inheritedBy:
 
 tasks:
   docker:
-    script: 'IMAGE_NAME="${IMAGE_REGISTRY:+${IMAGE_REGISTRY}/}$project" && docker build -f $projectSource/Dockerfile -t ${IMAGE_NAME}:${GIT_SHA:-latest} -t ${IMAGE_NAME}:latest .'
+    script: |
+      set -euo pipefail
+      IMAGE_NAME="${IMAGE_REGISTRY:+${IMAGE_REGISTRY}/}$project"
+
+      if [ "${USE_BUILDX_DOCKER:-false}" = "true" ]; then
+        CACHE_FROM=(--cache-from "type=gha,scope=$project")
+        CACHE_TO=(--cache-to "type=gha,mode=max,scope=$project")
+
+        if [ "${ENABLE_REGISTRY_DOCKER_CACHE:-false}" = "true" ]; then
+          CACHE_FROM+=(--cache-from "type=registry,ref=${IMAGE_NAME}:buildcache")
+          CACHE_TO+=(--cache-to "type=registry,ref=${IMAGE_NAME}:buildcache,mode=max")
+        fi
+
+        docker buildx build \
+          --file "$projectSource/Dockerfile" \
+          --tag "${IMAGE_NAME}:${GIT_SHA:-latest}" \
+          --tag "${IMAGE_NAME}:latest" \
+          --load \
+          "${CACHE_FROM[@]}" \
+          "${CACHE_TO[@]}" \
+          .
+      else
+        docker build -f "$projectSource/Dockerfile" -t "${IMAGE_NAME}:${GIT_SHA:-latest}" -t "${IMAGE_NAME}:latest" .
+      fi
     options:
-      cache: false
+      cache: true
       runFromWorkspaceRoot: true
     toolchains: 'system'
 
