@@ -20,6 +20,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Set up moon
         uses: moonrepo/setup-toolchain@v0
@@ -31,14 +32,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          BASE_SHA="${{ github.event.workflow_run.head_commit.parent }}"
-          CURRENT_SHA="${{ github.event.workflow_run.head_commit.id }}"
+          CURRENT_SHA="${{ github.event.workflow_run.head_sha }}"
+          BASE_SHA=$(git rev-parse "${CURRENT_SHA}^1")
 
-          if [ -z "$BASE_SHA" ]; then
-            BASE_SHA="origin/main"
-          fi
-
-          AFFECTED=$(
+          DEPLOYABLE_JSON=$(
             MOON_BASE="$BASE_SHA" \
             MOON_HEAD="$CURRENT_SHA" \
             moon query projects \
@@ -48,14 +45,9 @@ jobs:
             jq -cr '.projects | map(.id)'
           )
 
-          DEPLOYABLE=$(
-            echo "$AFFECTED" |
-            jq -r '.[] | select(. == "go-backend" or . == "go-bff" or . == "keycloak-custom-image" or . == "frontend")' |
-            tr '\n' ',' |
-            sed 's/,$//'
-          )
+          DEPLOYABLE=$(echo "$DEPLOYABLE_JSON" | jq -r 'join(",")')
 
-          echo "projects=$AFFECTED" >> "$GITHUB_OUTPUT"
+          echo "projects=$DEPLOYABLE_JSON" >> "$GITHUB_OUTPUT"
           echo "deployable=$DEPLOYABLE" >> "$GITHUB_OUTPUT"
 
       - name: Deploy affected projects

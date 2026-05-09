@@ -247,9 +247,9 @@ Result: the shared library is verified once and both dependent Go applications a
 
 ### Purpose
 
-The CD workflow runs after CI completes successfully on `main`. It computes the affected projects again and filters them to deployable projects.
+The CD workflow runs after CI completes successfully on `main`. It checks out `workflow_run.head_sha`, derives the base commit from that commit's first parent in git history, and computes the affected deployable projects with Moon's `docker|docker-push` task filter.
 
-Deployable project IDs are:
+The deployable projects currently discovered by that filter are:
 
 - `go-backend`
 - `go-bff`
@@ -266,6 +266,9 @@ moon query projects
 
 # Show affected projects between two refs
 MOON_BASE=origin/main MOON_HEAD=HEAD moon query projects --affected --downstream deep
+
+# Show affected deployable projects between two refs
+MOON_BASE=origin/main MOON_HEAD=HEAD moon query projects --affected --downstream deep --tasks 'docker|docker-push'
 
 # Build/test/lint/format one SPI
 moon run keycloak-user-event-listener:format
@@ -292,7 +295,7 @@ moon run keycloak-custom-image:docker
 - Generic `install` / `format` / `lint` / `build` / `test` tasks remain for local developer use, while CI calls the language-specific tasks (`*-go`, `*-java`, `*-web`) directly.
 - Shared language tasks are inherited from `.moon/tasks/*.yml`, while project-local `moon.yml` files mainly keep metadata, `dependsOn`, and true per-project overrides like `frontend:dev`.
 - Parent Java projects intentionally keep orchestration-style tasks where affected parent POM changes need formatting, linting, or dependency warmup at the parent level.
-- Docker packaging stays on explicit application projects only: `frontend`, `go-backend`, `go-bff`, and `keycloak-custom-image`.
+- Docker packaging is inherited from `.moon/tasks/docker.yml` by projects that contain a `Dockerfile`. Today that resolves to `frontend`, `go-backend`, `go-bff`, and `keycloak-custom-image`, and CD derives deployables from the `docker|docker-push` task filter instead of a hardcoded workflow allowlist.
 
 ---
 
