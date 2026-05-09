@@ -86,7 +86,6 @@ Go lint remains serial because `golangci-lint` has workspace locking issues when
 
 #### Java
 
-- `moon run :install-java --affected`
 - `moon run :format-java --affected`
 - fail if formatting changed tracked Java files
 - `moon run :lint-java --affected`

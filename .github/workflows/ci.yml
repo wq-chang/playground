@@ -97,7 +97,7 @@ jobs:
           AFFECTED_JSON=$(echo "$AFFECTED" | jq -ce '.projects | map(.id)')
           HAS_GO=$(has_affected_projects go 'install-go|format-go|generate-go|lint-go|build-go|test-go')
           HAS_GO_DOCKER=$(has_affected_projects go 'docker|docker-push')
-          HAS_JAVA=$(has_affected_projects java 'install-java|format-java|lint-java|build-java|test-java')
+          HAS_JAVA=$(has_affected_projects java 'format-java|lint-java|build-java|test-java')
           HAS_JAVA_DOCKER=$(has_affected_projects java 'docker|docker-push')
           HAS_WEB=$(has_affected_projects typescript 'install-web|format-web|lint-web|build-web|test-web')
           HAS_WEB_DOCKER=$(has_affected_projects typescript 'docker|docker-push')
@@ -277,10 +277,6 @@ jobs:
           distribution: "temurin"
           java-version: ${{ env.JAVA_VERSION }}
           cache: "maven"
-
-      - name: Install affected Java projects
-        if: env.HAS_LANGUAGE_PROJECTS == 'true'
-        run: moon run :install-java --affected --summary minimal
 
       - name: Format affected Java projects
         if: env.HAS_LANGUAGE_PROJECTS == 'true'

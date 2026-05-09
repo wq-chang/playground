@@ -4,20 +4,10 @@ inheritedBy:
   language: 'java'
 
 tasks:
-  install-java:
-    command: 'mvn -B -ntp -N dependency:go-offline'
-    options:
-      cache: false
-    toolchains: 'system'
-
-  install:
-    deps:
-      - '~:install-java'
-
   format-java:
     command: 'mvn -B -ntp -N spotless:apply'
     options:
-      cache: false
+      cache: true
     toolchains: 'system'
 
   format:
