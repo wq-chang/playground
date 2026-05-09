@@ -1,0 +1,16 @@
+inheritedBy:
+  language: 'go'
+  tags: 
+    or:
+      - 'aggregator'
+
+tasks:
+  install-go:
+    command: 'go mod download'
+    options:
+      cache: false
+    toolchains: 'system'
+
+  install:
+    deps:
+      - '~:install-go'

@@ -1,0 +1,9 @@
+dependsOn:
+  - 'java-services'
+language: 'java'
+layer: 'library'
+stack: 'backend'
+tags:
+  - 'java'
+  - 'keycloak'
+  - 'aggregator'

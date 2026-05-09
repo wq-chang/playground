@@ -1,0 +1,9 @@
+dependsOn:
+  - 'keycloak-custom'
+  - 'keycloak-user-event-listener'
+language: 'java'
+layer: 'application'
+stack: 'backend'
+tags:
+  - 'java'
+  - 'keycloak'

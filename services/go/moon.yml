@@ -1,0 +1,7 @@
+language: 'go'
+layer: 'library'
+stack: 'backend'
+tags:
+  - 'go'
+  - 'shared'
+  - 'aggregator'

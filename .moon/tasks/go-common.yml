@@ -1,0 +1,13 @@
+inheritedBy:
+  language: 'go'
+
+tasks:
+  format-go:
+    command: 'golangci-lint fmt ./...'
+    options:
+      cache: true
+    toolchains: 'system'
+
+  format:
+    deps:
+      - '~:format-go'

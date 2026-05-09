@@ -1,0 +1,31 @@
+inheritedBy:
+  files:
+    - 'pom.xml'
+  language: 'java'
+  tags:
+    not:
+      - 'aggregator'
+
+tasks:
+  build-java:
+    command: 'mvn -B -ntp clean package -DskipTests'
+    deps:
+      - target: '^:build-java'
+        optional: true
+    options:
+      cache: true
+    toolchains: 'system'
+
+  build:
+    deps:
+      - '~:build-java'
+
+  test-java:
+    command: 'mvn -B -ntp test'
+    options:
+      cache: true
+    toolchains: 'system'
+
+  test:
+    deps:
+      - '~:test-java'

@@ -1,0 +1,8 @@
+dependsOn:
+  - 'go-services'
+  - 'go-library'
+language: 'go'
+layer: 'application'
+stack: 'backend'
+tags:
+  - 'go'

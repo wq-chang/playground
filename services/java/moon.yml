@@ -1,0 +1,7 @@
+language: 'java'
+layer: 'library'
+stack: 'backend'
+tags:
+  - 'java'
+  - 'shared'
+  - 'aggregator'

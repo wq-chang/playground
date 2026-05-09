@@ -6,274 +6,399 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 env:
-  GO_VERSION: "1.26"
-  JAVA_VERSION: "21"
+  ENABLE_REGISTRY_DOCKER_CACHE: ${{ github.ref == 'refs/heads/main' }}
+  IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
+  JAVA_VERSION: "25"
   NODE_VERSION: "24"
   GOLANGCI_LINT_VERSION: "v2.12.1"
+  GOLANGCI_LINT_SHA256: "82c7932d9aa10c34e22ef56961ac5aad71d4a14806a1a31b06931add2688b368"
   GOTESTSUM_VERSION: "1.13.0"
+  GOTESTSUM_SHA256: "11ccddeaf708ef228889f9fe2f68291a75b27013ddfc3b18156e094f5f40e8ee"
+  SQLC_VERSION: "1.31.1"
+  SQLC_SHA256: "497ae4fcdfa64c5b0c311ffe4c2bd991e43991e82e5367792ed78bc2dca27354"
+  MOON_VERSION: "2.2.3"
+  USE_BUILDX_DOCKER: "true"
 
 jobs:
   detect-changes:
     runs-on: ubuntu-latest
     outputs:
-      has_go_changes: ${{ steps.detect.outputs.has_go_changes }}
-      go_modules: ${{ steps.detect.outputs.go_modules }}
-      has_java_changes: ${{ steps.detect.outputs.has_java_changes }}
-      java_modules: ${{ steps.detect.outputs.java_modules }}
-      has_react_changes: ${{ steps.detect.outputs.has_react_changes }}
-      react_modules: ${{ steps.detect.outputs.react_modules }}
+      base_sha: ${{ steps.refs.outputs.base_sha }}
+      current_sha: ${{ steps.refs.outputs.current_sha }}
+      affected_projects: ${{ steps.affected.outputs.projects }}
+      has_go_projects: ${{ steps.affected.outputs.has_go_projects }}
+      has_go_docker_projects: ${{ steps.affected.outputs.has_go_docker_projects }}
+      has_java_projects: ${{ steps.affected.outputs.has_java_projects }}
+      has_java_docker_projects: ${{ steps.affected.outputs.has_java_docker_projects }}
+      has_web_projects: ${{ steps.affected.outputs.has_web_projects }}
+      has_web_docker_projects: ${{ steps.affected.outputs.has_web_docker_projects }}
     steps:
-      - name: Checkout repository
+      - &checkout-step
+        name: Checkout repository
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      - name: Set up Python 3
-        uses: actions/setup-python@v6
+      - &setup-moon-step
+        name: Set up moon
+        uses: moonrepo/setup-toolchain@v0
         with:
-          python-version: "3.13"
+          moon-version: ${{ env.MOON_VERSION }}
 
-      - name: Detect changed modules
-        id: detect
+      - name: Resolve comparison refs
+        id: refs
         run: |
-          # Determine base commit based on event type
-          if [ "${{ github.event_name }}" == "pull_request" ]; then
-            # For PRs, compare against the base branch
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
             BASE_SHA="${{ github.event.pull_request.base.sha }}"
             CURRENT_SHA="${{ github.event.pull_request.head.sha }}"
           else
-            # For pushes, compare against the previous state
             BASE_SHA="${{ github.event.before }}"
             CURRENT_SHA="${{ github.sha }}"
           fi
 
-          echo "Comparing $BASE_SHA...$CURRENT_SHA"
+          if [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            BASE_SHA="origin/main"
+          fi
 
-          # Call Python script to detect changes
-          python3 .github/scripts/ci_detect_changes.py \
-            --base "$BASE_SHA" \
-            --current "$CURRENT_SHA" > /tmp/detect_output.json
+          echo "Comparing $BASE_SHA to $CURRENT_SHA"
+          echo "base_sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
+          echo "current_sha=$CURRENT_SHA" >> "$GITHUB_OUTPUT"
 
-          # Convert output to GitHub Actions format
-          python3 .github/scripts/convert_detect_output.py /tmp/detect_output.json
+      - name: Detect affected projects
+        id: affected
+        env:
+          MOON_BASE: ${{ steps.refs.outputs.base_sha }}
+          MOON_HEAD: ${{ steps.refs.outputs.current_sha }}
+        run: |
+          set -euo pipefail
 
-  test-go-modules:
+          has_affected_projects() {
+            local language="$1"
+            local tasks="$2"
+
+            moon query projects \
+              --affected \
+              --downstream deep \
+              --language "$language" \
+              --tasks "$tasks" |
+              jq -r '.projects | length > 0'
+          }
+
+          AFFECTED=$(
+            moon query projects \
+              --affected \
+              --downstream deep
+          )
+
+          AFFECTED_JSON=$(echo "$AFFECTED" | jq -ce '.projects | map(.id)')
+          HAS_GO=$(has_affected_projects go 'install-go|format-go|generate-go|lint-go|build-go|test-go')
+          HAS_GO_DOCKER=$(has_affected_projects go 'docker|docker-push')
+          HAS_JAVA=$(has_affected_projects java 'format-java|lint-java|build-java|test-java')
+          HAS_JAVA_DOCKER=$(has_affected_projects java 'docker|docker-push')
+          HAS_WEB=$(has_affected_projects typescript 'install-web|format-web|lint-web|build-web|test-web')
+          HAS_WEB_DOCKER=$(has_affected_projects typescript 'docker|docker-push')
+
+          printf 'projects=%s\n' "$AFFECTED_JSON" >> "$GITHUB_OUTPUT"
+          printf 'has_go_projects=%s\n' "$HAS_GO" >> "$GITHUB_OUTPUT"
+          printf 'has_go_docker_projects=%s\n' "$HAS_GO_DOCKER" >> "$GITHUB_OUTPUT"
+          printf 'has_java_projects=%s\n' "$HAS_JAVA" >> "$GITHUB_OUTPUT"
+          printf 'has_java_docker_projects=%s\n' "$HAS_JAVA_DOCKER" >> "$GITHUB_OUTPUT"
+          printf 'has_web_projects=%s\n' "$HAS_WEB" >> "$GITHUB_OUTPUT"
+          printf 'has_web_docker_projects=%s\n' "$HAS_WEB_DOCKER" >> "$GITHUB_OUTPUT"
+          echo "Affected projects: $AFFECTED_JSON"
+
+  go-ci:
     runs-on: ubuntu-latest
     needs: detect-changes
-    if: needs.detect-changes.outputs.has_go_changes == 'true'
+    if: needs.detect-changes.outputs.has_go_projects == 'true' || needs.detect-changes.outputs.has_go_docker_projects == 'true'
+    permissions:
+      contents: read
+      packages: write
+    env:
+      MOON_BASE: ${{ needs.detect-changes.outputs.base_sha }}
+      MOON_HEAD: ${{ needs.detect-changes.outputs.current_sha }}
+      HAS_LANGUAGE_PROJECTS: ${{ needs.detect-changes.outputs.has_go_projects }}
+      HAS_LANGUAGE_DOCKER_PROJECTS: ${{ needs.detect-changes.outputs.has_go_docker_projects }}
+      JOB_LANGUAGE_QUERY: "language=go"
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
+      - *checkout-step
+      - *setup-moon-step
+      - &restore-moon-cache-step
+        name: Restore Moon cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            .moon/cache/hashes
+            .moon/cache/outputs
+          key: moon-cache-${{ runner.os }}-${{ github.ref_name }}-${{ github.job }}-${{ github.sha }}
+          restore-keys: |
+            moon-cache-${{ runner.os }}-${{ github.ref_name }}-${{ github.job }}-
+            moon-cache-${{ runner.os }}-${{ github.job }}-
 
       - name: Set up Go
+        if: env.HAS_LANGUAGE_PROJECTS == 'true'
         uses: actions/setup-go@v6
         with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: false # Disable cache for monorepo structure
+          cache: true
+          go-version-file: services/go/go.mod
+          cache-dependency-path: services/go/go.sum
 
-      - name: Run build on changed Go modules
+      - name: Install Go build tools
+        if: env.HAS_LANGUAGE_PROJECTS == 'true'
         run: |
-          MODULES="${{ needs.detect-changes.outputs.go_modules }}"
-          EXIT_CODE=0
+          set -euo pipefail
+          TMP_DIR=$(mktemp -d)
+          trap 'rm -rf "$TMP_DIR"' EXIT
 
-          echo "Downloading dependencies"
-          (cd services/go && go mod download)
+          download_and_verify() {
+            local url="$1"
+            local checksum="$2"
+            local output="$3"
 
-          for module in $MODULES; do
-            echo "Building Go module: $module"
-            cd $module
+            curl -sSfL "$url" -o "$output"
+            echo "${checksum}  ${output}" | sha256sum -c -
+          }
 
-            # Build the module
-            if go build -v ./...; then
-              echo "✅ Build passed for $module"
-            else
-              echo "❌ Build failed for $module"
-              EXIT_CODE=1
-            fi
+          GOLANGCI_ARCHIVE="golangci-lint-${GOLANGCI_LINT_VERSION#v}-linux-amd64.tar.gz"
+          download_and_verify \
+            "https://github.com/golangci/golangci-lint/releases/download/${GOLANGCI_LINT_VERSION}/${GOLANGCI_ARCHIVE}" \
+            "${GOLANGCI_LINT_SHA256}" \
+            "$TMP_DIR/$GOLANGCI_ARCHIVE"
+          tar -xzf "$TMP_DIR/$GOLANGCI_ARCHIVE" -C "$TMP_DIR"
+          mkdir -p "$(go env GOPATH)/bin"
+          install "$TMP_DIR/golangci-lint-${GOLANGCI_LINT_VERSION#v}-linux-amd64/golangci-lint" "$(go env GOPATH)/bin/golangci-lint"
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
-            cd $GITHUB_WORKSPACE
-          done
+          GOTESTSUM_ARCHIVE="gotestsum_${GOTESTSUM_VERSION}_linux_amd64.tar.gz"
+          download_and_verify \
+            "https://github.com/gotestyourself/gotestsum/releases/download/v${GOTESTSUM_VERSION}/${GOTESTSUM_ARCHIVE}" \
+            "${GOTESTSUM_SHA256}" \
+            "$TMP_DIR/$GOTESTSUM_ARCHIVE"
+          tar -xzf "$TMP_DIR/$GOTESTSUM_ARCHIVE" -C "$TMP_DIR"
+          sudo install "$TMP_DIR/gotestsum" /usr/local/bin/gotestsum
 
-          exit $EXIT_CODE
+          SQLC_ARCHIVE="sqlc_${SQLC_VERSION}_linux_amd64.tar.gz"
+          download_and_verify \
+            "https://github.com/sqlc-dev/sqlc/releases/download/v${SQLC_VERSION}/${SQLC_ARCHIVE}" \
+            "${SQLC_SHA256}" \
+            "$TMP_DIR/$SQLC_ARCHIVE"
+          tar -xzf "$TMP_DIR/$SQLC_ARCHIVE" -C "$TMP_DIR"
+          sudo install "$TMP_DIR/sqlc" /usr/local/bin/sqlc
 
-      - name: Install golangci-lint
+      - name: Install Go dependencies
+        if: env.HAS_LANGUAGE_PROJECTS == 'true'
+        run: moon run go-services:install-go --affected --summary minimal
+
+      - name: Generate affected Go code
+        if: env.HAS_LANGUAGE_PROJECTS == 'true'
+        run: moon run :generate-go --affected --summary minimal
+
+      - name: Format Go code
+        if: env.HAS_LANGUAGE_PROJECTS == 'true'
+        run: moon run go-services:format-go --affected --summary minimal
+
+      - name: Fail on generated or formatted Go changes
+        if: env.HAS_LANGUAGE_PROJECTS == 'true'
         run: |
-          curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(go env GOPATH)/bin ${{ env.GOLANGCI_LINT_VERSION }}
-          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+          set -euo pipefail
+          if ! git diff --quiet -- services/go; then
+            echo "Generate or format steps produced uncommitted changes in services/go."
+            git --no-pager diff -- services/go
+            exit 1
+          fi
 
-      - name: Run golangci-lint on changed Go modules
-        run: |
-          MODULES="${{ needs.detect-changes.outputs.go_modules }}"
-          EXIT_CODE=0
+      - name: Lint affected Go projects
+        if: env.HAS_LANGUAGE_PROJECTS == 'true'
+        run: moon run :lint-go --affected --summary minimal
 
-          for module in $MODULES; do
-            echo "Linting Go module: $module"
-            cd $module
-            
-            # Run golangci-lint if config exists, otherwise use defaults
-            if golangci-lint run --timeout=5m ./...; then
-              echo "✅ Linting passed for $module"
-            else
-              echo "❌ Linting failed for $module"
-              EXIT_CODE=1
-            fi
-            
-            cd $GITHUB_WORKSPACE
-          done
+      - name: Build affected Go projects
+        if: env.HAS_LANGUAGE_PROJECTS == 'true'
+        run: moon run :build-go --affected --summary minimal
 
-          exit $EXIT_CODE
+      - name: Test affected Go projects
+        if: env.HAS_LANGUAGE_PROJECTS == 'true'
+        run: moon run :test-go --affected --summary minimal
 
-      - name: Install gotestsum
-        run: |
-          curl -sSfL https://github.com/gotestyourself/gotestsum/releases/download/v${{ env.GOTESTSUM_VERSION }}/gotestsum_${{ env.GOTESTSUM_VERSION }}_linux_amd64.tar.gz | tar -xz -C /tmp
-          sudo mv /tmp/gotestsum /usr/local/bin/gotestsum
-          chmod +x /usr/local/bin/gotestsum
+      - &setup-buildx-step
+        name: Set up Docker Buildx
+        if: env.HAS_LANGUAGE_DOCKER_PROJECTS == 'true'
+        uses: docker/setup-buildx-action@v4
 
-      - name: Run tests on changed Go modules
-        run: |
-          MODULES="${{ needs.detect-changes.outputs.go_modules }}"
-          EXIT_CODE=0
+      - &set-git-sha-step
+        name: Set GIT_SHA environment variable
+        if: env.HAS_LANGUAGE_DOCKER_PROJECTS == 'true'
+        run: echo "GIT_SHA=${GITHUB_SHA::8}" >> "$GITHUB_ENV"
 
-          for module in $MODULES; do
-              echo "Testing Go module: $module"
-              cd $module
+      - &login-ghcr-step
+        name: Log in to GitHub Container Registry
+        if: github.ref == 'refs/heads/main' && env.HAS_LANGUAGE_DOCKER_PROJECTS == 'true'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-              # Run tests with gotestsum
-              if gotestsum --format testname -- -v ./...; then
-                echo "✅ Tests passed for $module"
-              else
-                echo "❌ Tests failed for $module"
-                EXIT_CODE=1
-              fi
+      - &build-language-docker-step
+        name: Build affected Docker images
+        if: github.ref != 'refs/heads/main' && env.HAS_LANGUAGE_DOCKER_PROJECTS == 'true'
+        run: moon run :docker --affected --query "${JOB_LANGUAGE_QUERY}" --summary minimal
 
-              cd $GITHUB_WORKSPACE
-          done
+      - &push-language-docker-step
+        name: Build and push affected Docker images
+        if: github.ref == 'refs/heads/main' && env.HAS_LANGUAGE_DOCKER_PROJECTS == 'true'
+        run: moon run :docker-push --affected --query "${JOB_LANGUAGE_QUERY}" --summary minimal
 
-          exit $EXIT_CODE
-
-  test-java-modules:
+  java-ci:
     runs-on: ubuntu-latest
     needs: detect-changes
-    if: needs.detect-changes.outputs.has_java_changes == 'true'
+    if: needs.detect-changes.outputs.has_java_projects == 'true' || needs.detect-changes.outputs.has_java_docker_projects == 'true'
+    permissions:
+      contents: read
+      packages: write
+    env:
+      MOON_BASE: ${{ needs.detect-changes.outputs.base_sha }}
+      MOON_HEAD: ${{ needs.detect-changes.outputs.current_sha }}
+      HAS_LANGUAGE_PROJECTS: ${{ needs.detect-changes.outputs.has_java_projects }}
+      HAS_LANGUAGE_DOCKER_PROJECTS: ${{ needs.detect-changes.outputs.has_java_docker_projects }}
+      JOB_LANGUAGE_QUERY: "language=java"
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
+      - *checkout-step
+      - *setup-moon-step
+      - *restore-moon-cache-step
 
-      - name: Set up JDK 21
+      - name: Set up JDK
+        if: env.HAS_LANGUAGE_PROJECTS == 'true'
         uses: actions/setup-java@v5
         with:
           distribution: "temurin"
-          java-version: "21"
+          java-version: ${{ env.JAVA_VERSION }}
           cache: "maven"
 
-      - name: Run tests on changed Java modules
+      - name: Format affected Java projects
+        if: env.HAS_LANGUAGE_PROJECTS == 'true'
+        run: moon run :format-java --affected --summary minimal
+
+      - name: Fail on Java formatting changes
+        if: env.HAS_LANGUAGE_PROJECTS == 'true'
         run: |
-          MODULES="${{ needs.detect-changes.outputs.java_modules }}"
-          EXIT_CODE=0
+          set -euo pipefail
+          if ! git diff --quiet -- services/java; then
+            echo "Formatting produced uncommitted changes in services/java."
+            git --no-pager diff -- services/java
+            exit 1
+          fi
 
-          for module in $MODULES; do
-              echo "Testing Java module: $module"
-              cd $module
+      - name: Lint affected Java projects
+        if: env.HAS_LANGUAGE_PROJECTS == 'true'
+        run: moon run :lint-java --affected --summary minimal
 
-              # Run tests with gotestsum
-              if mvn -B -ntp test; then
-                echo "✅ Tests passed for $module"
-              else
-                echo "❌ Tests failed for $module"
-                EXIT_CODE=1
-              fi
+      - name: Build affected Java projects
+        if: env.HAS_LANGUAGE_PROJECTS == 'true'
+        run: moon run :build-java --affected --summary minimal
 
-              cd $GITHUB_WORKSPACE
-          done
+      - name: Test affected Java projects
+        if: env.HAS_LANGUAGE_PROJECTS == 'true'
+        run: moon run :test-java --affected --summary minimal
 
-          exit $EXIT_CODE
+      - *setup-buildx-step
+      - *set-git-sha-step
+      - *login-ghcr-step
+      - *build-language-docker-step
+      - *push-language-docker-step
 
-  test-react-modules:
+  web-ci:
     runs-on: ubuntu-latest
     needs: detect-changes
-    if: needs.detect-changes.outputs.has_react_changes == 'true'
+    if: needs.detect-changes.outputs.has_web_projects == 'true' || needs.detect-changes.outputs.has_web_docker_projects == 'true'
+    permissions:
+      contents: read
+      packages: write
+    env:
+      MOON_BASE: ${{ needs.detect-changes.outputs.base_sha }}
+      MOON_HEAD: ${{ needs.detect-changes.outputs.current_sha }}
+      HAS_LANGUAGE_PROJECTS: ${{ needs.detect-changes.outputs.has_web_projects }}
+      HAS_LANGUAGE_DOCKER_PROJECTS: ${{ needs.detect-changes.outputs.has_web_docker_projects }}
+      JOB_LANGUAGE_QUERY: "language=typescript"
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
+      - *checkout-step
+      - *setup-moon-step
+      - *restore-moon-cache-step
 
       - name: Set up Node.js
+        if: env.HAS_LANGUAGE_PROJECTS == 'true'
         uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
 
-      - name: Run tests on changed React modules
+      - name: Install affected web projects
+        if: env.HAS_LANGUAGE_PROJECTS == 'true'
+        run: moon run :install-web --affected --summary minimal
+
+      - name: Format affected web projects
+        if: env.HAS_LANGUAGE_PROJECTS == 'true'
+        run: moon run :format-web --affected --summary minimal
+
+      - name: Fail on web formatting changes
+        if: env.HAS_LANGUAGE_PROJECTS == 'true'
         run: |
-          MODULES="${{ needs.detect-changes.outputs.react_modules }}"
-          EXIT_CODE=0
+          set -euo pipefail
+          if ! git diff --quiet -- frontend; then
+            echo "Formatting produced uncommitted changes in frontend."
+            git --no-pager diff -- frontend
+            exit 1
+          fi
 
-          for module in $MODULES; do
-            echo "Testing React module: $module"
-            cd $module
+      - name: Lint affected web projects
+        if: env.HAS_LANGUAGE_PROJECTS == 'true'
+        run: moon run :lint-web --affected --summary minimal
 
-            # Install dependencies
-            npm ci
+      - name: Build affected web projects
+        if: env.HAS_LANGUAGE_PROJECTS == 'true'
+        run: moon run :build-web --affected --summary minimal
 
-            # Run tests
-            if npm test -- run --passWithNoTests; then
-              echo "✅ Tests passed for $module"
-            else
-              echo "❌ Tests failed for $module"
-              EXIT_CODE=1
-            fi
+      - name: Test affected web projects
+        if: env.HAS_LANGUAGE_PROJECTS == 'true'
+        run: moon run :test-web --affected --summary minimal
 
-            cd $GITHUB_WORKSPACE
-          done
+      - *setup-buildx-step
+      - *set-git-sha-step
+      - *login-ghcr-step
+      - *build-language-docker-step
+      - *push-language-docker-step
 
-          exit $EXIT_CODE
-
-  post:
+  summary:
     runs-on: ubuntu-latest
-    needs:
-      [detect-changes, test-go-modules, test-java-modules, test-react-modules]
+    needs: [detect-changes, go-ci, java-ci, web-ci]
     if: always()
     steps:
       - name: Generate summary
         run: |
-          if [ "${{ needs.detect-changes.outputs.has_go_changes }}" == "true" ]; then
-            echo "### Go Modules Tested" >> $GITHUB_STEP_SUMMARY
-            echo "${{ needs.detect-changes.outputs.go_modules }}" | tr ' ' '\n' | grep -v '^$' | sed 's/^/- /' >> $GITHUB_STEP_SUMMARY
-            if [ "${{ needs.test-go-modules.result }}" == "success" ]; then
-              echo "✅ All Go lint, build, and tests passed" >> $GITHUB_STEP_SUMMARY
-            else
-              echo "❌ Some Go lint, build, and tests failed" >> $GITHUB_STEP_SUMMARY
-            fi
+          AFFECTED='${{ needs.detect-changes.outputs.affected_projects }}'
+
+          echo "## ✅ Moon CI Pipeline Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Affected Projects" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`\`\`json" >> "$GITHUB_STEP_SUMMARY"
+          echo "$AFFECTED" | jq '.' >> "$GITHUB_STEP_SUMMARY"
+          echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          echo "### Job Results" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Go CI: ${{ needs.go-ci.result }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Java CI: ${{ needs.java-ci.result }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Web CI: ${{ needs.web-ci.result }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "${{ needs.go-ci.result }}" != "failure" ] && [ "${{ needs.java-ci.result }}" != "failure" ] && [ "${{ needs.web-ci.result }}" != "failure" ]; then
+            echo "### Results" >> "$GITHUB_STEP_SUMMARY"
+            echo "✅ All affected language stages completed successfully" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "### Go Modules" >> $GITHUB_STEP_SUMMARY
-            echo "- No Go modules changed" >> $GITHUB_STEP_SUMMARY
-          fi
-
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-          if [ "${{ needs.detect-changes.outputs.has_java_changes }}" == "true" ]; then
-            echo "### Java Modules Tested" >> $GITHUB_STEP_SUMMARY
-            echo "${{ needs.detect-changes.outputs.java_modules }}" | tr ' ' '\n' | grep -v '^$' | sed 's/^/- /' >> $GITHUB_STEP_SUMMARY
-            if [ "${{ needs.test-java-modules.result }}" == "success" ]; then
-              echo "✅ All Java tests passed" >> $GITHUB_STEP_SUMMARY
-            else
-              echo "❌ Some Java tests failed" >> $GITHUB_STEP_SUMMARY
-            fi
-          else
-            echo "### Java Modules" >> $GITHUB_STEP_SUMMARY
-            echo "- No Java modules changed" >> $GITHUB_STEP_SUMMARY
-          fi
-
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-          if [ "${{ needs.detect-changes.outputs.has_react_changes }}" == "true" ]; then
-            echo "### React Modules Tested" >> $GITHUB_STEP_SUMMARY
-            echo "${{ needs.detect-changes.outputs.react_modules }}" | tr ' ' '\n' | grep -v '^$' | sed 's/^/- /' >> $GITHUB_STEP_SUMMARY
-            if [ "${{ needs.test-react-modules.result }}" == "success" ]; then
-              echo "✅ All React tests passed" >> $GITHUB_STEP_SUMMARY
-            else
-              echo "❌ Some React tests failed" >> $GITHUB_STEP_SUMMARY
-            fi
-          else
-            echo "### React Modules" >> $GITHUB_STEP_SUMMARY
-            echo "- No React modules changed" >> $GITHUB_STEP_SUMMARY
+            echo "### Results" >> "$GITHUB_STEP_SUMMARY"
+            echo "❌ Some stages failed - see job logs above" >> "$GITHUB_STEP_SUMMARY"
           fi

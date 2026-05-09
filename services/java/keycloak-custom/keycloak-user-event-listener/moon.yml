@@ -1,0 +1,8 @@
+dependsOn:
+  - 'keycloak-custom'
+language: 'java'
+layer: 'library'
+stack: 'backend'
+tags:
+  - 'java'
+  - 'keycloak'

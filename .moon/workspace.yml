@@ -1,0 +1,23 @@
+projects:
+  frontend: 'frontend'
+  go-services: 'services/go'
+  go-backend: 'services/go/backend'
+  go-bff: 'services/go/bff'
+  go-library: 'services/go/library'
+  java-services: 'services/java'
+  keycloak-custom: 'services/java/keycloak-custom'
+  keycloak-user-event-listener: 'services/java/keycloak-custom/keycloak-user-event-listener'
+  keycloak-custom-image: 'services/java/keycloak-custom/image'
+
+pipeline:
+  installDependencies: false
+  syncProjects: false
+  syncWorkspace: false
+
+telemetry: false
+versionConstraint: '2.2.3'
+
+vcs:
+  client: 'git'
+  defaultBranch: 'main'
+  provider: 'github'
