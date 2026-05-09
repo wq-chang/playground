@@ -1,9 +1,7 @@
 inheritedBy:
   files:
     - 'pom.xml'
-  tags:
-    and:
-      - 'language-java'
+  language: 'java'
 
 tasks:
   install-java:

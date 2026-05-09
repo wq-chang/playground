@@ -6,4 +6,3 @@ stack: 'backend'
 tags:
   - 'go'
   - 'shared'
-  - 'language-go'

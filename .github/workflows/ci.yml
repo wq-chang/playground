@@ -56,23 +56,22 @@ jobs:
 
       - name: Detect affected projects
         id: affected
+        env:
+          MOON_BASE: ${{ steps.refs.outputs.base_sha }}
+          MOON_HEAD: ${{ steps.refs.outputs.current_sha }}
         run: |
           set -euo pipefail
-          BASE_SHA='${{ steps.refs.outputs.base_sha }}'
-          CURRENT_SHA='${{ steps.refs.outputs.current_sha }}'
 
           AFFECTED=$(
             moon query projects \
               --affected \
-              --downstream deep \
-              --base "$BASE_SHA" \
-              --head "$CURRENT_SHA"
+              --downstream deep
           )
 
           AFFECTED_JSON=$(echo "$AFFECTED" | jq -ce '.projects | map(.id)')
-          HAS_GO=$(echo "$AFFECTED" | jq -r 'any(.projects[]?; (.config.tags // [] | index("language-go")) != null)')
-          HAS_JAVA=$(echo "$AFFECTED" | jq -r 'any(.projects[]?; (.config.tags // [] | index("language-java")) != null)')
-          HAS_WEB=$(echo "$AFFECTED" | jq -r 'any(.projects[]?; (.config.tags // [] | index("language-typescript")) != null)')
+          HAS_GO=$(moon query projects --affected --downstream deep --language go --tasks 'install-go|format-go|generate-go|lint-go|build-go|test-go' | jq -r '.projects | length > 0')
+          HAS_JAVA=$(moon query projects --affected --downstream deep --language java --tasks 'install-java|format-java|lint-java|build-java|test-java' | jq -r '.projects | length > 0')
+          HAS_WEB=$(moon query projects --affected --downstream deep --language typescript --tasks 'install-web|format-web|lint-web|build-web|test-web' | jq -r '.projects | length > 0')
 
           printf 'projects=%s\n' "$AFFECTED_JSON" >> "$GITHUB_OUTPUT"
           printf 'has_go_projects=%s\n' "$HAS_GO" >> "$GITHUB_OUTPUT"
@@ -84,6 +83,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: detect-changes
     if: needs.detect-changes.outputs.has_go_projects == 'true'
+    env:
+      MOON_BASE: ${{ needs.detect-changes.outputs.base_sha }}
+      MOON_HEAD: ${{ needs.detect-changes.outputs.current_sha }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -135,8 +137,8 @@ jobs:
             moon query projects \
               --affected \
               --downstream deep \
-              --base='${{ needs.detect-changes.outputs.base_sha }}' \
-              --head='${{ needs.detect-changes.outputs.current_sha }}' |
+              --language go \
+              --tasks 'generate-go|lint-go|build-go|test-go' |
             jq -ce '.projects'
           )
           printf 'projects=%s\n' "$PROJECTS" >> "$GITHUB_OUTPUT"
@@ -168,7 +170,7 @@ jobs:
           PROJECTS='${{ steps.affected.outputs.projects }}'
           mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["lint-go"] != null) | "\(.id):lint-go"')
           if [ "${#TARGETS[@]}" -gt 0 ]; then
-            moon run --concurrency 1 "${TARGETS[@]}" --summary minimal
+            moon run "${TARGETS[@]}" --summary minimal
           fi
 
       - name: Build affected Go projects
@@ -193,6 +195,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: detect-changes
     if: needs.detect-changes.outputs.has_java_projects == 'true'
+    env:
+      MOON_BASE: ${{ needs.detect-changes.outputs.base_sha }}
+      MOON_HEAD: ${{ needs.detect-changes.outputs.current_sha }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -230,8 +235,8 @@ jobs:
             moon query projects \
               --affected \
               --downstream deep \
-              --base='${{ needs.detect-changes.outputs.base_sha }}' \
-              --head='${{ needs.detect-changes.outputs.current_sha }}' |
+              --language java \
+              --tasks 'install-java|format-java|lint-java|build-java|test-java' |
             jq -ce '.projects'
           )
           printf 'projects=%s\n' "$PROJECTS" >> "$GITHUB_OUTPUT"
@@ -294,6 +299,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: detect-changes
     if: needs.detect-changes.outputs.has_web_projects == 'true'
+    env:
+      MOON_BASE: ${{ needs.detect-changes.outputs.base_sha }}
+      MOON_HEAD: ${{ needs.detect-changes.outputs.current_sha }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -331,8 +339,8 @@ jobs:
             moon query projects \
               --affected \
               --downstream deep \
-              --base='${{ needs.detect-changes.outputs.base_sha }}' \
-              --head='${{ needs.detect-changes.outputs.current_sha }}' |
+              --language typescript \
+              --tasks 'install-web|format-web|lint-web|build-web|test-web' |
             jq -ce '.projects'
           )
           printf 'projects=%s\n' "$PROJECTS" >> "$GITHUB_OUTPUT"
@@ -401,6 +409,9 @@ jobs:
       needs.go-ci.result != 'failure' &&
       needs.java-ci.result != 'failure' &&
       needs.web-ci.result != 'failure'
+    env:
+      MOON_BASE: ${{ needs.detect-changes.outputs.base_sha }}
+      MOON_HEAD: ${{ needs.detect-changes.outputs.current_sha }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -437,8 +448,7 @@ jobs:
             moon query projects \
               --affected \
               --downstream deep \
-              --base='${{ needs.detect-changes.outputs.base_sha }}' \
-              --head='${{ needs.detect-changes.outputs.current_sha }}' |
+              --tasks 'docker|docker-push' |
             jq -ce '.projects'
           )
           printf 'projects=%s\n' "$PROJECTS" >> "$GITHUB_OUTPUT"

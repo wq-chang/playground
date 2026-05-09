@@ -6,4 +6,3 @@ layer: 'application'
 stack: 'backend'
 tags:
   - 'go'
-  - 'language-go'

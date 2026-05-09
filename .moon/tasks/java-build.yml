@@ -1,9 +1,8 @@
 inheritedBy:
   files:
     - 'pom.xml'
+  language: 'java'
   tags:
-    and:
-      - 'language-java'
     not:
       - 'aggregator'
 

@@ -39,11 +39,12 @@ jobs:
           fi
 
           AFFECTED=$(
+            MOON_BASE="$BASE_SHA" \
+            MOON_HEAD="$CURRENT_SHA" \
             moon query projects \
               --affected \
               --downstream deep \
-              --base "$BASE_SHA" \
-              --head "$CURRENT_SHA" |
+              --tasks 'docker|docker-push' |
             jq -cr '.projects | map(.id)'
           )
 

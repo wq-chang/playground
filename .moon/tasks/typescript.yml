@@ -1,9 +1,7 @@
 inheritedBy:
   files:
     - 'package.json'
-  tags:
-    and:
-      - 'language-typescript'
+  language: 'typescript'
 
 tasks:
   install-web:

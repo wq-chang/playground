@@ -1,7 +1,5 @@
 inheritedBy:
-  tags:
-    and:
-      - 'language-go'
+  language: 'go'
 
 tasks:
   format-go:

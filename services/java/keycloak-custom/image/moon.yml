@@ -7,4 +7,3 @@ stack: 'backend'
 tags:
   - 'java'
   - 'keycloak'
-  - 'language-java'

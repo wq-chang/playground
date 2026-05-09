@@ -1,7 +1,6 @@
 inheritedBy:
+  language: 'go'
   tags:
-    and:
-      - 'language-go'
     not:
       - 'aggregator'
 

@@ -12,7 +12,7 @@ The repository uses the moon project graph plus Git-based affected detection to 
 
 - **Moon project graph** - defines explicit project IDs and cross-project `dependsOn` relationships
 - **Inherited Moon tasks** - `.moon/tasks/*.yml` defines shared tasks by language and by application Docker support
-- **GitHub Actions CI workflow** (`.github/workflows/ci.yml`) - detects affected projects once, groups them by language tags, and runs per-language stages
+- **GitHub Actions CI workflow** (`.github/workflows/ci.yml`) - detects affected projects once, groups them with Moon's native language filters, and runs per-language stages
 - **GitHub Actions CD workflow** (`.github/workflows/cd.yml`) - identifies deployable affected projects after CI succeeds
 
 ---
@@ -32,7 +32,7 @@ The repository uses the moon project graph plus Git-based affected detection to 
 
 1. Compute the affected project list once in a dedicated detect job.
 2. Expand that list with `--downstream deep` so project dependents keep the previous dependency propagation behavior.
-3. Derive `has_go_projects`, `has_java_projects`, and `has_web_projects` from language tags on the affected projects.
+3. Derive `has_go_projects`, `has_java_projects`, and `has_web_projects` with `moon query projects --language ... --tasks ...`.
 4. Build explicit target lists from that affected project set for each language stage.
 5. Restore `.moon/cache/hashes` and `.moon/cache/outputs` with `actions/cache@v5` in each task-running job.
 6. Run Docker packaging afterward with explicit `docker` / `docker-push` targets derived from the same affected project list.
@@ -43,7 +43,7 @@ The repository uses the moon project graph plus Git-based affected detection to 
 The detect job computes affected projects with:
 
 ```bash
-moon query projects --affected --downstream deep --base=<base-sha> --head=<head-sha>
+MOON_BASE=<base-sha> MOON_HEAD=<head-sha> moon query projects --affected --downstream deep
 ```
 
 The command output is converted to the stable project ID list:
@@ -58,27 +58,21 @@ The command output is converted to the stable project ID list:
 - `keycloak-user-event-listener`
 - `keycloak-custom-image`
 
-It also inspects project tags and emits:
+It also uses Moon's native `--language` and `--tasks` filters to emit:
 
 - `has_go_projects`
 - `has_java_projects`
 - `has_web_projects`
 - `affected_projects`
 
-Current language tags:
-
-- `language-go`
-- `language-java`
-- `language-typescript`
-
 ### Language Stage Jobs
 
-Each language job runs only when its boolean is `true`. Inside the job, moon queries the affected projects once, stores the resulting project objects, and turns only projects that actually own the requested task into explicit targets like `go-backend:build-go`.
+Each language job runs only when its boolean is `true`. Inside the job, Moon reads `MOON_BASE` / `MOON_HEAD` from the job environment, queries only affected projects for that language and task family, and turns the resulting project objects into explicit targets like `go-backend:build-go`.
 
 #### Go
 
 - `moon run go-services:install-go`
-- query affected projects with `moon query projects --affected --downstream deep`
+- query affected projects with `moon query projects --affected --downstream deep --language go --tasks 'generate-go|lint-go|build-go|test-go'`
 - run explicit `generate-go` targets for the affected Go projects that define that task
 - `moon run go-services:format-go`
 - fail if generation or formatting changed tracked Go files
@@ -90,7 +84,7 @@ Go lint remains serial because `golangci-lint` has workspace locking issues when
 
 #### Java
 
-- query affected projects with `moon query projects --affected --downstream deep`
+- query affected projects with `moon query projects --affected --downstream deep --language java --tasks 'install-java|format-java|lint-java|build-java|test-java'`
 - run explicit `install-java` targets for affected Java projects that define that task
 - run explicit `format-java` targets for affected Java projects that define that task
 - fail if formatting changed tracked Java files
@@ -100,7 +94,7 @@ Go lint remains serial because `golangci-lint` has workspace locking issues when
 
 #### Web / Frontend
 
-- query affected projects with `moon query projects --affected --downstream deep`
+- query affected projects with `moon query projects --affected --downstream deep --language typescript --tasks 'install-web|format-web|lint-web|build-web|test-web'`
 - run explicit `install-web` targets for affected frontend projects
 - run explicit `format-web` targets for affected frontend projects
 - fail if formatting changed tracked frontend files
@@ -112,7 +106,7 @@ Go lint remains serial because `golangci-lint` has workspace locking issues when
 
 After language verification completes, the Docker job runs:
 
-The job queries affected projects with `moon query projects --affected --downstream deep`, filters to projects that define `docker`, and then runs those explicit targets.
+The job queries affected projects with `moon query projects --affected --downstream deep --tasks 'docker|docker-push'`, then runs explicit Docker targets for that already-filtered project set.
 
 On the main branch, push uses:
 
@@ -130,7 +124,7 @@ The repository now uses Moon task inheritance to avoid repeating the same comman
 - `.moon/tasks/typescript.yml` - frontend web install/format/build/test/lint tasks
 - `.moon/tasks/docker.yml` - shared Docker build/push tasks for application projects with a `Dockerfile`
 
-Aggregator projects are tagged with `aggregator` so they only inherit the subset of tasks they should own.
+Aggregator projects are tagged with `aggregator` so they only inherit the subset of tasks they should own, while the shared language task files now match projects by their `language` field instead of custom `language-*` tags.
 
 ### Cache Strategy
 
@@ -251,7 +245,7 @@ Deployable project IDs are:
 moon query projects
 
 # Show affected projects between two refs
-moon query projects --affected --downstream deep --base=origin/main --head=HEAD
+MOON_BASE=origin/main MOON_HEAD=HEAD moon query projects --affected --downstream deep
 
 # Build/test/lint/format one SPI
 moon run keycloak-user-event-listener:format

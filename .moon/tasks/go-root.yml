@@ -1,8 +1,6 @@
 inheritedBy:
-  tags:
-    and:
-      - 'language-go'
-      - 'aggregator'
+  language: 'go'
+  tag: 'aggregator'
 
 tasks:
   install-go:

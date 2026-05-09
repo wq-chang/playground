@@ -4,5 +4,4 @@ stack: 'backend'
 tags:
   - 'java'
   - 'shared'
-  - 'language-java'
   - 'aggregator'
