@@ -30,7 +30,7 @@ tasks:
         docker build -f "$projectSource/Dockerfile" -t "${IMAGE_NAME}:${GIT_SHA:-latest}" -t "${IMAGE_NAME}:latest" .
       fi
     options:
-      cache: true
+      cache: false
       runFromWorkspaceRoot: true
     toolchains: 'system'
 
