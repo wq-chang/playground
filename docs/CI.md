@@ -32,10 +32,10 @@ The repository uses the moon project graph plus Git-based affected detection to 
 
 1. Compute the affected project list once in a dedicated detect job.
 2. Expand that list with `--downstream deep` so project dependents keep the previous dependency propagation behavior.
-3. Derive `has_go_projects`, `has_java_projects`, `has_web_projects`, and `has_docker_projects` with `moon query projects --language ... --tasks ...`.
-4. Run most task families directly with `moon run :<task> --affected --summary minimal` instead of building explicit target lists inside each job.
+3. Derive both verification and Docker booleans per language with `moon query projects --language ... --tasks ...`.
+4. Run most task families directly with `moon run :<task> --affected --summary minimal` inside each language job.
 5. Restore `.moon/cache/hashes` and `.moon/cache/outputs` with `actions/cache@v5` in each task-running job.
-6. Run Docker packaging with a two-layer strategy: Moon affected execution on PRs, and Buildx layer caching underneath the Docker build process.
+6. Run Docker packaging inside the corresponding language job instead of a separate downstream Docker stage.
 7. Publish a workflow summary.
 
 ### Detect Job
@@ -61,9 +61,11 @@ The command output is converted to the stable project ID list:
 It also uses Moon's native `--language` and `--tasks` filters to emit:
 
 - `has_go_projects`
+- `has_go_docker_projects`
 - `has_java_projects`
+- `has_java_docker_projects`
 - `has_web_projects`
-- `has_docker_projects`
+- `has_web_docker_projects`
 - `affected_projects`
 
 ### Language Stage Jobs
@@ -100,18 +102,23 @@ Go lint remains serial because `golangci-lint` has workspace locking issues when
 - `moon run :build-web --affected`
 - `moon run :test-web --affected`
 
-### Docker Stage
+### Docker Execution In Language Jobs
 
-After language verification completes, the Docker stage behaves differently by event:
+Docker no longer runs in a separate downstream stage. Instead:
+
+- `go-ci` runs Docker only when `has_go_docker_projects` is `true`
+- `java-ci` runs Docker only when `has_java_docker_projects` is `true`
+- `web-ci` runs Docker only when `has_web_docker_projects` is `true`
+
+This removes idle time where a finished language job would otherwise wait for unrelated stacks before Docker could start.
+
+Per language job:
 
 - images are tagged as `ghcr.io/${{ github.repository_owner }}/<project-id>:<tag>`
-- pull requests use `moon run :docker --affected`, so unaffected image projects are skipped by Moon's affected/project-graph logic
-- pushes to `main` always run `moon run :docker-push`, so all deployable images are rebuilt and pushed
 - `docker/setup-buildx-action` enables Buildx for cached CI builds underneath the Moon task execution
-- pull requests use Buildx layer cache with `type=gha,scope=<project>`
-- `main` uses both `type=gha` and GHCR registry cache (`:buildcache`) per image while rebuilding and pushing all deployable images
-- `docker/login-action` authenticates to GHCR before main-branch pushes
-- final image push happens through the Moon `docker-push` task on `main`
+- pull requests use `moon run :docker --affected --query "language=..."`, so only affected Docker-capable services in that language are built
+- `main` uses `moon run :docker-push --affected --query "language=..."`, so only affected Docker-capable services in that language are built and pushed
+- `docker/login-action` authenticates to GHCR before main-branch pushes in the jobs that need it
 
 ### Shared Task Layout
 
@@ -138,14 +145,14 @@ This cache is restored in each Moon task-running CI job with `actions/cache@v5`.
 
 `moonrepo/setup-toolchain` is still used, but only for installing and caching the Moon CLI/toolchain setup. It does **not** automatically persist `.moon/cache` task outputs across jobs, which is why the explicit GitHub cache step is required.
 
-The Docker stage uses two layers of caching/avoidance:
+The Docker flow uses two layers of caching/avoidance:
 
-1. **Moon affected execution on PRs** — `moon run :docker --affected` skips unrelated image projects entirely.
+1. **Moon affected execution** — Docker steps only run in the language jobs that have affected Docker-capable services, and the Moon command is still `--affected`.
 2. **Docker layer cache when builds do run** — Buildx uses:
    - **PR builds:** `cache-from/to=type=gha`
    - **main builds:** `cache-from/to=type=gha` plus `cache-from/to=type=registry` in GHCR
 
-This means PRs avoid unnecessary Docker work at the task level, while main always rebuilds and pushes deployable images with warm layer cache.
+This means Docker work starts as soon as each language job finishes its own verification, while still avoiding unnecessary builds and reusing warm layer cache.
 
 ### Download Hardening
 

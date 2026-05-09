@@ -28,16 +28,20 @@ jobs:
       current_sha: ${{ steps.refs.outputs.current_sha }}
       affected_projects: ${{ steps.affected.outputs.projects }}
       has_go_projects: ${{ steps.affected.outputs.has_go_projects }}
+      has_go_docker_projects: ${{ steps.affected.outputs.has_go_docker_projects }}
       has_java_projects: ${{ steps.affected.outputs.has_java_projects }}
+      has_java_docker_projects: ${{ steps.affected.outputs.has_java_docker_projects }}
       has_web_projects: ${{ steps.affected.outputs.has_web_projects }}
-      has_docker_projects: ${{ steps.affected.outputs.has_docker_projects }}
+      has_web_docker_projects: ${{ steps.affected.outputs.has_web_docker_projects }}
     steps:
-      - name: Checkout repository
+      - &checkout-step
+        name: Checkout repository
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      - name: Set up moon
+      - &setup-moon-step
+        name: Set up moon
         uses: moonrepo/setup-toolchain@v0
         with:
           moon-version: ${{ env.MOON_VERSION }}
@@ -69,6 +73,18 @@ jobs:
         run: |
           set -euo pipefail
 
+          has_affected_projects() {
+            local language="$1"
+            local tasks="$2"
+
+            moon query projects \
+              --affected \
+              --downstream deep \
+              --language "$language" \
+              --tasks "$tasks" |
+              jq -r '.projects | length > 0'
+          }
+
           AFFECTED=$(
             moon query projects \
               --affected \
@@ -76,37 +92,43 @@ jobs:
           )
 
           AFFECTED_JSON=$(echo "$AFFECTED" | jq -ce '.projects | map(.id)')
-          HAS_GO=$(moon query projects --affected --downstream deep --language go --tasks 'install-go|format-go|generate-go|lint-go|build-go|test-go' | jq -r '.projects | length > 0')
-          HAS_JAVA=$(moon query projects --affected --downstream deep --language java --tasks 'install-java|format-java|lint-java|build-java|test-java' | jq -r '.projects | length > 0')
-          HAS_WEB=$(moon query projects --affected --downstream deep --language typescript --tasks 'install-web|format-web|lint-web|build-web|test-web' | jq -r '.projects | length > 0')
-          HAS_DOCKER=$(moon query projects --affected --downstream deep --tasks 'docker|docker-push' | jq -r '.projects | length > 0')
+          HAS_GO=$(has_affected_projects go 'install-go|format-go|generate-go|lint-go|build-go|test-go')
+          HAS_GO_DOCKER=$(has_affected_projects go 'docker|docker-push')
+          HAS_JAVA=$(has_affected_projects java 'install-java|format-java|lint-java|build-java|test-java')
+          HAS_JAVA_DOCKER=$(has_affected_projects java 'docker|docker-push')
+          HAS_WEB=$(has_affected_projects typescript 'install-web|format-web|lint-web|build-web|test-web')
+          HAS_WEB_DOCKER=$(has_affected_projects typescript 'docker|docker-push')
 
           printf 'projects=%s\n' "$AFFECTED_JSON" >> "$GITHUB_OUTPUT"
           printf 'has_go_projects=%s\n' "$HAS_GO" >> "$GITHUB_OUTPUT"
+          printf 'has_go_docker_projects=%s\n' "$HAS_GO_DOCKER" >> "$GITHUB_OUTPUT"
           printf 'has_java_projects=%s\n' "$HAS_JAVA" >> "$GITHUB_OUTPUT"
+          printf 'has_java_docker_projects=%s\n' "$HAS_JAVA_DOCKER" >> "$GITHUB_OUTPUT"
           printf 'has_web_projects=%s\n' "$HAS_WEB" >> "$GITHUB_OUTPUT"
-          printf 'has_docker_projects=%s\n' "$HAS_DOCKER" >> "$GITHUB_OUTPUT"
+          printf 'has_web_docker_projects=%s\n' "$HAS_WEB_DOCKER" >> "$GITHUB_OUTPUT"
           echo "Affected projects: $AFFECTED_JSON"
 
   go-ci:
     runs-on: ubuntu-latest
     needs: detect-changes
-    if: needs.detect-changes.outputs.has_go_projects == 'true'
-    env:
+    if: needs.detect-changes.outputs.has_go_projects == 'true' || needs.detect-changes.outputs.has_go_docker_projects == 'true'
+    permissions: &language-job-permissions
+      contents: read
+      packages: write
+    env: &common-language-job-env
+      ENABLE_REGISTRY_DOCKER_CACHE: ${{ github.ref == 'refs/heads/main' }}
+      IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
       MOON_BASE: ${{ needs.detect-changes.outputs.base_sha }}
       MOON_HEAD: ${{ needs.detect-changes.outputs.current_sha }}
+      USE_BUILDX_DOCKER: "true"
+      HAS_LANGUAGE_PROJECTS: ${{ needs.detect-changes.outputs.has_go_projects }}
+      HAS_LANGUAGE_DOCKER_PROJECTS: ${{ needs.detect-changes.outputs.has_go_docker_projects }}
+      JOB_LANGUAGE_QUERY: "language=go"
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Set up moon
-        uses: moonrepo/setup-toolchain@v0
-        with:
-          moon-version: ${{ env.MOON_VERSION }}
-
-      - name: Restore Moon cache
+      - *checkout-step
+      - *setup-moon-step
+      - &restore-moon-cache-step
+        name: Restore Moon cache
         uses: actions/cache@v5
         with:
           path: |
@@ -118,6 +140,7 @@ jobs:
             moon-cache-${{ runner.os }}-${{ github.job }}-
 
       - name: Set up Go
+        if: env.HAS_LANGUAGE_PROJECTS == 'true'
         uses: actions/setup-go@v6
         with:
           cache: true
@@ -125,6 +148,7 @@ jobs:
           cache-dependency-path: services/go/go.sum
 
       - name: Install Go build tools
+        if: env.HAS_LANGUAGE_PROJECTS == 'true'
         run: |
           set -euo pipefail
           TMP_DIR=$(mktemp -d)
@@ -166,15 +190,19 @@ jobs:
           sudo install "$TMP_DIR/sqlc" /usr/local/bin/sqlc
 
       - name: Install Go dependencies
+        if: env.HAS_LANGUAGE_PROJECTS == 'true'
         run: moon run go-services:install-go --affected --summary minimal
 
       - name: Generate affected Go code
+        if: env.HAS_LANGUAGE_PROJECTS == 'true'
         run: moon run :generate-go --affected --summary minimal
 
       - name: Format Go code
+        if: env.HAS_LANGUAGE_PROJECTS == 'true'
         run: moon run go-services:format-go --affected --summary minimal
 
       - name: Fail on generated or formatted Go changes
+        if: env.HAS_LANGUAGE_PROJECTS == 'true'
         run: |
           set -euo pipefail
           if ! git diff --quiet -- services/go; then
@@ -184,44 +212,63 @@ jobs:
           fi
 
       - name: Lint affected Go projects
+        if: env.HAS_LANGUAGE_PROJECTS == 'true'
         run: moon run :lint-go --affected --summary minimal
 
       - name: Build affected Go projects
+        if: env.HAS_LANGUAGE_PROJECTS == 'true'
         run: moon run :build-go --affected --summary minimal
 
       - name: Test affected Go projects
+        if: env.HAS_LANGUAGE_PROJECTS == 'true'
         run: moon run :test-go --affected --summary minimal
+
+      - &setup-buildx-step
+        name: Set up Docker Buildx
+        if: env.HAS_LANGUAGE_DOCKER_PROJECTS == 'true'
+        uses: docker/setup-buildx-action@v4
+
+      - &set-git-sha-step
+        name: Set GIT_SHA environment variable
+        if: env.HAS_LANGUAGE_DOCKER_PROJECTS == 'true'
+        run: echo "GIT_SHA=${GITHUB_SHA::8}" >> "$GITHUB_ENV"
+
+      - &login-ghcr-step
+        name: Log in to GitHub Container Registry
+        if: github.ref == 'refs/heads/main' && env.HAS_LANGUAGE_DOCKER_PROJECTS == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - &build-language-docker-step
+        name: Build affected Docker images
+        if: github.ref != 'refs/heads/main' && env.HAS_LANGUAGE_DOCKER_PROJECTS == 'true'
+        run: moon run :docker --affected --query "${JOB_LANGUAGE_QUERY}" --summary minimal
+
+      - &push-language-docker-step
+        name: Build and push affected Docker images
+        if: github.ref == 'refs/heads/main' && env.HAS_LANGUAGE_DOCKER_PROJECTS == 'true'
+        run: moon run :docker-push --affected --query "${JOB_LANGUAGE_QUERY}" --summary minimal
 
   java-ci:
     runs-on: ubuntu-latest
     needs: detect-changes
-    if: needs.detect-changes.outputs.has_java_projects == 'true'
+    if: needs.detect-changes.outputs.has_java_projects == 'true' || needs.detect-changes.outputs.has_java_docker_projects == 'true'
+    permissions: *language-job-permissions
     env:
-      MOON_BASE: ${{ needs.detect-changes.outputs.base_sha }}
-      MOON_HEAD: ${{ needs.detect-changes.outputs.current_sha }}
+      <<: *common-language-job-env
+      HAS_LANGUAGE_PROJECTS: ${{ needs.detect-changes.outputs.has_java_projects }}
+      HAS_LANGUAGE_DOCKER_PROJECTS: ${{ needs.detect-changes.outputs.has_java_docker_projects }}
+      JOB_LANGUAGE_QUERY: "language=java"
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Set up moon
-        uses: moonrepo/setup-toolchain@v0
-        with:
-          moon-version: ${{ env.MOON_VERSION }}
-
-      - name: Restore Moon cache
-        uses: actions/cache@v5
-        with:
-          path: |
-            .moon/cache/hashes
-            .moon/cache/outputs
-          key: moon-cache-${{ runner.os }}-${{ github.ref_name }}-${{ github.job }}-${{ github.sha }}
-          restore-keys: |
-            moon-cache-${{ runner.os }}-${{ github.ref_name }}-${{ github.job }}-
-            moon-cache-${{ runner.os }}-${{ github.job }}-
+      - *checkout-step
+      - *setup-moon-step
+      - *restore-moon-cache-step
 
       - name: Set up JDK
+        if: env.HAS_LANGUAGE_PROJECTS == 'true'
         uses: actions/setup-java@v5
         with:
           distribution: "temurin"
@@ -229,12 +276,15 @@ jobs:
           cache: "maven"
 
       - name: Install affected Java projects
+        if: env.HAS_LANGUAGE_PROJECTS == 'true'
         run: moon run :install-java --affected --summary minimal
 
       - name: Format affected Java projects
+        if: env.HAS_LANGUAGE_PROJECTS == 'true'
         run: moon run :format-java --affected --summary minimal
 
       - name: Fail on Java formatting changes
+        if: env.HAS_LANGUAGE_PROJECTS == 'true'
         run: |
           set -euo pipefail
           if ! git diff --quiet -- services/java; then
@@ -244,44 +294,40 @@ jobs:
           fi
 
       - name: Lint affected Java projects
+        if: env.HAS_LANGUAGE_PROJECTS == 'true'
         run: moon run :lint-java --affected --summary minimal
 
       - name: Build affected Java projects
+        if: env.HAS_LANGUAGE_PROJECTS == 'true'
         run: moon run :build-java --affected --summary minimal
 
       - name: Test affected Java projects
+        if: env.HAS_LANGUAGE_PROJECTS == 'true'
         run: moon run :test-java --affected --summary minimal
+
+      - *setup-buildx-step
+      - *set-git-sha-step
+      - *login-ghcr-step
+      - *build-language-docker-step
+      - *push-language-docker-step
 
   web-ci:
     runs-on: ubuntu-latest
     needs: detect-changes
-    if: needs.detect-changes.outputs.has_web_projects == 'true'
+    if: needs.detect-changes.outputs.has_web_projects == 'true' || needs.detect-changes.outputs.has_web_docker_projects == 'true'
+    permissions: *language-job-permissions
     env:
-      MOON_BASE: ${{ needs.detect-changes.outputs.base_sha }}
-      MOON_HEAD: ${{ needs.detect-changes.outputs.current_sha }}
+      <<: *common-language-job-env
+      HAS_LANGUAGE_PROJECTS: ${{ needs.detect-changes.outputs.has_web_projects }}
+      HAS_LANGUAGE_DOCKER_PROJECTS: ${{ needs.detect-changes.outputs.has_web_docker_projects }}
+      JOB_LANGUAGE_QUERY: "language=typescript"
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Set up moon
-        uses: moonrepo/setup-toolchain@v0
-        with:
-          moon-version: ${{ env.MOON_VERSION }}
-
-      - name: Restore Moon cache
-        uses: actions/cache@v5
-        with:
-          path: |
-            .moon/cache/hashes
-            .moon/cache/outputs
-          key: moon-cache-${{ runner.os }}-${{ github.ref_name }}-${{ github.job }}-${{ github.sha }}
-          restore-keys: |
-            moon-cache-${{ runner.os }}-${{ github.ref_name }}-${{ github.job }}-
-            moon-cache-${{ runner.os }}-${{ github.job }}-
+      - *checkout-step
+      - *setup-moon-step
+      - *restore-moon-cache-step
 
       - name: Set up Node.js
+        if: env.HAS_LANGUAGE_PROJECTS == 'true'
         uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -289,12 +335,15 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install affected web projects
+        if: env.HAS_LANGUAGE_PROJECTS == 'true'
         run: moon run :install-web --affected --summary minimal
 
       - name: Format affected web projects
+        if: env.HAS_LANGUAGE_PROJECTS == 'true'
         run: moon run :format-web --affected --summary minimal
 
       - name: Fail on web formatting changes
+        if: env.HAS_LANGUAGE_PROJECTS == 'true'
         run: |
           set -euo pipefail
           if ! git diff --quiet -- frontend; then
@@ -304,80 +353,26 @@ jobs:
           fi
 
       - name: Lint affected web projects
+        if: env.HAS_LANGUAGE_PROJECTS == 'true'
         run: moon run :lint-web --affected --summary minimal
 
       - name: Build affected web projects
+        if: env.HAS_LANGUAGE_PROJECTS == 'true'
         run: moon run :build-web --affected --summary minimal
 
       - name: Test affected web projects
+        if: env.HAS_LANGUAGE_PROJECTS == 'true'
         run: moon run :test-web --affected --summary minimal
 
-  docker-build:
-    runs-on: ubuntu-latest
-    needs: [detect-changes, go-ci, java-ci, web-ci]
-    if: |
-      always() &&
-      needs.detect-changes.result == 'success' &&
-      (github.ref == 'refs/heads/main' || needs.detect-changes.outputs.has_docker_projects == 'true') &&
-      needs.go-ci.result != 'failure' &&
-      needs.java-ci.result != 'failure' &&
-      needs.web-ci.result != 'failure'
-    permissions:
-      contents: read
-      packages: write
-    env:
-      ENABLE_REGISTRY_DOCKER_CACHE: ${{ github.ref == 'refs/heads/main' }}
-      IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
-      MOON_BASE: ${{ needs.detect-changes.outputs.base_sha }}
-      MOON_HEAD: ${{ needs.detect-changes.outputs.current_sha }}
-      USE_BUILDX_DOCKER: "true"
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Set up moon
-        uses: moonrepo/setup-toolchain@v0
-        with:
-          moon-version: ${{ env.MOON_VERSION }}
-
-      - name: Restore Moon cache
-        uses: actions/cache@v5
-        with:
-          path: |
-            .moon/cache/hashes
-            .moon/cache/outputs
-          key: moon-cache-${{ runner.os }}-${{ github.ref_name }}-${{ github.job }}-${{ github.sha }}
-          restore-keys: |
-            moon-cache-${{ runner.os }}-${{ github.ref_name }}-${{ github.job }}-
-            moon-cache-${{ runner.os }}-${{ github.job }}-
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Set GIT_SHA environment variable
-        run: echo "GIT_SHA=${GITHUB_SHA::8}" >> "$GITHUB_ENV"
-
-      - name: Log in to GitHub Container Registry
-        if: github.ref == 'refs/heads/main'
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build affected Docker images
-        if: github.ref != 'refs/heads/main'
-        run: moon run :docker --affected --summary minimal
-
-      - name: Build and push all Docker images
-        if: github.ref == 'refs/heads/main'
-        run: moon run :docker-push --summary minimal
+      - *setup-buildx-step
+      - *set-git-sha-step
+      - *login-ghcr-step
+      - *build-language-docker-step
+      - *push-language-docker-step
 
   summary:
     runs-on: ubuntu-latest
-    needs: [detect-changes, go-ci, java-ci, web-ci, docker-build]
+    needs: [detect-changes, go-ci, java-ci, web-ci]
     if: always()
     steps:
       - name: Generate summary
@@ -396,10 +391,9 @@ jobs:
           echo "- Go CI: ${{ needs.go-ci.result }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Java CI: ${{ needs.java-ci.result }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Web CI: ${{ needs.web-ci.result }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Docker: ${{ needs.docker-build.result }}" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
 
-          if [ "${{ needs.go-ci.result }}" != "failure" ] && [ "${{ needs.java-ci.result }}" != "failure" ] && [ "${{ needs.web-ci.result }}" != "failure" ] && [ "${{ needs.docker-build.result }}" != "failure" ]; then
+          if [ "${{ needs.go-ci.result }}" != "failure" ] && [ "${{ needs.java-ci.result }}" != "failure" ] && [ "${{ needs.web-ci.result }}" != "failure" ]; then
             echo "### Results" >> "$GITHUB_STEP_SUMMARY"
             echo "✅ All affected language stages completed successfully" >> "$GITHUB_STEP_SUMMARY"
           else
