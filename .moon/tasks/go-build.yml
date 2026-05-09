@@ -34,7 +34,7 @@ tasks:
   generate-go:
     command: 'go generate ./...'
     options:
-      cache: false
+      cache: true
     toolchains: 'system'
 
   lint-go:

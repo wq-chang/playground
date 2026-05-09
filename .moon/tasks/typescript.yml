@@ -17,7 +17,7 @@ tasks:
   format-web:
     command: 'npm run format'
     options:
-      cache: false
+      cache: true
     toolchains: 'system'
 
   format:
