@@ -34,7 +34,7 @@ The repository uses the moon project graph plus Git-based affected detection to 
 2. Expand that list with `--downstream deep` so project dependents keep the previous dependency propagation behavior.
 3. Derive both verification and Docker booleans per language with `moon query projects --language ... --tasks ...`.
 4. Run most task families directly with `moon run :<task> --affected --summary minimal` inside each language job.
-5. Restore `.moon/cache/hashes` and `.moon/cache/outputs` with `actions/cache@v5` in each task-running job.
+5. Restore `.moon/cache/hashes` and `.moon/cache/outputs` with `actions/cache` in each task-running job.
 6. Run Docker packaging inside the corresponding language job instead of a separate downstream Docker stage.
 7. Publish a workflow summary.
 
@@ -103,13 +103,9 @@ Go lint remains serial because `golangci-lint` has workspace locking issues when
 
 ### Docker Execution In Language Jobs
 
-Docker no longer runs in a separate downstream stage. Instead:
-
 - `go-ci` runs Docker only when `has_go_docker_projects` is `true`
 - `java-ci` runs Docker only when `has_java_docker_projects` is `true`
 - `web-ci` runs Docker only when `has_web_docker_projects` is `true`
-
-This removes idle time where a finished language job would otherwise wait for unrelated stacks before Docker could start.
 
 Per language job:
 
@@ -135,12 +131,12 @@ Aggregator projects are tagged with `aggregator` so they only inherit the subset
 
 ### Cache Strategy
 
-The workflow intentionally avoids a paid remote cache, but it **does** persist the safe, portable portions of Moon's local cache with GitHub Actions cache v5:
+The workflow persist the safe, portable portions of Moon's local cache with GitHub Actions cache:
 
 - `.moon/cache/hashes`
 - `.moon/cache/outputs`
 
-This cache is restored in each Moon task-running CI job with `actions/cache@v5`.
+This cache is restored in each Moon task-running CI job with `actions/cache`.
 
 `moonrepo/setup-toolchain` is still used, but only for installing and caching the Moon CLI/toolchain setup. It does **not** automatically persist `.moon/cache` task outputs across jobs, which is why the explicit GitHub cache step is required.
 
