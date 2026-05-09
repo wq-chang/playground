@@ -5,7 +5,7 @@ inheritedBy:
 
 tasks:
   docker:
-    script: 'docker build -f $projectSource/Dockerfile -t $project:${GIT_SHA:-latest} -t $project:latest .'
+    script: 'IMAGE_NAME="${IMAGE_REGISTRY:+${IMAGE_REGISTRY}/}$project" && docker build -f $projectSource/Dockerfile -t ${IMAGE_NAME}:${GIT_SHA:-latest} -t ${IMAGE_NAME}:latest .'
     options:
       cache: false
       runFromWorkspaceRoot: true
@@ -14,7 +14,7 @@ tasks:
   docker-push:
     deps:
       - '~:docker'
-    script: 'docker push $project:${GIT_SHA:-latest} && docker push $project:latest'
+    script: 'IMAGE_NAME="${IMAGE_REGISTRY:+${IMAGE_REGISTRY}/}$project" && docker push ${IMAGE_NAME}:${GIT_SHA:-latest} && docker push ${IMAGE_NAME}:latest'
     options:
       cache: false
       runFromWorkspaceRoot: true

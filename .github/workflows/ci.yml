@@ -6,12 +6,18 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 env:
   JAVA_VERSION: "25"
   NODE_VERSION: "24"
   GOLANGCI_LINT_VERSION: "v2.12.1"
+  GOLANGCI_LINT_SHA256: "82c7932d9aa10c34e22ef56961ac5aad71d4a14806a1a31b06931add2688b368"
   GOTESTSUM_VERSION: "1.13.0"
+  GOTESTSUM_SHA256: "11ccddeaf708ef228889f9fe2f68291a75b27013ddfc3b18156e094f5f40e8ee"
   SQLC_VERSION: "1.31.1"
+  SQLC_SHA256: "497ae4fcdfa64c5b0c311ffe4c2bd991e43991e82e5367792ed78bc2dca27354"
   MOON_VERSION: "2.2.3"
 
 jobs:
@@ -24,6 +30,7 @@ jobs:
       has_go_projects: ${{ steps.affected.outputs.has_go_projects }}
       has_java_projects: ${{ steps.affected.outputs.has_java_projects }}
       has_web_projects: ${{ steps.affected.outputs.has_web_projects }}
+      has_docker_projects: ${{ steps.affected.outputs.has_docker_projects }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -72,11 +79,13 @@ jobs:
           HAS_GO=$(moon query projects --affected --downstream deep --language go --tasks 'install-go|format-go|generate-go|lint-go|build-go|test-go' | jq -r '.projects | length > 0')
           HAS_JAVA=$(moon query projects --affected --downstream deep --language java --tasks 'install-java|format-java|lint-java|build-java|test-java' | jq -r '.projects | length > 0')
           HAS_WEB=$(moon query projects --affected --downstream deep --language typescript --tasks 'install-web|format-web|lint-web|build-web|test-web' | jq -r '.projects | length > 0')
+          HAS_DOCKER=$(moon query projects --affected --downstream deep --tasks 'docker|docker-push' | jq -r '.projects | length > 0')
 
           printf 'projects=%s\n' "$AFFECTED_JSON" >> "$GITHUB_OUTPUT"
           printf 'has_go_projects=%s\n' "$HAS_GO" >> "$GITHUB_OUTPUT"
           printf 'has_java_projects=%s\n' "$HAS_JAVA" >> "$GITHUB_OUTPUT"
           printf 'has_web_projects=%s\n' "$HAS_WEB" >> "$GITHUB_OUTPUT"
+          printf 'has_docker_projects=%s\n' "$HAS_DOCKER" >> "$GITHUB_OUTPUT"
           echo "Affected projects: $AFFECTED_JSON"
 
   go-ci:
@@ -117,40 +126,50 @@ jobs:
 
       - name: Install Go build tools
         run: |
-          curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b "$(go env GOPATH)/bin" ${{ env.GOLANGCI_LINT_VERSION }}
+          set -euo pipefail
+          TMP_DIR=$(mktemp -d)
+          trap 'rm -rf "$TMP_DIR"' EXIT
+
+          download_and_verify() {
+            local url="$1"
+            local checksum="$2"
+            local output="$3"
+
+            curl -sSfL "$url" -o "$output"
+            echo "${checksum}  ${output}" | sha256sum -c -
+          }
+
+          GOLANGCI_ARCHIVE="golangci-lint-${GOLANGCI_LINT_VERSION#v}-linux-amd64.tar.gz"
+          download_and_verify \
+            "https://github.com/golangci/golangci-lint/releases/download/${GOLANGCI_LINT_VERSION}/${GOLANGCI_ARCHIVE}" \
+            "${GOLANGCI_LINT_SHA256}" \
+            "$TMP_DIR/$GOLANGCI_ARCHIVE"
+          tar -xzf "$TMP_DIR/$GOLANGCI_ARCHIVE" -C "$TMP_DIR"
+          mkdir -p "$(go env GOPATH)/bin"
+          install "$TMP_DIR/golangci-lint-${GOLANGCI_LINT_VERSION#v}-linux-amd64/golangci-lint" "$(go env GOPATH)/bin/golangci-lint"
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
-          curl -sSfL "https://github.com/gotestyourself/gotestsum/releases/download/v${{ env.GOTESTSUM_VERSION }}/gotestsum_${{ env.GOTESTSUM_VERSION }}_linux_amd64.tar.gz" | tar -xz -C /tmp
-          sudo mv /tmp/gotestsum /usr/local/bin/gotestsum
-          chmod +x /usr/local/bin/gotestsum
-          curl -sSfL "https://github.com/sqlc-dev/sqlc/releases/download/v${{ env.SQLC_VERSION }}/sqlc_${{ env.SQLC_VERSION }}_linux_amd64.tar.gz" | tar -xz -C /tmp
-          sudo mv /tmp/sqlc /usr/local/bin/sqlc
-          chmod +x /usr/local/bin/sqlc
+
+          GOTESTSUM_ARCHIVE="gotestsum_${GOTESTSUM_VERSION}_linux_amd64.tar.gz"
+          download_and_verify \
+            "https://github.com/gotestyourself/gotestsum/releases/download/v${GOTESTSUM_VERSION}/${GOTESTSUM_ARCHIVE}" \
+            "${GOTESTSUM_SHA256}" \
+            "$TMP_DIR/$GOTESTSUM_ARCHIVE"
+          tar -xzf "$TMP_DIR/$GOTESTSUM_ARCHIVE" -C "$TMP_DIR"
+          sudo install "$TMP_DIR/gotestsum" /usr/local/bin/gotestsum
+
+          SQLC_ARCHIVE="sqlc_${SQLC_VERSION}_linux_amd64.tar.gz"
+          download_and_verify \
+            "https://github.com/sqlc-dev/sqlc/releases/download/v${SQLC_VERSION}/${SQLC_ARCHIVE}" \
+            "${SQLC_SHA256}" \
+            "$TMP_DIR/$SQLC_ARCHIVE"
+          tar -xzf "$TMP_DIR/$SQLC_ARCHIVE" -C "$TMP_DIR"
+          sudo install "$TMP_DIR/sqlc" /usr/local/bin/sqlc
 
       - name: Install Go dependencies
         run: moon run go-services:install-go --affected --summary minimal
 
-      - name: Query affected Go projects
-        id: affected
-        run: |
-          set -euo pipefail
-          PROJECTS=$(
-            moon query projects \
-              --affected \
-              --downstream deep \
-              --language go \
-              --tasks 'generate-go|lint-go|build-go|test-go' |
-            jq -ce '.projects'
-          )
-          printf 'projects=%s\n' "$PROJECTS" >> "$GITHUB_OUTPUT"
-
       - name: Generate affected Go code
-        run: |
-          set -euo pipefail
-          PROJECTS='${{ steps.affected.outputs.projects }}'
-          mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["generate-go"] != null) | "\(.id):generate-go"')
-          if [ "${#TARGETS[@]}" -gt 0 ]; then
-            moon run "${TARGETS[@]}" --affected --summary minimal
-          fi
+        run: moon run :generate-go --affected --summary minimal
 
       - name: Format Go code
         run: moon run go-services:format-go --affected --summary minimal
@@ -165,31 +184,13 @@ jobs:
           fi
 
       - name: Lint affected Go projects
-        run: |
-          set -euo pipefail
-          PROJECTS='${{ steps.affected.outputs.projects }}'
-          mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["lint-go"] != null) | "\(.id):lint-go"')
-          if [ "${#TARGETS[@]}" -gt 0 ]; then
-            moon run "${TARGETS[@]}" --affected --summary minimal
-          fi
+        run: moon run :lint-go --affected --summary minimal
 
       - name: Build affected Go projects
-        run: |
-          set -euo pipefail
-          PROJECTS='${{ steps.affected.outputs.projects }}'
-          mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["build-go"] != null) | "\(.id):build-go"')
-          if [ "${#TARGETS[@]}" -gt 0 ]; then
-            moon run "${TARGETS[@]}" --affected --summary minimal
-          fi
+        run: moon run :build-go --affected --summary minimal
 
       - name: Test affected Go projects
-        run: |
-          set -euo pipefail
-          PROJECTS='${{ steps.affected.outputs.projects }}'
-          mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["test-go"] != null) | "\(.id):test-go"')
-          if [ "${#TARGETS[@]}" -gt 0 ]; then
-            moon run "${TARGETS[@]}" --affected --summary minimal
-          fi
+        run: moon run :test-go --affected --summary minimal
 
   java-ci:
     runs-on: ubuntu-latest
@@ -227,37 +228,11 @@ jobs:
           java-version: ${{ env.JAVA_VERSION }}
           cache: "maven"
 
-      - name: Query affected Java projects
-        id: affected
-        run: |
-          set -euo pipefail
-          PROJECTS=$(
-            moon query projects \
-              --affected \
-              --downstream deep \
-              --language java \
-              --tasks 'install-java|format-java|lint-java|build-java|test-java' |
-            jq -ce '.projects'
-          )
-          printf 'projects=%s\n' "$PROJECTS" >> "$GITHUB_OUTPUT"
-
       - name: Install affected Java projects
-        run: |
-          set -euo pipefail
-          PROJECTS='${{ steps.affected.outputs.projects }}'
-          mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["install-java"] != null) | "\(.id):install-java"')
-          if [ "${#TARGETS[@]}" -gt 0 ]; then
-            moon run "${TARGETS[@]}" --affected --summary minimal
-          fi
+        run: moon run :install-java --affected --summary minimal
 
       - name: Format affected Java projects
-        run: |
-          set -euo pipefail
-          PROJECTS='${{ steps.affected.outputs.projects }}'
-          mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["format-java"] != null) | "\(.id):format-java"')
-          if [ "${#TARGETS[@]}" -gt 0 ]; then
-            moon run "${TARGETS[@]}" --affected --summary minimal
-          fi
+        run: moon run :format-java --affected --summary minimal
 
       - name: Fail on Java formatting changes
         run: |
@@ -269,31 +244,13 @@ jobs:
           fi
 
       - name: Lint affected Java projects
-        run: |
-          set -euo pipefail
-          PROJECTS='${{ steps.affected.outputs.projects }}'
-          mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["lint-java"] != null) | "\(.id):lint-java"')
-          if [ "${#TARGETS[@]}" -gt 0 ]; then
-            moon run "${TARGETS[@]}" --affected --summary minimal
-          fi
+        run: moon run :lint-java --affected --summary minimal
 
       - name: Build affected Java projects
-        run: |
-          set -euo pipefail
-          PROJECTS='${{ steps.affected.outputs.projects }}'
-          mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["build-java"] != null) | "\(.id):build-java"')
-          if [ "${#TARGETS[@]}" -gt 0 ]; then
-            moon run "${TARGETS[@]}" --affected --summary minimal
-          fi
+        run: moon run :build-java --affected --summary minimal
 
       - name: Test affected Java projects
-        run: |
-          set -euo pipefail
-          PROJECTS='${{ steps.affected.outputs.projects }}'
-          mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["test-java"] != null) | "\(.id):test-java"')
-          if [ "${#TARGETS[@]}" -gt 0 ]; then
-            moon run "${TARGETS[@]}" --affected --summary minimal
-          fi
+        run: moon run :test-java --affected --summary minimal
 
   web-ci:
     runs-on: ubuntu-latest
@@ -331,37 +288,11 @@ jobs:
           cache: "npm"
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Query affected web projects
-        id: affected
-        run: |
-          set -euo pipefail
-          PROJECTS=$(
-            moon query projects \
-              --affected \
-              --downstream deep \
-              --language typescript \
-              --tasks 'install-web|format-web|lint-web|build-web|test-web' |
-            jq -ce '.projects'
-          )
-          printf 'projects=%s\n' "$PROJECTS" >> "$GITHUB_OUTPUT"
-
       - name: Install affected web projects
-        run: |
-          set -euo pipefail
-          PROJECTS='${{ steps.affected.outputs.projects }}'
-          mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["install-web"] != null) | "\(.id):install-web"')
-          if [ "${#TARGETS[@]}" -gt 0 ]; then
-            moon run "${TARGETS[@]}" --affected --summary minimal
-          fi
+        run: moon run :install-web --affected --summary minimal
 
       - name: Format affected web projects
-        run: |
-          set -euo pipefail
-          PROJECTS='${{ steps.affected.outputs.projects }}'
-          mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["format-web"] != null) | "\(.id):format-web"')
-          if [ "${#TARGETS[@]}" -gt 0 ]; then
-            moon run "${TARGETS[@]}" --affected --summary minimal
-          fi
+        run: moon run :format-web --affected --summary minimal
 
       - name: Fail on web formatting changes
         run: |
@@ -373,31 +304,13 @@ jobs:
           fi
 
       - name: Lint affected web projects
-        run: |
-          set -euo pipefail
-          PROJECTS='${{ steps.affected.outputs.projects }}'
-          mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["lint-web"] != null) | "\(.id):lint-web"')
-          if [ "${#TARGETS[@]}" -gt 0 ]; then
-            moon run "${TARGETS[@]}" --affected --summary minimal
-          fi
+        run: moon run :lint-web --affected --summary minimal
 
       - name: Build affected web projects
-        run: |
-          set -euo pipefail
-          PROJECTS='${{ steps.affected.outputs.projects }}'
-          mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["build-web"] != null) | "\(.id):build-web"')
-          if [ "${#TARGETS[@]}" -gt 0 ]; then
-            moon run "${TARGETS[@]}" --affected --summary minimal
-          fi
+        run: moon run :build-web --affected --summary minimal
 
       - name: Test affected web projects
-        run: |
-          set -euo pipefail
-          PROJECTS='${{ steps.affected.outputs.projects }}'
-          mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["test-web"] != null) | "\(.id):test-web"')
-          if [ "${#TARGETS[@]}" -gt 0 ]; then
-            moon run "${TARGETS[@]}" --affected --summary minimal
-          fi
+        run: moon run :test-web --affected --summary minimal
 
   docker-build:
     runs-on: ubuntu-latest
@@ -405,11 +318,15 @@ jobs:
     if: |
       always() &&
       needs.detect-changes.result == 'success' &&
-      needs.detect-changes.outputs.affected_projects != '[]' &&
+      needs.detect-changes.outputs.has_docker_projects == 'true' &&
       needs.go-ci.result != 'failure' &&
       needs.java-ci.result != 'failure' &&
       needs.web-ci.result != 'failure'
+    permissions:
+      contents: read
+      packages: write
     env:
+      IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
       MOON_BASE: ${{ needs.detect-changes.outputs.base_sha }}
       MOON_HEAD: ${{ needs.detect-changes.outputs.current_sha }}
     steps:
@@ -434,43 +351,23 @@ jobs:
             moon-cache-${{ runner.os }}-${{ github.ref_name }}-${{ github.job }}-
             moon-cache-${{ runner.os }}-${{ github.job }}-
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
       - name: Set GIT_SHA environment variable
         run: echo "GIT_SHA=${GITHUB_SHA::8}" >> "$GITHUB_ENV"
 
-      - name: Query affected Docker projects
-        id: affected
-        run: |
-          set -euo pipefail
-          PROJECTS=$(
-            moon query projects \
-              --affected \
-              --downstream deep \
-              --tasks 'docker|docker-push' |
-            jq -ce '.projects'
-          )
-          printf 'projects=%s\n' "$PROJECTS" >> "$GITHUB_OUTPUT"
-
       - name: Build Docker images for affected projects
-        run: |
-          set -euo pipefail
-          PROJECTS='${{ steps.affected.outputs.projects }}'
-          mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["docker"] != null) | "\(.id):docker"')
-          if [ "${#TARGETS[@]}" -gt 0 ]; then
-            moon run "${TARGETS[@]}" --affected --summary minimal
-          fi
+        run: moon run :docker --affected --summary minimal
+
+      - name: Log in to GitHub Container Registry
+        if: github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Push Docker images (main branch only)
         if: github.ref == 'refs/heads/main'
-        run: |
-          set -euo pipefail
-          PROJECTS='${{ steps.affected.outputs.projects }}'
-          mapfile -t TARGETS < <(echo "$PROJECTS" | jq -r '.[] | select(.tasks["docker-push"] != null) | "\(.id):docker-push"')
-          if [ "${#TARGETS[@]}" -gt 0 ]; then
-            moon run "${TARGETS[@]}" --affected --summary minimal
-          fi
+        run: moon run :docker-push --affected --summary minimal
 
   summary:
     runs-on: ubuntu-latest

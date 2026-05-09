@@ -32,10 +32,10 @@ The repository uses the moon project graph plus Git-based affected detection to 
 
 1. Compute the affected project list once in a dedicated detect job.
 2. Expand that list with `--downstream deep` so project dependents keep the previous dependency propagation behavior.
-3. Derive `has_go_projects`, `has_java_projects`, and `has_web_projects` with `moon query projects --language ... --tasks ...`.
-4. Build explicit target lists from that affected project set for each language stage.
+3. Derive `has_go_projects`, `has_java_projects`, `has_web_projects`, and `has_docker_projects` with `moon query projects --language ... --tasks ...`.
+4. Run most task families directly with `moon run :<task> --affected --summary minimal` instead of building explicit target lists inside each job.
 5. Restore `.moon/cache/hashes` and `.moon/cache/outputs` with `actions/cache@v5` in each task-running job.
-6. Run Docker packaging afterward with explicit `docker` / `docker-push` targets derived from the same affected project list.
+6. Run Docker packaging afterward only when affected projects define Docker tasks, tagging images for GitHub Container Registry.
 7. Publish a workflow summary.
 
 ### Detect Job
@@ -63,54 +63,51 @@ It also uses Moon's native `--language` and `--tasks` filters to emit:
 - `has_go_projects`
 - `has_java_projects`
 - `has_web_projects`
+- `has_docker_projects`
 - `affected_projects`
 
 ### Language Stage Jobs
 
-Each language job runs only when its boolean is `true`. Inside the job, Moon reads `MOON_BASE` / `MOON_HEAD` from the job environment, queries only affected projects for that language and task family, and turns the resulting project objects into explicit targets like `go-backend:build-go`.
+Each language job runs only when its boolean is `true`. Inside the job, Moon reads `MOON_BASE` / `MOON_HEAD` from the job environment and runs the relevant task family directly against affected projects with `moon run :<task> --affected --summary minimal`.
 
 #### Go
 
 - `moon run go-services:install-go`
-- query affected projects with `moon query projects --affected --downstream deep --language go --tasks 'generate-go|lint-go|build-go|test-go'`
-- run explicit `generate-go` targets for the affected Go projects that define that task
+- `moon run :generate-go --affected`
 - `moon run go-services:format-go`
 - fail if generation or formatting changed tracked Go files
-- run explicit `lint-go` targets for affected Go projects
-- run explicit `build-go` targets for affected Go projects
-- run explicit `test-go` targets for affected Go projects
+- `moon run :lint-go --affected`
+- `moon run :build-go --affected`
+- `moon run :test-go --affected`
 
-Go lint remains serial because `golangci-lint` has workspace locking issues when multiple Go lint processes run in parallel.
+Go lint remains serial because `golangci-lint` has workspace locking issues when multiple Go lint processes run in parallel. Go formatting remains rooted at `go-services:format-go` so formatting still runs once from the shared Go module root instead of fan-out execution across overlapping Go subprojects.
 
 #### Java
 
-- query affected projects with `moon query projects --affected --downstream deep --language java --tasks 'install-java|format-java|lint-java|build-java|test-java'`
-- run explicit `install-java` targets for affected Java projects that define that task
-- run explicit `format-java` targets for affected Java projects that define that task
+- `moon run :install-java --affected`
+- `moon run :format-java --affected`
 - fail if formatting changed tracked Java files
-- run explicit `lint-java` targets for affected Java projects
-- run explicit `build-java` targets for affected Java projects
-- run explicit `test-java` targets for affected Java projects
+- `moon run :lint-java --affected`
+- `moon run :build-java --affected`
+- `moon run :test-java --affected`
 
 #### Web / Frontend
 
-- query affected projects with `moon query projects --affected --downstream deep --language typescript --tasks 'install-web|format-web|lint-web|build-web|test-web'`
-- run explicit `install-web` targets for affected frontend projects
-- run explicit `format-web` targets for affected frontend projects
+- `moon run :install-web --affected`
+- `moon run :format-web --affected`
 - fail if formatting changed tracked frontend files
-- run explicit `lint-web` targets for affected frontend projects
-- run explicit `build-web` targets for affected frontend projects
-- run explicit `test-web` targets for affected frontend projects
+- `moon run :lint-web --affected`
+- `moon run :build-web --affected`
+- `moon run :test-web --affected`
 
 ### Docker Stage
 
-After language verification completes, the Docker job runs:
+After language verification completes, the Docker job runs only when `has_docker_projects` is `true`.
 
-The job queries affected projects with `moon query projects --affected --downstream deep --tasks 'docker|docker-push'`, then runs explicit Docker targets for that already-filtered project set.
-
-On the main branch, push uses:
-
-Push follows the same pattern, but targets `docker-push`.
+- images are tagged as `ghcr.io/${{ github.repository_owner }}/<project-id>:<tag>`
+- `docker/login-action` authenticates to GHCR before the main-branch push step
+- `moon run :docker --affected` builds affected Docker projects
+- `moon run :docker-push --affected` pushes affected Docker projects on `main`
 
 ### Shared Task Layout
 
@@ -122,7 +119,7 @@ The repository now uses Moon task inheritance to avoid repeating the same comman
 - `.moon/tasks/java-common.yml` - shared Java install/format/lint tasks for Maven projects
 - `.moon/tasks/java-build.yml` - Java build/test tasks for non-aggregator Maven projects
 - `.moon/tasks/typescript.yml` - frontend web install/format/build/test/lint tasks
-- `.moon/tasks/docker.yml` - shared Docker build/push tasks for application projects with a `Dockerfile`
+- `.moon/tasks/docker.yml` - shared Docker build/push tasks for application projects with a `Dockerfile`; CI provides `IMAGE_REGISTRY` for GHCR, while local Moon usage still defaults to bare project image names
 
 Aggregator projects are tagged with `aggregator` so they only inherit the subset of tasks they should own, while the shared language task files now match projects by their `language` field instead of custom `language-*` tags.
 
@@ -136,6 +133,10 @@ The workflow intentionally avoids a paid remote cache, but it **does** persist t
 This cache is restored in each task-running CI job with `actions/cache@v5`.
 
 `moonrepo/setup-toolchain` is still used, but only for installing and caching the Moon CLI/toolchain setup. It does **not** automatically persist `.moon/cache` task outputs across jobs, which is why the explicit GitHub cache step is required.
+
+### Download Hardening
+
+The Go job downloads release binaries for `golangci-lint`, `gotestsum`, and `sqlc`. Each artifact is downloaded directly from its GitHub release URL and verified with SHA-256 before extraction or installation.
 
 ---
 
