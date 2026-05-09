@@ -19,7 +19,7 @@ RUN mvn -B -f keycloak-custom/pom.xml clean package -DskipTests
 
 FROM ${KEYCLOAK_IMAGE} AS builder
 
-COPY --from=jar-builder /app/keycloak-custom/keycloak-user-event-listener/target/keycloak-user-event-listener-1.0.0.jar /opt/keycloak/providers/
+COPY --from=jar-builder /app/keycloak-custom/keycloak-user-event-listener/target/keycloak-user-event-listener-*.jar /opt/keycloak/providers/
 RUN /opt/keycloak/bin/kc.sh build
 
 FROM ${KEYCLOAK_IMAGE}
