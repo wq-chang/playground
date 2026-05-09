@@ -3,9 +3,3 @@ layer: 'application'
 stack: 'frontend'
 tags:
   - 'frontend'
-
-tasks:
-  dev:
-    command: 'npm run dev'
-    preset: 'server'
-    toolchains: 'system'
