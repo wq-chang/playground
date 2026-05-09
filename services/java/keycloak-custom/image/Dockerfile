@@ -16,10 +16,22 @@ RUN mvn -B -f keycloak-custom/pom.xml dependency:go-offline --no-transfer-progre
 COPY services/java/keycloak-custom/keycloak-user-event-listener/src ./keycloak-custom/keycloak-user-event-listener/src
 
 RUN mvn -B -f keycloak-custom/pom.xml clean package -DskipTests
+RUN set -eu; \
+  set -- /app/keycloak-custom/keycloak-user-event-listener/target/keycloak-user-event-listener-*.jar; \
+  if [ "$1" = '/app/keycloak-custom/keycloak-user-event-listener/target/keycloak-user-event-listener-*.jar' ]; then \
+    echo "No built provider JAR found in target directory" >&2; \
+    exit 1; \
+  fi; \
+  if [ "$#" -ne 1 ]; then \
+    echo "Expected exactly one provider JAR, found $#" >&2; \
+    ls -1 /app/keycloak-custom/keycloak-user-event-listener/target/keycloak-user-event-listener-*.jar >&2 || true; \
+    exit 1; \
+  fi; \
+  cp "$1" /app/keycloak-custom/keycloak-user-event-listener/target/keycloak-user-event-listener.jar
 
 FROM ${KEYCLOAK_IMAGE} AS builder
 
-COPY --from=jar-builder /app/keycloak-custom/keycloak-user-event-listener/target/keycloak-user-event-listener-*.jar /opt/keycloak/providers/
+COPY --from=jar-builder /app/keycloak-custom/keycloak-user-event-listener/target/keycloak-user-event-listener.jar /opt/keycloak/providers/
 RUN /opt/keycloak/bin/kc.sh build
 
 FROM ${KEYCLOAK_IMAGE}
