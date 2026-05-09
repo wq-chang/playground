@@ -236,7 +236,7 @@ jobs:
       - &login-ghcr-step
         name: Log in to GitHub Container Registry
         if: github.ref == 'refs/heads/main' && env.HAS_LANGUAGE_DOCKER_PROJECTS == 'true'
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
