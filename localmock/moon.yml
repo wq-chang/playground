@@ -1,0 +1,44 @@
+tags:
+  - 'tooling'
+  - 'localmock'
+
+tasks:
+  build-docker-compose:
+    script: 'direnv exec localmock docker compose -f localmock/docker-compose.yml build'
+    options:
+      cache: false
+      runFromWorkspaceRoot: true
+    toolchains: 'system'
+
+  up:
+    script: 'direnv exec localmock docker compose -f localmock/docker-compose.yml up -d'
+    options:
+      cache: false
+      runFromWorkspaceRoot: true
+    toolchains: 'system'
+
+  local-up:
+    deps:
+      - '~:up'
+
+  down:
+    script: 'direnv exec localmock docker compose -f localmock/docker-compose.yml down'
+    options:
+      cache: false
+      runFromWorkspaceRoot: true
+    toolchains: 'system'
+
+  local-down:
+    deps:
+      - '~:down'
+
+  bootstrap:
+    script: 'direnv exec localmock bash scripts/bootstrap-localmock.sh'
+    options:
+      cache: false
+      runFromWorkspaceRoot: true
+    toolchains: 'system'
+
+  local-bootstrap:
+    deps:
+      - '~:bootstrap'

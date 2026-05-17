@@ -51,7 +51,6 @@
           buildInputs = with pkgs; [
             jq
             moon
-            gnumake
             graphviz # visualize mem allocation
             # go
             go

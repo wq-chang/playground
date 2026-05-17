@@ -26,6 +26,7 @@ Tech stack by service:
 
 ```
 playground/
+├── .moon/                      # Moon workspace config and shared tasks
 ├── services/
 │   ├── go/                    # Go services (shared go.mod)
 │   │   ├── go.mod           # Single module for all services
@@ -47,8 +48,7 @@ playground/
 │   ├── SERVICES.md          # Service catalog, ports, build commands, integration
 │   └── DEVELOPMENT.md       # Local setup, troubleshooting, testing
 ├── localmock/                 # Docker Compose environment + secrets
-├── scripts/                   # Automation scripts
-├── Makefile                   # Primary task runner
+├── scripts/                   # Repo-level Moon project + helper scripts
 ├── README.md                  # Project overview
 └── AGENTS.md                  # This file
 ```
@@ -73,13 +73,12 @@ Maven builds require context at parent directory: `context: ../services/java/` (
 
 ### **Environment Variables**
 
-Use `direnv exec <dir>` in Makefile to load `.envrc` before running commands. Make runs subshells that don't automatically load environment files.
+Use `direnv exec <dir>` in shell commands or Moon tasks to load `.envrc` before running local-environment commands.
 
 Example:
 
-```makefile
-local-up:
-	direnv exec localmock docker compose up -d
+```bash
+moon run :local-up
 ```
 
 ### **React Component Organization**
@@ -105,28 +104,29 @@ export function About() {
 
 ## Useful Commands
 
-See `make help` for complete list. Common commands:
+See `moon run :help` for the local task shortcuts. Common commands:
 
 ```bash
-# Build (all services or individual)
-make build              # Build Go, Java, Frontend
-make build-go           # Go only
-make build-java         # Java/Maven only
-make build-frontend     # Frontend/Vite only
-make build-docker       # Build docker images
+# Install + build
+moon run :build                          # Build all services
+moon run :build-go                       # Go only
+moon run :build-java                     # Java/Maven only
+moon run :build-web                      # Frontend/Vite
+moon run :build-docker-compose           # Build local Docker images
 
 # Test
-make test               # Run all tests (passWithNoTests flag for empty suites)
-make test-go            # Go only
-make test-java          # Java only
-make test-frontend      # Frontend only
+moon run :test                           # Run all tests (passWithNoTests flag for empty suites)
+moon run :test-go                        # Go only
+moon run :test-java                      # Java only
+moon run :test-web                       # Frontend only
 
 # Lint
-make lint               # All services
+moon run :lint                           # All services
 
 # Local development
-make local-up           # Start all services (uses direnv)
-make local-down         # Stop all services
+moon run :local-up                       # Start all services (uses direnv)
+moon run :local-down                     # Stop all services
+moon run :local-bootstrap                # Start and bootstrap localmock
 ```
 
 **Docker commands** (from `localmock/`):
@@ -165,14 +165,14 @@ Quick reference:
 | Issue                         | Cause                                                                 | Solution                                                                                                  |
 | ----------------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
 | **Java version conflict**     | Keycloak requires Java 21; future services may need Java 25+          | Maven multi-module allows per-module overrides; `keycloak-custom/pom.xml` overrides `<source>21</source>` |
-| **direnv not loaded**         | `make` runs subshells that don't auto-load `.envrc`                   | Use `direnv exec localmock` in Makefile; Makefile already does this                                       |
+| **direnv not loaded**         | Local environment commands need secrets from `localmock/.envrc`       | Use the `:local-*` Moon tasks or wrap commands with `direnv exec localmock`                               |
 | **ESLint fast-refresh fails** | Route files exporting both Route config and components                | Separate components to `frontend/src/pages/`; route files only export Route                               |
 | **Docker build fails**        | Maven can't find parent POM if build context is at child module level | Build context must be at parent directory (`../services/java/`)                                           |
 
 **Troubleshooting common issues:**
 
 - Docker: "Could not find parent pom.xml" → check `docker-compose.yml` build context is `../services/java/`, not nested
-- Make secrets missing → Use `direnv exec localmock make local-up` or rely on Makefile (which wraps commands with `direnv exec`)
+- Local secrets missing → Use `moon run :local-up` or `direnv exec localmock <command>`
 - Frontend tests timeout → Current test count is 0; `npm test` uses `--passWithNoTests` flag to complete
 
 ---
@@ -210,4 +210,4 @@ No hardcoded environment variable references for service paths—script uses fix
 - **Version compatibility:** Go 1.26, Java 21/25, Node v24, PostgreSQL, Kafka, Python 3.12
 - **Discipline:** Code changes must update docs in same commit to prevent drift
 
-**Verify against codebase:** Run `make build && make test && make lint` to catch issues; check `docs/SERVICES.md` ports against `docker-compose.yml`; verify Java versions in POMs match constraints; test CI script locally with `.github/scripts/ci_detect_changes.py --base main --current HEAD`.
+**Verify against codebase:** Run `moon run :build`, `moon run :test`, and `moon run :lint` to catch issues; check `docs/SERVICES.md` ports against `docker-compose.yml`; verify Java versions in POMs match constraints; test CI script locally with `.github/scripts/ci_detect_changes.py --base main --current HEAD`.

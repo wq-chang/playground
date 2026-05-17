@@ -13,7 +13,7 @@ Before you begin, ensure you have the following installed:
 - **Go** (1.26+) - For backend services
 - **Java** (21+) - For Java services
 - **Node.js** (v24+) - For BFF and frontend
-- **Docker** & **Docker Compose** - For services (Postgres, Keycloak, NATS, etc.)
+- **Docker** & **Docker Compose** - For services (Postgres, Keycloak, etc.)
 
 ### Clone and Setup
 
@@ -23,20 +23,23 @@ git clone https://github.com/wq-chang/playground.git
 cd playground
 
 # Build all services
-./scripts/build-all.sh
+moon run :build
 ```
 
 ### Running Locally
 
 ```bash
-# Using localmock for local development
+# Start local dependencies
+moon run :local-up
+
+# Run the frontend
 cd frontend
 npm install
 npm run dev
 
 # Or build and test all services
-./scripts/build-all.sh
-./scripts/test-all.sh
+moon run :build
+moon run :test
 ```
 
 ---
@@ -75,35 +78,31 @@ For detailed setup instructions, running individual services, debugging, and tro
 
 ### Common Commands
 
-Use the `Makefile` or scripts for common tasks:
+Use Moon for the common repository workflows:
 
 ```bash
-make build         # Build all services
-make test          # Run all tests
-make lint          # Lint all code
-make dev           # Build and start local environment
-make clean         # Clean build artifacts
-make help          # Show all available targets
+moon run :build              # Build all services
+moon run :test               # Run all tests
+moon run :lint               # Lint all code
+moon run :format             # Format all code
+moon run :dev                # Build and start local environment
+moon run :clean              # Clean build artifacts
+moon run :help               # Show repository task shortcuts
+moon run :local-bootstrap    # Start localmock and apply Terraform bootstrap
 ```
-
-Or use the shell scripts in `scripts/`:
-
-- `./scripts/build-all.sh` - Build all services
-- `./scripts/test-all.sh` - Run all tests
-- `./scripts/lint-all.sh` - Lint all code
-- `./scripts/format-all.sh` - Format all code
 
 ---
 
 ## Building & Testing
 
-Use the provided scripts or Makefile to build and test:
+Use the repository Moon tasks to build and test:
 
 ```bash
-make build test    # Build and test everything
+moon run :build
+moon run :test
 ```
 
-Or see [scripts/README.md](scripts/README.md) for individual build and test commands.
+See [scripts/README.md](scripts/README.md) for the repo/localmock task map and the localmock bootstrap helper.
 
 ---
 

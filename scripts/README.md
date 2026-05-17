@@ -1,109 +1,40 @@
-# Monorepo Automation Scripts
+# Repo Automation Reference
 
-This directory contains scripts to automate common tasks across the monorepo services.
+This directory hosts the repo-level Moon project (`repo`) plus the localmock bootstrap helper script.
 
-## Scripts
+## Common Moon Tasks
 
-### build-all.sh
-
-Builds all services in the monorepo (Go, Java, and Frontend).
-
-**Usage:**
+Run these from the repository root:
 
 ```bash
-./build-all.sh
+moon run :help
+moon run :build
+moon run :test
+moon run :lint
+moon run :format
+moon run :clean
+moon run :local-up
+moon run :local-down
+moon run :local-bootstrap
 ```
 
-**What it does:**
+## Localmock Bootstrap Script
 
-- Builds Go services with `go build`
-- Builds Java services with Maven clean package
-- Installs frontend dependencies and builds the frontend
+`bootstrap-localmock.sh` performs the full localmock bootstrap flow:
 
-**When to use:** After pulling new changes or before deployment to ensure all services compile successfully.
+- starts Kafka first
+- applies Kafka Terraform topics and ACLs
+- starts the remaining Docker Compose services
+- waits for Keycloak readiness
+- applies Keycloak Terraform configuration
 
----
-
-### test-all.sh
-
-Runs test suites for all services and provides a summary.
-
-**Usage:**
+Use it through Moon so the required `direnv` environment is loaded:
 
 ```bash
-./test-all.sh
-```
-
-**What it does:**
-
-- Runs Go tests with `go test`
-- Runs Java tests with Maven test
-- Runs frontend tests with npm test
-- Displays a summary of all test results
-
-**When to use:** Before committing code or as part of CI/CD pipeline to verify all services pass their tests.
-
----
-
-### lint-all.sh
-
-Lints code across all services to check for style and quality issues.
-
-**Usage:**
-
-```bash
-./lint-all.sh
-```
-
-**What it does:**
-
-- Lints Go services with golangci-lint
-- Lints Java services with Maven spotless:check
-- Lints frontend code with npm run lint
-
-**When to use:** To verify code quality and style compliance before pushing changes. Fails if any linter finds issues.
-
----
-
-### format-all.sh
-
-Automatically formats code across all services according to language standards.
-
-**Usage:**
-
-```bash
-./format-all.sh
-```
-
-**What it does:**
-
-- Formats Go code with gofmt and golangci-lint --fix
-- Formats Java code with Maven spotless:apply
-- Formats frontend code with npm run format
-
-**When to use:** To automatically fix formatting issues across the monorepo. Useful before committing or as a development workflow step.
-
----
-
-## Quick Start
-
-Make scripts executable:
-
-```bash
-chmod +x build-all.sh test-all.sh lint-all.sh format-all.sh
-```
-
-Run a typical development workflow:
-
-```bash
-./format-all.sh  # Format code
-./lint-all.sh    # Check quality
-./build-all.sh   # Build everything
-./test-all.sh    # Run all tests
+moon run :local-bootstrap
 ```
 
 ## Notes
 
-- All scripts exit with error status if any step fails
-- Scripts assume they are run from the monorepo root directory
-- Each script changes to the appropriate service directory and returns to the previous directory
+- The repo-level helper tasks in `scripts/moon.yml` now exist primarily for `:help`, `:clean`, and `:dev`; build/test/lint/format use the generic Moon `:task` entrypoints.
+- `localmock` Moon tasks wrap `direnv exec localmock ...` so local secrets are available automatically.

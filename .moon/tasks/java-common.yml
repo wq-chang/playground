@@ -7,12 +7,14 @@ tasks:
   format-java:
     command: 'mvn -B -ntp -N spotless:apply'
     options:
-      cache: true
+      cache: false
     toolchains: 'system'
 
   format:
     deps:
       - '~:format-java'
+    options:
+      cache: false
 
   lint-java:
     command: 'mvn -B -ntp -N spotless:check'

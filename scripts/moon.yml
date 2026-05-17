@@ -1,0 +1,52 @@
+tags:
+  - 'tooling'
+
+tasks:
+  help:
+    script: |
+      cat <<'EOF'
+      Repository Moon tasks:
+        moon run :build                      # Build all services
+        moon run :build-go                   # Build Go services
+        moon run :build-java                 # Build Java services
+        moon run :build-web                  # Install frontend deps and build frontend
+        moon run :build-docker-compose       # Build local Docker images
+        moon run :test                       # Run all tests
+        moon run :test-go                    # Run Go tests
+        moon run :test-java                  # Run Java tests
+        moon run :test-web                   # Run frontend tests
+        moon run :lint                       # Lint all services
+        moon run :format                     # Format all services
+        moon run :clean                      # Clean build artifacts
+        moon run :local-up                   # Start the local Docker environment
+        moon run :local-down                 # Stop the local Docker environment
+        moon run :local-bootstrap            # Start localmock and apply Terraform bootstrap
+        moon run :dev                        # Build and start the local Docker environment
+      EOF
+    options:
+      cache: false
+      runFromWorkspaceRoot: true
+    toolchains: 'system'
+
+  clean:
+    script: |
+      (
+        cd services/go
+        go clean ./...
+      )
+      (
+        cd services/java
+        mvn -B -ntp clean
+      )
+      rm -rf frontend/dist frontend/build target
+    options:
+      cache: false
+      runFromWorkspaceRoot: true
+    toolchains: 'system'
+
+  dev:
+    script: 'moon run :build-docker-compose && moon run :local-up'
+    options:
+      cache: false
+      runFromWorkspaceRoot: true
+    toolchains: 'system'

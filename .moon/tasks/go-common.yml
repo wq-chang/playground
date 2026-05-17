@@ -5,9 +5,11 @@ tasks:
   format-go:
     command: 'golangci-lint fmt ./...'
     options:
-      cache: true
+      cache: false
     toolchains: 'system'
 
   format:
     deps:
       - '~:format-go'
+    options:
+      cache: false

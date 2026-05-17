@@ -1,5 +1,7 @@
 projects:
+  repo: 'scripts'
   frontend: 'frontend'
+  localmock: 'localmock'
   go-services: 'services/go'
   go-backend: 'services/go/backend'
   go-bff: 'services/go/bff'

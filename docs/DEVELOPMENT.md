@@ -30,10 +30,16 @@ Ensure you have the following installed before starting:
 3. **Start Docker services**:
 
    ```bash
-   make local-up
+   moon run :local-up
    ```
 
-4. **Run individual services** - Follow the steps in the next section
+4. **Optional full local bootstrap** - If you need the Kafka topics, ACLs, and Keycloak Terraform configuration applied:
+
+   ```bash
+   moon run :local-bootstrap
+   ```
+
+5. **Run individual services** - Follow the steps in the next section
 
 ## Running Services Locally
 
@@ -78,14 +84,13 @@ Run code generation tools as documented in individual service READMEs.
 ### Running Tests
 
 ```bash
-# Go tests
-cd services/go && gotestsum ./...
+# All test suites
+moon run :test
 
-# Java tests
-cd services/java && mvn test
-
-# Frontend tests (with passWithNoTests since we're still exploring)
-cd frontend && npm test -- run --passWithNoTests
+# Or per language
+moon run :test-go
+moon run :test-java
+moon run :test-web
 ```
 
 ### Debugging
@@ -131,5 +136,5 @@ java -version
 - [`SERVICES.md`](./SERVICES.md) - Complete service catalog, tech stacks, dependencies, and APIs
 - [`ARCHITECTURE.md`](./ARCHITECTURE.md) - System design and component interactions
 - [`services/README.md`](../services/README.md) - Backend services navigation
-- [`localmock/README.md`](../localmock/README.md) - Local mock setup and configuration
+- [`scripts/README.md`](../scripts/README.md) - Repo and localmock Moon task reference
 - Individual service READMEs in `services/go`, `services/java`, and `frontend/`
