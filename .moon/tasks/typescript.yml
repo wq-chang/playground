@@ -30,8 +30,6 @@ tasks:
 
   build-web:
     command: 'npm run build'
-    deps:
-      - '~:install-web'
     options:
       cache: true
     outputs:
@@ -44,8 +42,6 @@ tasks:
 
   test-web:
     command: 'npm test -- run --passWithNoTests'
-    deps:
-      - '~:install-web'
     options:
       cache: true
     toolchains: 'system'
@@ -56,8 +52,6 @@ tasks:
 
   lint-web:
     command: 'npm run lint'
-    deps:
-      - '~:install-web'
     options:
       cache: true
     toolchains: 'system'
