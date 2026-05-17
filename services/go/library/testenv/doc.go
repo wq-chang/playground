@@ -11,19 +11,33 @@
 //
 // # Supported Services
 //
-//   - **PostgreSQL**: Managed via `GetPostgres`. Supports schema-level isolation for parallel test execution.
-//   - **Kafka**: Managed via `GetKafka`.
+//   - **PostgreSQL**: Managed via `SetupPostgres`. Supports schema-level isolation for parallel test execution.
+//   - **Kafka**: Managed via `SetupKafka`.
 //
 // # Usage
 //
-// To use testenv, initialize a package-level TestEnv in your TestMain. This allows
-// infrastructure to be shared across all tests in the package while maintaining isolation.
+// To use testenv, keep container-backed tests in integration-tagged test files
+// and provision the infrastructure from an integration-only TestMain. This
+// keeps ordinary unit-test runs container-free while still allowing explicit
+// integration runs to share infrastructure.
 //
-//	var te *testenv.TestEnv
+//	var (
+//		te *testenv.TestEnv
+//		pg *testenv.Postgres
+//	)
+//
+//	//go:build integration
 //
 //	func TestMain(m *testing.M) {
 //		// Initialize the environment with a unique name (used as a DB schema)
 //		te = testenv.New("my_package")
+//
+//		var err error
+//		pg, err = testenv.SetupPostgres(te)
+//		if err != nil {
+//			fmt.Fprintf(os.Stderr, "failed to set up postgres: %v\n", err)
+//			os.Exit(1)
+//		}
 //
 //		code := m.Run()
 //
@@ -34,12 +48,12 @@
 //	}
 //
 //	func TestMyFeature(t *testing.T) {
-//		// Lazily initializes the PG container/schema on first call
-//		pg := te.GetPostgres(t)
 //		pool := pg.Pool
 //
 //		// Run tests using 'pool'...
 //	}
+//
+// Run these tests explicitly with `go test -tags=integration ./...`
 //
 // # Environment Variables
 //

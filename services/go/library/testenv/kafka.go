@@ -38,6 +38,7 @@ type kafkaConnConfig struct {
 }
 
 const (
+	kafkaServiceName     = "kafka"
 	clusterID            = "TestEnvKafkaClusterID1"
 	defaultUser          = "admin"
 	defaultPassword      = "password"
@@ -80,6 +81,61 @@ fi
 exec /etc/kafka/docker/run
 `
 )
+
+// KafkaOption configures Kafka setup for a TestEnv.
+type KafkaOption func(*kafkaConfig)
+
+type kafkaConfig struct {
+	imageName string
+}
+
+func newKafkaConfig(opts ...KafkaOption) kafkaConfig {
+	cfg := kafkaConfig{
+		imageName: "apache/kafka:4.1.2",
+	}
+
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
+	return cfg
+}
+
+func (cfg kafkaConfig) cacheKey() string {
+	return fmt.Sprintf("image=%q", cfg.imageName)
+}
+
+// WithKafkaImage overrides the default Kafka Docker image.
+func WithKafkaImage(image string) KafkaOption {
+	return func(c *kafkaConfig) {
+		c.imageName = image
+	}
+}
+
+// SetupKafka lazily initializes a Kafka service for the TestEnv and reuses the
+// cached instance on later calls with the same options.
+func SetupKafka(te *TestEnv, opts ...KafkaOption) (*Kafka, error) {
+	cfg := newKafkaConfig(opts...)
+
+	service, err := te.setupService(kafkaServiceName, cfg.cacheKey(), func(ctx context.Context) (any, func(), error) {
+		kafka, err := NewKafka(ctx, cfg.imageName)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		return kafka, kafka.Cleanup, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	kafka, ok := service.(*Kafka)
+	if !ok {
+		return nil, fmt.Errorf("%s service has unexpected type %T", kafkaServiceName, service)
+	}
+
+	return kafka, nil
+}
 
 // NewKafka initializes or attaches to a Kafka TestContainer.
 // It handles the injection of a custom bootstrap script to enable SCRAM authentication

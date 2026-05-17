@@ -19,7 +19,14 @@ tasks:
       - '~:build-go'
 
   test-go:
-    command: 'gotestsum --format testname -- -v ./...'
+    command: 'gotestsum'
+    args:
+        - '--format'
+        - 'testname'
+        - '--'
+        - '-tags=integration'
+        - '-v'
+        - './...'
     deps:
       - target: '^:build-go'
         optional: true
@@ -38,7 +45,12 @@ tasks:
     toolchains: 'system'
 
   lint-go:
-    command: 'golangci-lint run ./... --allow-parallel-runners'
+    command: 'golangci-lint run'
+    args:
+        - '--build-tags'
+        - 'integration'
+        - '--allow-parallel-runners'
+        - './...'
     options:
       cache: true
     toolchains: 'system'

@@ -1,6 +1,9 @@
+//go:build integration
+
 package user_test
 
 import (
+	"fmt"
 	"os"
 	"testing"
 
@@ -8,10 +11,21 @@ import (
 	"go-services/library/testenv"
 )
 
-var te *testenv.TestEnv
+var (
+	te *testenv.TestEnv
+	pg *testenv.Postgres
+)
 
 func TestMain(m *testing.M) {
-	te = testenv.New("backend_user", testenv.WithMigrationTableName(migrations.MigrationTableName))
+	te = testenv.New("backend_user")
+
+	var err error
+	pg, err = testenv.SetupPostgres(te, testenv.WithMigrationTableName(migrations.MigrationTableName))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to set up postgres: %v\n", err)
+		os.Exit(1)
+	}
+
 	code := m.Run()
 
 	te.Cleanup()

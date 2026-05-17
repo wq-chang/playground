@@ -2,69 +2,110 @@ package testenv
 
 import (
 	"context"
+	"fmt"
 	"sync"
-	"testing"
 )
 
-// TestEnv manages the lifecycle of infrastructure dependencies for a specific test package.
-// It leverages lazy initialization to ensure resources are only provisioned when requested.
-type TestEnv struct {
-	cfg         *config
-	postgres    *Postgres
-	kafka       *Kafka
-	packageName string
-	pgOnce      sync.Once
-	kafkaOnce   sync.Once
+type serviceEntry struct {
+	service   any
+	err       error
+	cleanup   func()
+	ready     chan struct{}
+	configKey string
 }
 
-// New creates a new environment manager for the given package.
-// The packageName is used to scope resources.
-func New(packageName string, opts ...Option) *TestEnv {
-	cfg := newConfig(opts...)
+// TestEnv manages the lifecycle of infrastructure dependencies for a specific
+// test package. Services are cached by service kind so repeated setup calls can
+// reuse the same initialized dependency.
+//
+//nolint:govet // Keeping packageName and the shared service cache on TestEnv keeps setup orchestration straightforward.
+type TestEnv struct {
+	packageName string
+	services    map[string]*serviceEntry
+	mu          sync.Mutex
+}
+
+// New creates a new environment manager for the given package. The package name
+// is used to scope package-specific resources such as PostgreSQL schemas.
+func New(packageName string) *TestEnv {
 	return &TestEnv{
-		cfg:         cfg,
-		postgres:    nil,
-		kafka:       nil,
 		packageName: packageName,
-		pgOnce:      sync.Once{},
-		kafkaOnce:   sync.Once{},
+		services:    make(map[string]*serviceEntry),
+		mu:          sync.Mutex{},
 	}
 }
 
-// GetPostgres returns an initialized PostgreSQL environment.
-func (te *TestEnv) GetPostgres(t *testing.T) *Postgres {
-	t.Helper()
-	te.pgOnce.Do(func() {
-		ctx := context.Background()
-		var err error
-		te.postgres, err = NewPostgres(ctx, te.packageName, te.cfg.postgresImage, te.cfg.migrationTableName)
-		if err != nil {
-			t.Fatalf("failed to start test db: %v", err)
+func (te *TestEnv) setupService(
+	serviceName,
+	configKey string,
+	setup func(context.Context) (any, func(), error),
+) (any, error) {
+	te.mu.Lock()
+	if entry, ok := te.services[serviceName]; ok {
+		if entry.configKey != configKey {
+			te.mu.Unlock()
+			return nil, fmt.Errorf("%s already initialized with different options", serviceName)
 		}
-	})
-	return te.postgres
+
+		ready := entry.ready
+		te.mu.Unlock()
+
+		<-ready
+		if entry.err != nil {
+			return nil, entry.err
+		}
+
+		return entry.service, nil
+	}
+
+	entry := &serviceEntry{
+		service:   nil,
+		err:       nil,
+		cleanup:   nil,
+		ready:     make(chan struct{}),
+		configKey: configKey,
+	}
+	te.services[serviceName] = entry
+	te.mu.Unlock()
+
+	service, cleanup, err := setup(context.Background())
+
+	te.mu.Lock()
+	entry.service = service
+	entry.cleanup = cleanup
+	entry.err = err
+	close(entry.ready)
+	if err != nil {
+		delete(te.services, serviceName)
+	}
+	te.mu.Unlock()
+
+	if err != nil {
+		return nil, err
+	}
+
+	return service, nil
 }
 
-// GetKafka returns an initialized Kafka environment.
-func (te *TestEnv) GetKafka(t *testing.T) *Kafka {
-	t.Helper()
-	te.kafkaOnce.Do(func() {
-		ctx := context.Background()
-		var err error
-		te.kafka, err = NewKafka(ctx, te.cfg.kafkaImage)
-		if err != nil {
-			t.Fatalf("failed to start test kafka: %v", err)
-		}
-	})
-	return te.kafka
+func (te *TestEnv) takeServices() []*serviceEntry {
+	te.mu.Lock()
+	defer te.mu.Unlock()
+
+	entries := make([]*serviceEntry, 0, len(te.services))
+	for _, entry := range te.services {
+		entries = append(entries, entry)
+	}
+	te.services = make(map[string]*serviceEntry)
+
+	return entries
 }
 
 // Cleanup performs teardown of all initialized services.
 func (te *TestEnv) Cleanup() {
-	if te.postgres != nil && te.postgres.Cleanup != nil {
-		te.postgres.Cleanup()
-	}
-	if te.kafka != nil && te.kafka.Cleanup != nil {
-		te.kafka.Cleanup()
+	for _, entry := range te.takeServices() {
+		<-entry.ready
+		if entry.cleanup != nil {
+			entry.cleanup()
+		}
 	}
 }

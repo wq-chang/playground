@@ -1,3 +1,5 @@
+//go:build integration
+
 package kafka_test
 
 import (
@@ -14,16 +16,11 @@ import (
 )
 
 func TestKafkaProducerConsumer(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping test in short mode")
-	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	k := te.GetKafka(t)
 	topic := fmt.Sprintf("test-topic-%d", time.Now().UnixNano())
-	err := k.CreateTopic(ctx, topic)
+	err := testKafka.CreateTopic(ctx, topic)
 	require.NoError(t, err, "failed to create test topic")
 
 	message := "hello kafka"
@@ -32,8 +29,8 @@ func TestKafkaProducerConsumer(t *testing.T) {
 		brokers []string
 		auth    bool
 	}{
-		"no-auth": {k.PlainBrokers, false},
-		"auth":    {k.AuthBrokers, true},
+		"no-auth": {testKafka.PlainBrokers, false},
+		"auth":    {testKafka.AuthBrokers, true},
 	}
 
 	for name, tt := range tests {
@@ -49,7 +46,7 @@ func TestKafkaProducerConsumer(t *testing.T) {
 				kafka.WithKgoOptions(kgo.ConsumeResetOffset(kgo.NewOffset().AtStart())),
 			}
 			if tt.auth {
-				opts = append(opts, kafka.WithAuth(k.Username, k.Password, kafka.AuthMechanismScram512))
+				opts = append(opts, kafka.WithAuth(testKafka.Username, testKafka.Password, kafka.AuthMechanismScram512))
 			}
 
 			consumer, producer, err := kafka.New(tt.brokers, "test-group-"+name, opts...)

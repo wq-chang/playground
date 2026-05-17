@@ -1,4 +1,4 @@
-.PHONY: help build build-go build-java build-frontend build-docker test test-go test-java test-frontend lint format clean local-up local-down dev
+.PHONY: help build build-go build-java build-frontend build-docker test test-go test-go-integration test-java test-frontend lint format clean local-up local-down dev
 
 # Variables
 SCRIPTS_DIR := scripts
@@ -17,6 +17,7 @@ help:
 	@echo "Test Targets:"
 	@echo "  make test               - Run tests for all services"
 	@echo "  make test-go            - Run Go service tests"
+	@echo "  make test-go-integration - Run Go tests with the integration build tag"
 	@echo "  make test-java          - Run Java service tests"
 	@echo "  make test-frontend      - Run frontend tests"
 	@echo ""
@@ -78,6 +79,12 @@ test-go:
 	@echo "Testing Go services..."
 	@cd services/go && gotestsum ./... && cd - > /dev/null
 	@echo "✓ Go tests passed"
+
+# Test Go integration tests
+test-go-integration:
+	@echo "Testing Go integration services..."
+	@cd services/go && go test -tags=integration ./... && cd - > /dev/null
+	@echo "✓ Go integration tests passed"
 
 # Test Java services
 test-java:

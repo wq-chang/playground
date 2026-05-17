@@ -12,6 +12,74 @@ import (
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 
+const postgresServiceName = "postgres"
+
+// PostgresOption configures PostgreSQL setup for a TestEnv.
+type PostgresOption func(*postgresConfig)
+
+type postgresConfig struct {
+	imageName          string
+	migrationTableName string
+}
+
+func newPostgresConfig(opts ...PostgresOption) postgresConfig {
+	cfg := postgresConfig{
+		imageName:          "postgres:18.3-trixie",
+		migrationTableName: "",
+	}
+
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
+	return cfg
+}
+
+func (cfg postgresConfig) cacheKey() string {
+	return fmt.Sprintf("image=%q|migration_table=%q", cfg.imageName, cfg.migrationTableName)
+}
+
+// WithPostgresImage overrides the default PostgreSQL Docker image.
+// Use this to test against specific database versions (e.g., alpine or older releases).
+func WithPostgresImage(image string) PostgresOption {
+	return func(c *postgresConfig) {
+		c.imageName = image
+	}
+}
+
+// WithMigrationTableName specifies the name of the migration version table (e.g., "goose_db_version").
+// This table will be excluded from the database cleanup process (truncation).
+func WithMigrationTableName(name string) PostgresOption {
+	return func(c *postgresConfig) {
+		c.migrationTableName = name
+	}
+}
+
+// SetupPostgres lazily initializes a PostgreSQL service for the TestEnv and
+// reuses the cached instance on later calls with the same options.
+func SetupPostgres(te *TestEnv, opts ...PostgresOption) (*Postgres, error) {
+	cfg := newPostgresConfig(opts...)
+
+	service, err := te.setupService(postgresServiceName, cfg.cacheKey(), func(ctx context.Context) (any, func(), error) {
+		pg, err := NewPostgres(ctx, te.packageName, cfg.imageName, cfg.migrationTableName)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		return pg, pg.Cleanup, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	pg, ok := service.(*Postgres)
+	if !ok {
+		return nil, fmt.Errorf("%s service has unexpected type %T", postgresServiceName, service)
+	}
+
+	return pg, nil
+}
+
 // NewPostgres initializes or attaches to a reusable PostgreSQL TestContainer and provides
 // a connection pool scoped to a specific PostgreSQL schema.
 //
