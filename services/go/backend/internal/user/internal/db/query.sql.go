@@ -64,7 +64,7 @@ SET
   username = COALESCE($1, username),
   email = COALESCE($2, email),
   first_name = COALESCE($3, first_name),
-  first_name = COALESCE($4, last_name)
+  last_name = COALESCE($4, last_name)
 WHERE id = $5
 `
 

@@ -2,8 +2,7 @@
 
 This document helps AI assistants understand the repository structure, conventions, and patterns. For language-specific guidance, see `services/<language>/AGENTS.md`.
 
-**Last verified:** 2026-04-23  
-**Repository type:** Polyglot monorepo for tech exploration (learning, not production)  
+**Repository type:** Polyglot monorepo for tech exploration (learning, not production)
 **Primary tech stack:** Go, Java, TypeScript/React, Kafka, PostgreSQL, Keycloak
 
 ---

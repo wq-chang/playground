@@ -63,7 +63,7 @@ The API gateway that sits between the frontend and backend services. Handles COR
 
 - Go's standard `net/http` library for HTTP routing
 - CORS middleware for frontend requests
-- JWT token validation with Keycloak
+- OIDC login flow plus shared JWKS-backed token validation
 - Request/response logging
 - Error handling and transformation
 
@@ -76,12 +76,13 @@ go run ./bff/cmd  # Run BFF server
 
 **Dependencies**:
 
-- Keycloak Go library (from library package)
+- Shared `library/auth` OIDC/JWKS validation utilities
 - Kafka client (franz-go)
 
 **Environment Variables**:
 
-- `KEYCLOAK_URL`: Keycloak server URL
+- `KEYCLOAK_BASE_URL`: Keycloak server base URL
+- `KEYCLOAK_REALM`: Keycloak realm name
 - `KEYCLOAK_CLIENT_ID`: OAuth client ID
 - `KEYCLOAK_CLIENT_SECRET`: OAuth client secret
 - `LOG_LEVEL`: Logging level (debug, info, warn, error)
@@ -89,7 +90,7 @@ go run ./bff/cmd  # Run BFF server
 **Integration**:
 
 - Receives requests from Frontend (localhost:5173)
-- Validates tokens with Keycloak (localhost:7777)
+- Validates tokens locally using Keycloak OIDC discovery/JWKS metadata
 - Forwards requests to Backend service
 - Publishes events to Kafka for event-driven features
 
@@ -139,6 +140,7 @@ go run ./backend/cmd  # Run Backend server
 
 - Receives requests via BFF
 - Consumes user events from Kafka (published by Keycloak Custom SPI)
+- Uses backend-private IDP admin adapters from `services/go/backend/internal/idp`
 - Performs business logic and data persistence
 - Writes to PostgreSQL
 
@@ -219,7 +221,7 @@ docker build -f services/java/keycloak-custom/image/Dockerfile -t keycloak-custo
 **Technology**: Go Modules
 
 **Description**:
-Shared packages used across all Go services (BFF, Backend). Provides utilities for authentication, Kafka operations, Keycloak integration, and testing.
+Shared packages used across all Go services (BFF, Backend). Provides utilities for authentication, Kafka operations, and testing.
 
 **Location**: `/services/go/library`
 
@@ -227,9 +229,8 @@ Shared packages used across all Go services (BFF, Backend). Provides utilities f
 
 | Package       | Purpose                                                       |
 | ------------- | ------------------------------------------------------------- |
-| `auth/`       | Token validation and JWT handling                             |
+| `auth/`       | Shared OIDC/JWKS discovery and token validation               |
 | `kafka/`      | Kafka client utilities using franz-go                         |
-| `keycloak/`   | Keycloak integration helpers                                  |
 | `transactor/` | Database transaction management with PostgreSQL support       |
 | `testenv/`    | Test environment setup (Kafka, PostgreSQL, Testcontainers)    |
 | `gsync/`      | Type-safe wrappers for the standard synchronization utilities |

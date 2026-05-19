@@ -29,13 +29,21 @@ func (r *UserRepo) q(ctx context.Context) *db.Queries {
 
 func (r *UserRepo) CreateUser(ctx context.Context, createUserParams db.CreateUserParams) error {
 	q := r.q(ctx)
-	// TODO:change resource string
-	return pgutil.MapError(q.CreateUser(ctx, createUserParams), "test")
+	return pgutil.MapError(q.CreateUser(ctx, createUserParams), "user")
 }
 
 func (r *UserRepo) GetUserByID(ctx context.Context, id uuid.UUID) (db.User, error) {
 	q := r.q(ctx)
 	user, err := q.GetUserByID(ctx, id)
-	// TODO:change resource string
-	return user, pgutil.MapError(err, "test")
+	return user, pgutil.MapError(err, "user")
+}
+
+func (r *UserRepo) UpdateUser(ctx context.Context, updateUserParams db.UpdateUserParams) (int64, error) {
+	q := r.q(ctx)
+	commandTag, err := q.UpdateUser(ctx, updateUserParams)
+	if err != nil {
+		return 0, pgutil.MapError(err, "user")
+	}
+
+	return commandTag.RowsAffected(), nil
 }

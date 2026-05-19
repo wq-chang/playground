@@ -11,7 +11,7 @@ SET
   username = COALESCE(sqlc.narg('username'), username),
   email = COALESCE(sqlc.narg('email'), email),
   first_name = COALESCE(sqlc.narg('first_name'), first_name),
-  first_name = COALESCE(sqlc.narg('last_name'), last_name)
+  last_name = COALESCE(sqlc.narg('last_name'), last_name)
 WHERE id = @id;
 
 -- name: GetUserByID :one

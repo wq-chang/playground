@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/gofrs/uuid/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"go-services/backend/internal/user/internal/db"
 	"go-services/library/apperror"
@@ -15,6 +16,7 @@ import (
 type Repository interface {
 	CreateUser(context.Context, db.CreateUserParams) error
 	GetUserByID(context.Context, uuid.UUID) (db.User, error)
+	UpdateUser(context.Context, db.UpdateUserParams) (int64, error)
 }
 
 type RepositoryContract struct {
@@ -87,5 +89,42 @@ func (r *RepositoryContract) Test(t *testing.T) {
 		if assert.ErrorAs(t, err, &appErr, "should return an AppError for missing records") {
 			assert.Equal(t, apperror.CodeNotFound, appErr.Code, "expected 404/NotFound code")
 		}
+	})
+
+	cleanupData()
+	t.Run("UpdateUser updates only the provided fields", func(t *testing.T) {
+		ctx := context.Background()
+		id, err := uuid.NewV4()
+		require.NoError(t, err, "failed to create uuid")
+
+		err = repo.CreateUser(ctx, db.CreateUserParams{
+			ID:        id,
+			Username:  "username",
+			Email:     "email@email.com",
+			FirstName: "first",
+			LastName:  "last",
+		})
+		require.NoError(t, err, "failed to create user")
+
+		updatedRows, err := repo.UpdateUser(ctx, db.UpdateUserParams{
+			ID:        id,
+			Username:  pgtype.Text{},
+			FirstName: pgtype.Text{String: "updated-first", Valid: true},
+			LastName:  pgtype.Text{},
+			Email:     pgtype.Text{String: "updated@email.com", Valid: true},
+		})
+		require.NoError(t, err, "failed to update user")
+		assert.Equal(t, updatedRows, int64(1), "updated rows")
+
+		updatedUser, err := repo.GetUserByID(ctx, id)
+		require.NoError(t, err, "failed to get updated user")
+
+		assert.Equal(t, updatedUser, db.User{
+			ID:        id,
+			Username:  "username",
+			Email:     "updated@email.com",
+			FirstName: "updated-first",
+			LastName:  "last",
+		}, "updated user")
 	})
 }
