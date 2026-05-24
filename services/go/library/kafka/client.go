@@ -12,31 +12,44 @@ import (
 	"github.com/twmb/franz-go/pkg/sasl/scram"
 )
 
-type sharedClient struct {
-	client    *kgo.Client
+// Client owns the shared franz-go client and exposes the consumer and producer
+// capability wrappers that operate on it.
+type Client struct {
+	Consumer  *Consumer
+	Producer  *Producer
+	kgoClient *kgo.Client
 	closeOnce sync.Once
+	closed    bool
+	mu        sync.RWMutex
 }
 
-func newSharedClient(client *kgo.Client) *sharedClient {
-	return &sharedClient{
-		client:    client,
-		closeOnce: sync.Once{},
-	}
-}
-
-func (c *sharedClient) Close() {
+// Close closes the shared franz-go client used by both Consumer and Producer.
+func (c *Client) Close() {
 	if c == nil {
 		return
 	}
 
 	c.closeOnce.Do(func() {
-		if c.client != nil {
-			c.client.Close()
+		c.mu.Lock()
+		c.closed = true
+		c.mu.Unlock()
+		if c.kgoClient != nil {
+			c.kgoClient.Close()
 		}
 	})
 }
 
-// New creates and initializes a Kafka Consumer and Producer pair using a single shared
+func (c *Client) isClosed() bool {
+	if c == nil {
+		return false
+	}
+
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.closed
+}
+
+// New creates and initializes a Kafka client using a single shared
 // kgo.Client. This is the primary entry point for the kafka package.
 //
 // It automatically configures the client based on the provided brokers, groupId, and
@@ -45,14 +58,14 @@ func (c *sharedClient) Close() {
 //   - Topic routing based on registered handlers
 //   - Offset management strategy (e.g., disabling auto-commit for AtLeastOnce mode)
 //
-// Both the returned Consumer and Producer share the same underlying TCP connections
+// Both Client.Consumer and Client.Producer share the same underlying TCP connections
 // to the Kafka brokers, which is more resource-efficient than creating separate clients.
 //
 // Any topics registered through WithTopic are subscribed up front via kgo.ConsumeTopics
 // during client creation. Additional topics can be registered later through
 // Consumer.AddTopic, which updates both the consumer's handler router and the franz-go
 // runtime subscription.
-func New(brokers []string, groupId string, opts ...Option) (*Consumer, *Producer, error) {
+func New(brokers []string, groupId string, opts ...Option) (*Client, error) {
 	cfg := newConfig(brokers, groupId)
 	for _, opt := range opts {
 		opt(cfg)
@@ -86,7 +99,7 @@ func New(brokers []string, groupId string, opts ...Option) (*Consumer, *Producer
 				Pass: cfg.auth.Password,
 			}.AsSha512Mechanism()
 		default:
-			return nil, nil, fmt.Errorf("unsupported auth mechanism: %s", cfg.auth.Mechanism)
+			return nil, fmt.Errorf("unsupported auth mechanism: %s", cfg.auth.Mechanism)
 		}
 		kgoOpts = append(kgoOpts, kgo.SASL(m))
 	}
@@ -97,19 +110,29 @@ func New(brokers []string, groupId string, opts ...Option) (*Consumer, *Producer
 
 	kgoOpts = append(kgoOpts, cfg.kgoOpts...)
 
-	client, err := kgo.NewClient(kgoOpts...)
+	kgoClient, err := kgo.NewClient(kgoOpts...)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create kgo client: %w", err)
+		return nil, fmt.Errorf("failed to create kgo client: %w", err)
 	}
 
-	shared := newSharedClient(client)
-
-	consumer, err := newConsumer(cfg, shared)
-	if err != nil {
-		shared.Close()
-		return nil, nil, fmt.Errorf("failed to initialize consumer: %w", err)
+	client := &Client{
+		Consumer:  nil,
+		Producer:  nil,
+		kgoClient: kgoClient,
+		closeOnce: sync.Once{},
+		closed:    false,
+		mu:        sync.RWMutex{},
 	}
-	producer := newProducer(cfg, shared)
 
-	return consumer, producer, err
+	consumer, err := newConsumer(cfg, client)
+	if err != nil {
+		client.Close()
+		return nil, fmt.Errorf("failed to initialize consumer: %w", err)
+	}
+	producer := newProducer(cfg, client)
+
+	client.Consumer = consumer
+	client.Producer = producer
+
+	return client, nil
 }

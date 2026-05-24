@@ -49,19 +49,18 @@ func TestKafkaProducerConsumer(t *testing.T) {
 				opts = append(opts, kafka.WithAuth(testKafka.Username, testKafka.Password, kafka.AuthMechanismScram512))
 			}
 
-			consumer, producer, err := kafka.New(tt.brokers, "test-group-"+name, opts...)
-			require.NoError(t, err, "failed to create producer and consumer")
-			defer consumer.Close()
-			defer producer.Close()
+			client, err := kafka.New(tt.brokers, "test-group-"+name, opts...)
+			require.NoError(t, err, "failed to create kafka client")
+			defer client.Close()
 
-			err = producer.ProduceSync(ctx, &kgo.Record{
+			err = client.Producer.ProduceSync(ctx, &kgo.Record{
 				Topic: topic,
 				Value: []byte(message),
 			})
 			require.NoError(t, err, "failed to produce message")
 
 			go func() {
-				if err := consumer.Run(ctx); err != nil {
+				if err := client.Consumer.Run(ctx); err != nil {
 					if ctx.Err() == nil {
 						t.Errorf("consumer run failed: %v", err)
 					}
@@ -93,25 +92,24 @@ func TestKafkaConsumerAddTopic(t *testing.T) {
 			return nil
 		}
 
-		consumer, producer, err := kafka.New(
+		client, err := kafka.New(
 			testKafka.PlainBrokers,
 			fmt.Sprintf("test-group-before-run-%d", time.Now().UnixNano()),
 			kafka.WithKgoOptions(kgo.ConsumeResetOffset(kgo.NewOffset().AtStart())),
 		)
-		require.NoError(t, err, "failed to create producer and consumer")
-		defer consumer.Close()
-		defer producer.Close()
+		require.NoError(t, err, "failed to create kafka client")
+		defer client.Close()
 
-		err = consumer.AddTopic(topic, handler)
+		err = client.Consumer.AddTopic(topic, handler)
 		require.NoError(t, err, "failed to add topic before run")
 
 		go func() {
-			if runErr := consumer.Run(ctx); runErr != nil && ctx.Err() == nil {
+			if runErr := client.Consumer.Run(ctx); runErr != nil && ctx.Err() == nil {
 				t.Errorf("consumer run failed: %v", runErr)
 			}
 		}()
 
-		err = producer.ProduceSync(ctx, &kgo.Record{
+		err = client.Producer.ProduceSync(ctx, &kgo.Record{
 			Topic: topic,
 			Value: []byte("before-run"),
 		})
@@ -139,27 +137,26 @@ func TestKafkaConsumerAddTopic(t *testing.T) {
 			return nil
 		}
 
-		consumer, producer, err := kafka.New(
+		client, err := kafka.New(
 			testKafka.PlainBrokers,
 			fmt.Sprintf("test-group-during-run-%d", time.Now().UnixNano()),
 			kafka.WithKgoOptions(kgo.ConsumeResetOffset(kgo.NewOffset().AtStart())),
 		)
-		require.NoError(t, err, "failed to create producer and consumer")
-		defer consumer.Close()
-		defer producer.Close()
+		require.NoError(t, err, "failed to create kafka client")
+		defer client.Close()
 
 		go func() {
-			if runErr := consumer.Run(ctx); runErr != nil && ctx.Err() == nil {
+			if runErr := client.Consumer.Run(ctx); runErr != nil && ctx.Err() == nil {
 				t.Errorf("consumer run failed: %v", runErr)
 			}
 		}()
 
 		time.Sleep(500 * time.Millisecond)
 
-		err = consumer.AddTopic(topic, handler)
+		err = client.Consumer.AddTopic(topic, handler)
 		require.NoError(t, err, "failed to add topic during run")
 
-		err = producer.ProduceSync(ctx, &kgo.Record{
+		err = client.Producer.ProduceSync(ctx, &kgo.Record{
 			Topic: topic,
 			Value: []byte("during-run"),
 		})

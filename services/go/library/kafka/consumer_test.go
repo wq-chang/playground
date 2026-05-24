@@ -56,10 +56,11 @@ func TestConsumerAddTopicValidation(t *testing.T) {
 
 func TestConsumerAddTopicRejectsClosedConsumer(t *testing.T) {
 	cfg := newConfig([]string{"broker:9092"}, "group")
-	consumer, err := newConsumer(cfg, nil)
+	client := &Client{}
+	consumer, err := newConsumer(cfg, client)
 	require.NoError(t, err, "failed to create consumer")
 
-	consumer.Close()
+	client.Close()
 
 	err = consumer.AddTopic("topic-a", func(context.Context, *kgo.Record) error { return nil })
 	assert.NotNil(t, err, "closed consumer should reject new topics")

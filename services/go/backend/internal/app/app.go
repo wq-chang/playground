@@ -11,9 +11,9 @@ import (
 )
 
 type App struct {
-	Log           *slog.Logger
-	repository    *repository
-	kafkaConsumer *kafka.Consumer
+	Log         *slog.Logger
+	repository  *repository
+	kafkaClient *kafka.Client
 }
 
 func New(ctx context.Context) (*App, error) {
@@ -35,25 +35,25 @@ func New(ctx context.Context) (*App, error) {
 		return nil, fmt.Errorf("failed to initialize services: %w", err)
 	}
 
-	kafkaConsumer, err := newKafkaConsumer(cfg, service)
+	kafkaClient, err := newKafkaConsumer(cfg, service)
 	if err != nil {
 		repository.Close()
 		return nil, fmt.Errorf("failed to initialize kafka consumer: %w", err)
 	}
 
 	return &App{
-		Log:           log,
-		repository:    repository,
-		kafkaConsumer: kafkaConsumer,
+		Log:         log,
+		repository:  repository,
+		kafkaClient: kafkaClient,
 	}, nil
 }
 
 func (a *App) Run(ctx context.Context) error {
-	if a == nil || a.kafkaConsumer == nil {
+	if a == nil || a.kafkaClient == nil || a.kafkaClient.Consumer == nil {
 		return fmt.Errorf("app kafka consumer is not initialized")
 	}
 
-	return a.kafkaConsumer.Run(ctx)
+	return a.kafkaClient.Consumer.Run(ctx)
 }
 
 func (a *App) Close(ctx context.Context) error {
@@ -62,8 +62,8 @@ func (a *App) Close(ctx context.Context) error {
 	}
 	_ = ctx
 
-	if a.kafkaConsumer != nil {
-		a.kafkaConsumer.Close()
+	if a.kafkaClient != nil {
+		a.kafkaClient.Close()
 	}
 	if a.repository != nil {
 		a.repository.Close()

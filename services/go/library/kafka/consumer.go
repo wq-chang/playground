@@ -16,11 +16,10 @@ type Handler func(ctx context.Context, record *kgo.Record) error
 // It manages the consumption loop and parallel processing of records.
 type Consumer struct {
 	topicRouter map[string]Handler
-	shared      *sharedClient
+	client      *Client
 	cfg         *config
 	log         *slog.Logger
 	mu          sync.RWMutex
-	closed      bool
 }
 
 // newConsumer creates a new Kafka consumer.
@@ -29,14 +28,13 @@ type Consumer struct {
 // configuration. Those topics are already included in the client's initial
 // kgo.ConsumeTopics subscription, so they are copied into the in-memory router with
 // subscribe=false to avoid re-adding the same Kafka subscription a second time.
-func newConsumer(cfg *config, shared *sharedClient) (*Consumer, error) {
+func newConsumer(cfg *config, client *Client) (*Consumer, error) {
 	consumer := &Consumer{
 		topicRouter: make(map[string]Handler, len(cfg.topicRouter)),
-		shared:      shared,
-		mu:          sync.RWMutex{},
-		closed:      false,
+		client:      client,
 		cfg:         cfg,
 		log:         cfg.logger,
+		mu:          sync.RWMutex{},
 	}
 
 	for topic, handler := range cfg.topicRouter {
@@ -55,11 +53,11 @@ func (c *Consumer) Run(ctx context.Context) error {
 		"groupId", c.cfg.groupId,
 		"workers", c.cfg.workers)
 
-	if c.shared == nil || c.shared.client == nil {
+	if c.client == nil || c.client.kgoClient == nil {
 		return fmt.Errorf("consumer client is not initialized")
 	}
 
-	if err := c.runClient(ctx, c.shared.client); err != nil {
+	if err := c.runClient(ctx, c.client.kgoClient); err != nil {
 		if ctx.Err() != nil {
 			c.log.InfoContext(ctx, "Kafka consumer context cancelled, shutting down...")
 			return ctx.Err()
@@ -158,7 +156,7 @@ func (c *Consumer) registerTopic(topic string, handler Handler, subscribe bool) 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.closed {
+	if c.client != nil && c.client.isClosed() {
 		return fmt.Errorf("consumer is closed")
 	}
 	if _, ok := c.topicRouter[topic]; ok {
@@ -166,8 +164,8 @@ func (c *Consumer) registerTopic(topic string, handler Handler, subscribe bool) 
 	}
 
 	c.topicRouter[topic] = handler
-	if subscribe && c.shared != nil && c.shared.client != nil {
-		c.shared.client.AddConsumeTopics(topic)
+	if subscribe && c.client != nil && c.client.kgoClient != nil {
+		c.client.kgoClient.AddConsumeTopics(topic)
 	}
 
 	return nil
@@ -195,20 +193,4 @@ func (c *Consumer) handlerForTopic(topic string) (Handler, bool) {
 
 	handler, ok := c.topicRouter[topic]
 	return handler, ok
-}
-
-// Close closes the underlying kafka client and stops any active consumption.
-func (c *Consumer) Close() {
-	c.mu.Lock()
-	if c.closed {
-		c.mu.Unlock()
-		return
-	}
-	c.closed = true
-	shared := c.shared
-	c.mu.Unlock()
-
-	if shared != nil {
-		shared.Close()
-	}
 }
