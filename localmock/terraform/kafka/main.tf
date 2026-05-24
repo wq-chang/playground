@@ -20,6 +20,12 @@ variable "kafka_keycloak_secret" {
   sensitive   = true
 }
 
+variable "kafka_backend_secret" {
+  description = "Kafka backend secret"
+  type        = string
+  sensitive   = true
+}
+
 resource "kafka_user_scram_credential" "admin" {
   username        = "admin"
   scram_mechanism = "SCRAM-SHA-512"
@@ -28,6 +34,12 @@ resource "kafka_user_scram_credential" "admin" {
 
 resource "kafka_user_scram_credential" "keycloak" {
   username        = "keycloak"
+  scram_mechanism = "SCRAM-SHA-512"
+  password        = var.kafka_keycloak_secret
+}
+
+resource "kafka_user_scram_credential" "backend" {
+  username        = "backend"
   scram_mechanism = "SCRAM-SHA-512"
   password        = var.kafka_keycloak_secret
 }
