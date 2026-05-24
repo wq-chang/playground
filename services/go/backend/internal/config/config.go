@@ -4,27 +4,29 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/nats-io/nats.go"
 )
 
 // DBConfig holds PostgreSQL database configuration details.
 type DBConfig struct {
-	// URL is the base database host and port, e.g. "localhost:5432".
-	URL string
-	// Username is the PostgreSQL user to connect as.
-	Username string
-	// Password is the password for the PostgreSQL user.
-	Password string
-	// Name is the database name to connect to.
-	Name string
-	// ConnectionURL is the full PostgreSQL connection string,
-	// assembled from the other fields.
+	// ConnectionURL is the full PostgreSQL connection string.
 	// Example: postgres://user:pass@localhost:5432/dbname
 	ConnectionURL string
 }
 
+type KeycloakConfig struct {
+	BaseURL      string
+	Realm        string
+	ClientID     string
+	ClientSecret string
+}
+
 // Config is the top-level application configuration structure.
 type Config struct {
-	DB *DBConfig
+	DB       *DBConfig
+	Keycloak *KeycloakConfig
+	NatsURL  string
 }
 
 // New reads environment variables, validates required fields,
@@ -32,17 +34,20 @@ type Config struct {
 // required environment variables are missing.
 //
 // Expected environment variables:
-//   - DB_URL:       database host and port (e.g., "localhost:5432")
-//   - DB_USERNAME:  database username
-//   - DB_PASSWORD:  database password
-//   - DB_NAME:      database name
+//   - DATABASE_URL:                    full PostgreSQL connection string
+//   - KEYCLOAK_BASE_URL:               Keycloak base URL
+//   - KEYCLOAK_REALM:                  Keycloak realm
+//   - KEYCLOAK_BACKEND_CLIENT_ID:      backend Keycloak client ID
+//   - KEYCLOAK_BACKEND_CLIENT_SECRET:  backend Keycloak client secret
+//   - NATS_URL:                        optional NATS server URL (defaults to nats.DefaultURL)
 //
 // Example:
 //
-//	export DB_URL=localhost:5432
-//	export DB_USERNAME=postgres
-//	export DB_PASSWORD=secret
-//	export DB_NAME=mydb
+//	export DATABASE_URL=postgres://backend:secret@localhost:5432/backend
+//	export KEYCLOAK_BASE_URL=http://localhost:7777
+//	export KEYCLOAK_REALM=playground
+//	export KEYCLOAK_BACKEND_CLIENT_ID=backend
+//	export KEYCLOAK_BACKEND_CLIENT_SECRET=secret
 //
 //	cfg, err := config.New()
 //	if err != nil {
@@ -53,16 +58,19 @@ type Config struct {
 // Returns a Config pointer and an error (if any).
 func New() (*Config, error) {
 	const (
-		dbURL      = "DB_URL"
-		dbUsername = "DB_USERNAME"
-		dbPassword = "DB_PASSWORD"
-		dbName     = "DB_NAME"
+		databaseURLKey          = "DATABASE_URL"
+		keycloakBaseURLKey      = "KEYCLOAK_BASE_URL"
+		keycloakRealmKey        = "KEYCLOAK_REALM"
+		keycloakClientIDKey     = "KEYCLOAK_BACKEND_CLIENT_ID"
+		keycloakClientSecretKey = "KEYCLOAK_BACKEND_CLIENT_SECRET"
+		natsURLKey              = "NATS_URL"
 	)
 	required := []string{
-		dbURL,
-		dbUsername,
-		dbPassword,
-		dbName,
+		databaseURLKey,
+		keycloakBaseURLKey,
+		keycloakRealmKey,
+		keycloakClientIDKey,
+		keycloakClientSecretKey,
 	}
 
 	missing := []string{}
@@ -77,20 +85,21 @@ func New() (*Config, error) {
 		return nil, fmt.Errorf("missing environment variables: %s", strings.Join(missing, ", "))
 	}
 
-	dbURLEnv := os.Getenv(dbURL)
-	dbUsernameEnv := os.Getenv(dbUsername)
-	dbPasswordEnv := os.Getenv(dbPassword)
-	dbNameEnv := os.Getenv(dbName)
-	connectionURL := fmt.Sprintf("postgres://%s:%s@%s/%s", dbUsernameEnv, dbPasswordEnv, dbURLEnv, dbNameEnv)
-	db := &DBConfig{
-		URL:           dbURLEnv,
-		Username:      dbUsernameEnv,
-		Password:      dbPasswordEnv,
-		Name:          dbNameEnv,
-		ConnectionURL: connectionURL,
+	natsURL := strings.TrimSpace(os.Getenv(natsURLKey))
+	if natsURL == "" {
+		natsURL = nats.DefaultURL
 	}
 
 	return &Config{
-		DB: db,
+		DB: &DBConfig{
+			ConnectionURL: strings.TrimSpace(os.Getenv(databaseURLKey)),
+		},
+		Keycloak: &KeycloakConfig{
+			BaseURL:      strings.TrimSpace(os.Getenv(keycloakBaseURLKey)),
+			Realm:        strings.TrimSpace(os.Getenv(keycloakRealmKey)),
+			ClientID:     strings.TrimSpace(os.Getenv(keycloakClientIDKey)),
+			ClientSecret: strings.TrimSpace(os.Getenv(keycloakClientSecretKey)),
+		},
+		NatsURL: natsURL,
 	}, nil
 }

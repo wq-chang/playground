@@ -5,6 +5,7 @@ import (
 
 	"github.com/gofrs/uuid/v5"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"go-services/backend/internal/pgutil"
 	"go-services/backend/internal/user/internal/db"
@@ -21,6 +22,17 @@ func NewRepo(queries *db.Queries, accessor transactor.TXAccessor[pgx.Tx]) *UserR
 		queries:  queries,
 		accessor: accessor,
 	}
+}
+
+func NewRepoFromDB(
+	dbtx interface {
+		Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+		Query(context.Context, string, ...any) (pgx.Rows, error)
+		QueryRow(context.Context, string, ...any) pgx.Row
+	},
+	accessor transactor.TXAccessor[pgx.Tx],
+) *UserRepo {
+	return NewRepo(db.New(dbtx), accessor)
 }
 
 func (r *UserRepo) q(ctx context.Context) *db.Queries {

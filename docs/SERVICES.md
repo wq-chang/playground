@@ -126,7 +126,11 @@ go run ./backend/cmd  # Run Backend server
 **Environment Variables**:
 
 - `DATABASE_URL`: PostgreSQL connection string (postgres://user:password@localhost:5432/dbname)
-- `KAFKA_BROKERS`: Comma-separated Kafka broker addresses
+- `KEYCLOAK_BASE_URL`: Keycloak server base URL
+- `KEYCLOAK_REALM`: Keycloak realm name
+- `KEYCLOAK_BACKEND_CLIENT_ID`: backend Keycloak client ID
+- `KEYCLOAK_BACKEND_CLIENT_SECRET`: backend Keycloak client secret
+- `NATS_URL`: NATS server URL (optional, defaults to the standard local NATS URL)
 - `LOG_LEVEL`: Logging level (debug, info, warn, error)
 
 **Database**:

@@ -18,11 +18,9 @@ func main() {
 		os.Exit(1)
 	}
 	defer func() {
-		err := appl.NatsConnection.Drain()
+		err := appl.Close(ctx)
 		if err != nil {
-			appl.Log.ErrorContext(ctx, "failed to drain nats connection", "err", err)
-			appl.NatsConnection.Close()
+			appl.Log.ErrorContext(ctx, "failed to close app", "err", err)
 		}
-		appl.DBPool.Close()
 	}()
 }

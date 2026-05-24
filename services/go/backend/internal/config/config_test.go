@@ -4,6 +4,8 @@ import (
 	"os"
 	"testing"
 
+	"github.com/nats-io/nats.go"
+
 	"go-services/backend/internal/config"
 	"go-services/library/assert"
 )
@@ -27,7 +29,15 @@ func unsetEnv(t *testing.T, keys ...string) {
 }
 
 func TestNew_MissingEnvs(t *testing.T) {
-	unsetEnv(t, "DB_URL", "DB_USERNAME", "DB_PASSWORD", "DB_NAME")
+	unsetEnv(
+		t,
+		"DATABASE_URL",
+		"KEYCLOAK_BASE_URL",
+		"KEYCLOAK_REALM",
+		"KEYCLOAK_BACKEND_CLIENT_ID",
+		"KEYCLOAK_BACKEND_CLIENT_SECRET",
+		"NATS_URL",
+	)
 	expected := "missing environment variables"
 
 	_, err := config.New()
@@ -36,12 +46,21 @@ func TestNew_MissingEnvs(t *testing.T) {
 }
 
 func TestNew_Success(t *testing.T) {
-	setEnv(t, "DB_URL", "localhost:5432")
-	setEnv(t, "DB_USERNAME", "testuser")
-	setEnv(t, "DB_PASSWORD", "testpass")
-	setEnv(t, "DB_NAME", "testdb")
+	setEnv(t, "DATABASE_URL", "postgres://testuser:testpass@localhost:5432/testdb")
+	setEnv(t, "KEYCLOAK_BASE_URL", "http://localhost:7777")
+	setEnv(t, "KEYCLOAK_REALM", "playground")
+	setEnv(t, "KEYCLOAK_BACKEND_CLIENT_ID", "backend")
+	setEnv(t, "KEYCLOAK_BACKEND_CLIENT_SECRET", "secret")
 
-	defer unsetEnv(t, "DB_URL", "DB_USERNAME", "DB_PASSWORD", "DB_NAME")
+	defer unsetEnv(
+		t,
+		"DATABASE_URL",
+		"KEYCLOAK_BASE_URL",
+		"KEYCLOAK_REALM",
+		"KEYCLOAK_BACKEND_CLIENT_ID",
+		"KEYCLOAK_BACKEND_CLIENT_SECRET",
+		"NATS_URL",
+	)
 
 	cfg, err := config.New()
 	if err != nil {
@@ -51,12 +70,15 @@ func TestNew_Success(t *testing.T) {
 	// Create expected struct
 	expected := &config.Config{
 		DB: &config.DBConfig{
-			URL:           "localhost:5432",
-			Username:      "testuser",
-			Password:      "testpass",
-			Name:          "testdb",
 			ConnectionURL: "postgres://testuser:testpass@localhost:5432/testdb",
 		},
+		Keycloak: &config.KeycloakConfig{
+			BaseURL:      "http://localhost:7777",
+			Realm:        "playground",
+			ClientID:     "backend",
+			ClientSecret: "secret",
+		},
+		NatsURL: nats.DefaultURL,
 	}
 
 	// Compare the whole struct
