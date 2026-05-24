@@ -21,7 +21,7 @@ type service struct {
 
 func newService(log *slog.Logger, cfg *config.Config, dbPool *pgxpool.Pool) (*service, error) {
 	txAccessor := transactor.NewTxAccessor[pgx.Tx]()
-	userRepo := user.NewRepoFromDB(dbPool, txAccessor)
+	userRepo := user.NewRepo(dbPool, txAccessor)
 
 	userProvider, err := keycloak.NewClient(
 		keycloak.Config{

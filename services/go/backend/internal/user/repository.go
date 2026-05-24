@@ -12,27 +12,22 @@ import (
 	"go-services/library/transactor"
 )
 
+type RepoDBTX interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
 type UserRepo struct {
 	queries  *db.Queries
 	accessor transactor.TXAccessor[pgx.Tx]
 }
 
-func NewRepo(queries *db.Queries, accessor transactor.TXAccessor[pgx.Tx]) *UserRepo {
+func NewRepo(dbtx RepoDBTX, accessor transactor.TXAccessor[pgx.Tx]) *UserRepo {
 	return &UserRepo{
-		queries:  queries,
+		queries:  db.New(dbtx),
 		accessor: accessor,
 	}
-}
-
-func NewRepoFromDB(
-	dbtx interface {
-		Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
-		Query(context.Context, string, ...any) (pgx.Rows, error)
-		QueryRow(context.Context, string, ...any) pgx.Row
-	},
-	accessor transactor.TXAccessor[pgx.Tx],
-) *UserRepo {
-	return NewRepo(db.New(dbtx), accessor)
 }
 
 func (r *UserRepo) q(ctx context.Context) *db.Queries {
