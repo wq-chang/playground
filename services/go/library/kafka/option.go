@@ -27,9 +27,8 @@ type config struct {
 	groupId string
 	// brokers is the list of seed brokers.
 	brokers []string
-	// TopicRouter maps Kafka topic names to their respective processing logic.
-	// It acts as a central switchboard to ensure each message is handled by
-	// the correct domain function.
+	// topicRouter stores startup topic registrations that are applied when the
+	// consumer is constructed. Runtime additions live on Consumer itself.
 	topicRouter map[string]Handler
 	// kgoOpts are additional franz-go client options.
 	kgoOpts []kgo.Opt
@@ -100,9 +99,9 @@ func WithAckMode(mode AckMode) Option {
 	}
 }
 
-// WithTopic registers a processing handler for a specific Kafka topic.
-// If a handler is already registered for the given topic, this function
-// will panic.
+// WithTopic registers a processing handler for a specific Kafka topic during
+// consumer construction. For runtime registration after New, use Consumer.AddTopic.
+// If a handler is already registered for the given topic, this function will panic.
 func WithTopic(topic string, handler Handler) Option {
 	return func(c *config) {
 		if _, ok := c.topicRouter[topic]; ok {

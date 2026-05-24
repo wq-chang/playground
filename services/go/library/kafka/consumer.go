@@ -2,6 +2,7 @@ package kafka
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sync"
 
@@ -17,15 +18,35 @@ type Consumer struct {
 	cfg    *config
 	log    *slog.Logger
 	client *kgo.Client
+
+	topicRouter map[string]Handler
+	mu          sync.RWMutex
+	closed      bool
 }
 
-// newConsumer creates a new Kafka consumer
-func newConsumer(cfg *config, client *kgo.Client) *Consumer {
-	return &Consumer{
-		cfg:    cfg,
-		client: client,
-		log:    cfg.logger,
+// newConsumer creates a new Kafka consumer.
+//
+// Topics already present in cfg.topicRouter came from WithTopic during startup
+// configuration. Those topics are already included in the client's initial
+// kgo.ConsumeTopics subscription, so they are copied into the in-memory router with
+// subscribe=false to avoid re-adding the same Kafka subscription a second time.
+func newConsumer(cfg *config, client *kgo.Client) (*Consumer, error) {
+	consumer := &Consumer{
+		mu:          sync.RWMutex{},
+		closed:      false,
+		cfg:         cfg,
+		client:      client,
+		log:         cfg.logger,
+		topicRouter: make(map[string]Handler, len(cfg.topicRouter)),
 	}
+
+	for topic, handler := range cfg.topicRouter {
+		if err := consumer.registerTopic(topic, handler, false); err != nil {
+			return nil, err
+		}
+	}
+
+	return consumer, nil
 }
 
 // Run starts the consumer loop. It blocks until the context is cancelled or a fatal error occurs.
@@ -108,8 +129,49 @@ func (c *Consumer) runClient(ctx context.Context, cl *kgo.Client) error {
 	}
 }
 
+// AddTopic registers a new topic handler and updates the underlying client to
+// start consuming the topic immediately.
+//
+// Unlike startup topics registered through WithTopic, topics added here were not part
+// of the client's initial kgo.ConsumeTopics configuration, so AddTopic also calls the
+// franz-go runtime subscription API to begin consuming the new topic.
+func (c *Consumer) AddTopic(topic string, handler Handler) error {
+	return c.registerTopic(topic, handler, true)
+}
+
+// registerTopic stores a topic handler in the consumer router.
+//
+// When subscribe is true, the topic is also added to the underlying franz-go client at
+// runtime. When subscribe is false, only the handler router is updated because the
+// client is already subscribed from initial construction.
+func (c *Consumer) registerTopic(topic string, handler Handler, subscribe bool) error {
+	if topic == "" {
+		return fmt.Errorf("topic must not be empty")
+	}
+	if handler == nil {
+		return fmt.Errorf("handler must not be nil")
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.closed {
+		return fmt.Errorf("consumer is closed")
+	}
+	if _, ok := c.topicRouter[topic]; ok {
+		return fmt.Errorf("topic handler already registered for %q", topic)
+	}
+
+	c.topicRouter[topic] = handler
+	if subscribe && c.client != nil {
+		c.client.AddConsumeTopics(topic)
+	}
+
+	return nil
+}
+
 func (c *Consumer) handleRecord(ctx context.Context, record *kgo.Record) {
-	handler, ok := c.cfg.topicRouter[record.Topic]
+	handler, ok := c.handlerForTopic(record.Topic)
 	if !ok {
 		c.log.ErrorContext(ctx, "failed to map topic to handler", "topic", record.Topic)
 		return
@@ -124,9 +186,26 @@ func (c *Consumer) handleRecord(ctx context.Context, record *kgo.Record) {
 	}
 }
 
+func (c *Consumer) handlerForTopic(topic string) (Handler, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	handler, ok := c.topicRouter[topic]
+	return handler, ok
+}
+
 // Close closes the underlying kafka client and stops any active consumption.
 func (c *Consumer) Close() {
-	if c.client != nil {
-		c.client.Close()
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return
+	}
+	c.closed = true
+	client := c.client
+	c.mu.Unlock()
+
+	if client != nil {
+		client.Close()
 	}
 }

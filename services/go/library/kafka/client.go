@@ -22,6 +22,11 @@ import (
 //
 // Both the returned Consumer and Producer share the same underlying TCP connections
 // to the Kafka brokers, which is more resource-efficient than creating separate clients.
+//
+// Any topics registered through WithTopic are subscribed up front via kgo.ConsumeTopics
+// during client creation. Additional topics can be registered later through
+// Consumer.AddTopic, which updates both the consumer's handler router and the franz-go
+// runtime subscription.
 func New(brokers []string, groupId string, opts ...Option) (*Consumer, *Producer, error) {
 	cfg := newConfig(brokers, groupId)
 	for _, opt := range opts {
@@ -32,7 +37,9 @@ func New(brokers []string, groupId string, opts ...Option) (*Consumer, *Producer
 	kgoOpts := []kgo.Opt{
 		kgo.SeedBrokers(cfg.brokers...),
 		kgo.ConsumerGroup(cfg.groupId),
-		kgo.ConsumeTopics(topics...),
+	}
+	if len(topics) > 0 {
+		kgoOpts = append(kgoOpts, kgo.ConsumeTopics(topics...))
 	}
 
 	if cfg.auth != nil {
@@ -70,7 +77,11 @@ func New(brokers []string, groupId string, opts ...Option) (*Consumer, *Producer
 		return nil, nil, fmt.Errorf("failed to create kgo client: %w", err)
 	}
 
-	consumer := newConsumer(cfg, client)
+	consumer, err := newConsumer(cfg, client)
+	if err != nil {
+		client.Close()
+		return nil, nil, fmt.Errorf("failed to initialize consumer: %w", err)
+	}
 	producer := newProducer(cfg, client)
 
 	return consumer, producer, err
