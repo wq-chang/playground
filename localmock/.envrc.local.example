@@ -9,3 +9,4 @@ export LM_PGADMIN_ADMIN_PASSWORD=your_password_here
 # keycloak client
 export LM_KEYCLOAK_CLIENT_PASSWORD=your_password_here
 export LM_KEYCLOAK_BFF_CLIENT_PASSWORD=your_password_here
+export LM_KEYCLOAK_BACKEND_CLIENT_PASSWORD=your_password_here

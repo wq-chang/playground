@@ -1,6 +1,11 @@
-
 variable "keycloak_bff_client_secret" {
   description = "Bff client secret"
+  type        = string
+  sensitive   = true
+}
+
+variable "keycloak_backend_client_secret" {
+  description = "Backend client secret"
   type        = string
   sensitive   = true
 }
@@ -23,6 +28,17 @@ resource "keycloak_openid_client" "bff_client" {
   name                     = "Backend for frontend"
   access_type              = "CONFIDENTIAL"
   client_secret_wo         = var.keycloak_bff_client_secret
+  client_secret_wo_version = "1"
+  standard_flow_enabled    = true
+  valid_redirect_uris      = ["http://localhost:7777/callback"]
+}
+
+resource "keycloak_openid_client" "backend_client" {
+  realm_id                 = keycloak_realm.playground_realm.id
+  client_id                = "backend"
+  name                     = "Backend"
+  access_type              = "CONFIDENTIAL"
+  client_secret_wo         = var.keycloak_backend_client_secret
   client_secret_wo_version = "1"
   standard_flow_enabled    = true
   valid_redirect_uris      = ["http://localhost:7777/callback"]
