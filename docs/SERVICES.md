@@ -130,7 +130,11 @@ go run ./backend/cmd  # Run Backend server
 - `KEYCLOAK_REALM`: Keycloak realm name
 - `KEYCLOAK_BACKEND_CLIENT_ID`: backend Keycloak client ID
 - `KEYCLOAK_BACKEND_CLIENT_SECRET`: backend Keycloak client secret
-- `NATS_URL`: NATS server URL (optional, defaults to the standard local NATS URL)
+- `KAFKA_BROKER_URLS`: comma-separated Kafka bootstrap brokers
+- `KAFKA_USERNAME`: Kafka SASL username
+- `KAFKA_PASSWORD`: Kafka SASL password
+- `KAFKA_TOPIC_USER_EVENT`: Kafka topic for user events
+- `KAFKA_CONSUMER_GROUP_ID`: Kafka consumer group ID for the backend worker
 - `LOG_LEVEL`: Logging level (debug, info, warn, error)
 
 **Database**:

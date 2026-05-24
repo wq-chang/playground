@@ -4,12 +4,37 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"sync"
 
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/sasl"
 	"github.com/twmb/franz-go/pkg/sasl/plain"
 	"github.com/twmb/franz-go/pkg/sasl/scram"
 )
+
+type sharedClient struct {
+	client    *kgo.Client
+	closeOnce sync.Once
+}
+
+func newSharedClient(client *kgo.Client) *sharedClient {
+	return &sharedClient{
+		client:    client,
+		closeOnce: sync.Once{},
+	}
+}
+
+func (c *sharedClient) Close() {
+	if c == nil {
+		return
+	}
+
+	c.closeOnce.Do(func() {
+		if c.client != nil {
+			c.client.Close()
+		}
+	})
+}
 
 // New creates and initializes a Kafka Consumer and Producer pair using a single shared
 // kgo.Client. This is the primary entry point for the kafka package.
@@ -77,12 +102,14 @@ func New(brokers []string, groupId string, opts ...Option) (*Consumer, *Producer
 		return nil, nil, fmt.Errorf("failed to create kgo client: %w", err)
 	}
 
-	consumer, err := newConsumer(cfg, client)
+	shared := newSharedClient(client)
+
+	consumer, err := newConsumer(cfg, shared)
 	if err != nil {
-		client.Close()
+		shared.Close()
 		return nil, nil, fmt.Errorf("failed to initialize consumer: %w", err)
 	}
-	producer := newProducer(cfg, client)
+	producer := newProducer(cfg, shared)
 
 	return consumer, producer, err
 }

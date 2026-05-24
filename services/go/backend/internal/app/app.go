@@ -6,18 +6,14 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/nats-io/nats.go"
-
 	"go-services/backend/internal/config"
+	"go-services/library/kafka"
 )
 
 type App struct {
-	Config         *config.Config
-	Log            *slog.Logger
-	Service        *service
-	NatsConnection *nats.Conn
-	DBPool         *pgxpool.Pool
+	Log           *slog.Logger
+	repository    *repository
+	kafkaConsumer *kafka.Consumer
 }
 
 func New(ctx context.Context) (*App, error) {
@@ -28,51 +24,50 @@ func New(ctx context.Context) (*App, error) {
 		return nil, fmt.Errorf("failed to initialize config: %w", err)
 	}
 
-	nc, err := nats.Connect(cfg.NatsURL)
+	repository, err := newRepository(ctx, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect nats: %w", err)
+		return nil, fmt.Errorf("failed to initialize repositories: %w", err)
 	}
 
-	dbPool, err := pgxpool.New(ctx, cfg.DB.ConnectionURL)
+	service, err := newService(log, cfg, repository)
 	if err != nil {
-		nc.Close()
-		return nil, fmt.Errorf("failed to connect db: %w", err)
-	}
-
-	service, err := newService(log, cfg, dbPool)
-	if err != nil {
-		nc.Close()
-		dbPool.Close()
+		repository.Close()
 		return nil, fmt.Errorf("failed to initialize services: %w", err)
 	}
 
+	kafkaConsumer, err := newKafkaConsumer(cfg, service)
+	if err != nil {
+		repository.Close()
+		return nil, fmt.Errorf("failed to initialize kafka consumer: %w", err)
+	}
+
 	return &App{
-		Config:         cfg,
-		Log:            log,
-		Service:        service,
-		NatsConnection: nc,
-		DBPool:         dbPool,
+		Log:           log,
+		repository:    repository,
+		kafkaConsumer: kafkaConsumer,
 	}, nil
+}
+
+func (a *App) Run(ctx context.Context) error {
+	if a == nil || a.kafkaConsumer == nil {
+		return fmt.Errorf("app kafka consumer is not initialized")
+	}
+
+	return a.kafkaConsumer.Run(ctx)
 }
 
 func (a *App) Close(ctx context.Context) error {
 	if a == nil {
 		return nil
 	}
+	_ = ctx
 
-	var drainErr error
-	if a.NatsConnection != nil {
-		drainErr = a.NatsConnection.Drain()
-		if drainErr != nil {
-			if a.Log != nil {
-				a.Log.ErrorContext(ctx, "failed to drain nats connection", "err", drainErr)
-			}
-			a.NatsConnection.Close()
-		}
+	if a.kafkaConsumer != nil {
+		a.kafkaConsumer.Close()
 	}
-	if a.DBPool != nil {
-		a.DBPool.Close()
+	if a.repository != nil {
+		a.repository.Close()
 	}
 
-	return drainErr
+	return nil
 }

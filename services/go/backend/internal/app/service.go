@@ -6,23 +6,17 @@ import (
 	"net/http"
 
 	"github.com/gofrs/uuid/v5"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"go-services/backend/internal/config"
 	"go-services/backend/internal/idp/keycloak"
 	"go-services/backend/internal/user"
-	"go-services/library/transactor"
 )
 
 type service struct {
 	UserEventCommandService *user.EventCommandService
 }
 
-func newService(log *slog.Logger, cfg *config.Config, dbPool *pgxpool.Pool) (*service, error) {
-	txAccessor := transactor.NewTxAccessor[pgx.Tx]()
-	userRepo := user.NewRepo(dbPool, txAccessor)
-
+func newService(log *slog.Logger, cfg *config.Config, repo *repository) (*service, error) {
 	userProvider, err := keycloak.NewClient(
 		keycloak.Config{
 			BaseURL:      cfg.Keycloak.BaseURL,
@@ -37,6 +31,6 @@ func newService(log *slog.Logger, cfg *config.Config, dbPool *pgxpool.Pool) (*se
 	}
 
 	return &service{
-		UserEventCommandService: user.NewEventCommandService(log, uuid.NewV4, userRepo, userProvider),
+		UserEventCommandService: user.NewEventCommandService(log, uuid.NewV4, repo.userRepository, userProvider),
 	}, nil
 }

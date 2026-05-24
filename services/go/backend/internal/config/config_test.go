@@ -4,10 +4,9 @@ import (
 	"os"
 	"testing"
 
-	"github.com/nats-io/nats.go"
-
 	"go-services/backend/internal/config"
 	"go-services/library/assert"
+	"go-services/library/require"
 )
 
 // Helper to set environment variable
@@ -36,7 +35,11 @@ func TestNew_MissingEnvs(t *testing.T) {
 		"KEYCLOAK_REALM",
 		"KEYCLOAK_BACKEND_CLIENT_ID",
 		"KEYCLOAK_BACKEND_CLIENT_SECRET",
-		"NATS_URL",
+		"KAFKA_BROKER_URLS",
+		"KAFKA_USERNAME",
+		"KAFKA_PASSWORD",
+		"KAFKA_TOPIC_USER_EVENT",
+		"KAFKA_CONSUMER_GROUP_ID",
 	)
 	expected := "missing environment variables"
 
@@ -51,6 +54,11 @@ func TestNew_Success(t *testing.T) {
 	setEnv(t, "KEYCLOAK_REALM", "playground")
 	setEnv(t, "KEYCLOAK_BACKEND_CLIENT_ID", "backend")
 	setEnv(t, "KEYCLOAK_BACKEND_CLIENT_SECRET", "secret")
+	setEnv(t, "KAFKA_BROKER_URLS", "localhost:9092, localhost:9093")
+	setEnv(t, "KAFKA_USERNAME", "backend")
+	setEnv(t, "KAFKA_PASSWORD", "kafka-secret")
+	setEnv(t, "KAFKA_TOPIC_USER_EVENT", "iam.user.event.v1")
+	setEnv(t, "KAFKA_CONSUMER_GROUP_ID", "backend-user-events")
 
 	defer unsetEnv(
 		t,
@@ -59,7 +67,11 @@ func TestNew_Success(t *testing.T) {
 		"KEYCLOAK_REALM",
 		"KEYCLOAK_BACKEND_CLIENT_ID",
 		"KEYCLOAK_BACKEND_CLIENT_SECRET",
-		"NATS_URL",
+		"KAFKA_BROKER_URLS",
+		"KAFKA_USERNAME",
+		"KAFKA_PASSWORD",
+		"KAFKA_TOPIC_USER_EVENT",
+		"KAFKA_CONSUMER_GROUP_ID",
 	)
 
 	cfg, err := config.New()
@@ -78,11 +90,48 @@ func TestNew_Success(t *testing.T) {
 			ClientID:     "backend",
 			ClientSecret: "secret",
 		},
-		NatsURL: nats.DefaultURL,
+		Kafka: &config.KafkaConfig{
+			BrokerURLs:      []string{"localhost:9092", "localhost:9093"},
+			Username:        "backend",
+			Password:        "kafka-secret",
+			UserEventTopic:  "iam.user.event.v1",
+			ConsumerGroupID: "backend-user-events",
+		},
 	}
 
 	// Compare the whole struct
 	assert.Equal(t, expected, cfg, "failed to create the correct config")
+}
+
+func TestNew_InvalidKafkaBrokerURLs(t *testing.T) {
+	setEnv(t, "DATABASE_URL", "postgres://testuser:testpass@localhost:5432/testdb")
+	setEnv(t, "KEYCLOAK_BASE_URL", "http://localhost:7777")
+	setEnv(t, "KEYCLOAK_REALM", "playground")
+	setEnv(t, "KEYCLOAK_BACKEND_CLIENT_ID", "backend")
+	setEnv(t, "KEYCLOAK_BACKEND_CLIENT_SECRET", "secret")
+	setEnv(t, "KAFKA_BROKER_URLS", "localhost:9092, ,localhost:9093")
+	setEnv(t, "KAFKA_USERNAME", "backend")
+	setEnv(t, "KAFKA_PASSWORD", "kafka-secret")
+	setEnv(t, "KAFKA_TOPIC_USER_EVENT", "iam.user.event.v1")
+	setEnv(t, "KAFKA_CONSUMER_GROUP_ID", "backend-user-events")
+
+	defer unsetEnv(
+		t,
+		"DATABASE_URL",
+		"KEYCLOAK_BASE_URL",
+		"KEYCLOAK_REALM",
+		"KEYCLOAK_BACKEND_CLIENT_ID",
+		"KEYCLOAK_BACKEND_CLIENT_SECRET",
+		"KAFKA_BROKER_URLS",
+		"KAFKA_USERNAME",
+		"KAFKA_PASSWORD",
+		"KAFKA_TOPIC_USER_EVENT",
+		"KAFKA_CONSUMER_GROUP_ID",
+	)
+
+	_, err := config.New()
+
+	require.ErrorContains(t, err, "invalid KAFKA_BROKER_URLS", "expected invalid broker urls error")
 }
 
 // func TestNew_Successa(t *testing.T) {

@@ -15,11 +15,10 @@ type Handler func(ctx context.Context, record *kgo.Record) error
 // Consumer is a wrapper around franz-go kgo.Client.
 // It manages the consumption loop and parallel processing of records.
 type Consumer struct {
-	cfg    *config
-	log    *slog.Logger
-	client *kgo.Client
-
 	topicRouter map[string]Handler
+	shared      *sharedClient
+	cfg         *config
+	log         *slog.Logger
 	mu          sync.RWMutex
 	closed      bool
 }
@@ -30,14 +29,14 @@ type Consumer struct {
 // configuration. Those topics are already included in the client's initial
 // kgo.ConsumeTopics subscription, so they are copied into the in-memory router with
 // subscribe=false to avoid re-adding the same Kafka subscription a second time.
-func newConsumer(cfg *config, client *kgo.Client) (*Consumer, error) {
+func newConsumer(cfg *config, shared *sharedClient) (*Consumer, error) {
 	consumer := &Consumer{
+		topicRouter: make(map[string]Handler, len(cfg.topicRouter)),
+		shared:      shared,
 		mu:          sync.RWMutex{},
 		closed:      false,
 		cfg:         cfg,
-		client:      client,
 		log:         cfg.logger,
-		topicRouter: make(map[string]Handler, len(cfg.topicRouter)),
 	}
 
 	for topic, handler := range cfg.topicRouter {
@@ -56,7 +55,11 @@ func (c *Consumer) Run(ctx context.Context) error {
 		"groupId", c.cfg.groupId,
 		"workers", c.cfg.workers)
 
-	if err := c.runClient(ctx, c.client); err != nil {
+	if c.shared == nil || c.shared.client == nil {
+		return fmt.Errorf("consumer client is not initialized")
+	}
+
+	if err := c.runClient(ctx, c.shared.client); err != nil {
 		if ctx.Err() != nil {
 			c.log.InfoContext(ctx, "Kafka consumer context cancelled, shutting down...")
 			return ctx.Err()
@@ -163,8 +166,8 @@ func (c *Consumer) registerTopic(topic string, handler Handler, subscribe bool) 
 	}
 
 	c.topicRouter[topic] = handler
-	if subscribe && c.client != nil {
-		c.client.AddConsumeTopics(topic)
+	if subscribe && c.shared != nil && c.shared.client != nil {
+		c.shared.client.AddConsumeTopics(topic)
 	}
 
 	return nil
@@ -202,10 +205,10 @@ func (c *Consumer) Close() {
 		return
 	}
 	c.closed = true
-	client := c.client
+	shared := c.shared
 	c.mu.Unlock()
 
-	if client != nil {
-		client.Close()
+	if shared != nil {
+		shared.Close()
 	}
 }

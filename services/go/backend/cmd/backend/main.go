@@ -2,15 +2,18 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"go-services/backend/internal/app"
 )
 
 func main() {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
 	appl, err := app.New(ctx)
 	if err != nil {
@@ -23,4 +26,9 @@ func main() {
 			appl.Log.ErrorContext(ctx, "failed to close app", "err", err)
 		}
 	}()
+
+	if err := appl.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+		appl.Log.ErrorContext(ctx, "backend app run failed", "err", err)
+		os.Exit(1)
+	}
 }
