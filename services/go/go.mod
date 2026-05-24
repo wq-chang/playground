@@ -13,7 +13,7 @@ require (
 	github.com/pressly/goose/v3 v3.27.1
 	github.com/testcontainers/testcontainers-go v0.42.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.42.0
-	github.com/twmb/franz-go v1.21.1
+	github.com/twmb/franz-go v1.21.2
 	github.com/twmb/franz-go/pkg/kadm v1.18.0
 	golang.org/x/oauth2 v0.36.0
 	golang.org/x/tools v0.45.0
