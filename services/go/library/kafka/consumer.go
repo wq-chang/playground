@@ -4,41 +4,97 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync"
+	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
-// Handler is the function that processes a single Kafka record.
+const (
+	defaultPartitionQueueCapacity = 64
+	commitDebounceInterval        = 100 * time.Millisecond
+	commitFlushInterval           = 500 * time.Millisecond
+)
+
+// Handler processes a single Kafka record.
+//
+// Returning nil marks the record as successfully handled. Returning an error
+// activates the subscription's failure policy.
 type Handler func(ctx context.Context, record *kgo.Record) error
 
-// Consumer is a wrapper around franz-go kgo.Client.
-// It manages the consumption loop and parallel processing of records.
+// Consumer wraps the shared Kafka client with topic routing, partition worker
+// management, and package-managed manual offset commits.
 type Consumer struct {
-	topicRouter map[string]Handler
-	client      *Client
-	cfg         *config
-	log         *slog.Logger
-	mu          sync.RWMutex
+	runCtx         context.Context
+	runErr         error
+	runCancel      context.CancelFunc
+	processSem     chan struct{}
+	workers        map[recordKey]*partitionWorker
+	client         *Client
+	cfg            *config
+	log            *slog.Logger
+	subscriptions  map[string]Subscription
+	pausedTopics   map[string]pausedTopic
+	commitSignal   chan struct{}
+	dispatchSignal chan struct{}
+	runWG          sync.WaitGroup
+	mu             sync.RWMutex
+	runErrOnce     sync.Once
+	commitMu       sync.Mutex
+}
+
+type recordKey struct {
+	topic     string
+	partition int32
+}
+
+type pausedTopic struct {
+	cause    error
+	pausedAt time.Time
+}
+
+type partitionBatch struct {
+	key          recordKey
+	records      []*kgo.Record
+	subscription Subscription
+}
+
+type recordResult struct {
+	cause      error
+	resolved   bool
+	pauseTopic bool
 }
 
 // newConsumer creates a new Kafka consumer.
 //
-// Topics already present in cfg.topicRouter came from WithTopic during startup
-// configuration. Those topics are already included in the client's initial
-// kgo.ConsumeTopics subscription, so they are copied into the in-memory router with
-// subscribe=false to avoid re-adding the same Kafka subscription a second time.
+// Subscriptions already present in cfg.subscriptions came from WithSubscription /
+// WithTopic during startup configuration. Those topics are already included in the
+// client's initial kgo.ConsumeTopics subscription, so they are copied into the
+// in-memory router with subscribe=false to avoid re-adding the same Kafka
+// subscription a second time.
 func newConsumer(cfg *config, client *Client) (*Consumer, error) {
 	consumer := &Consumer{
-		topicRouter: make(map[string]Handler, len(cfg.topicRouter)),
-		client:      client,
-		cfg:         cfg,
-		log:         cfg.logger,
-		mu:          sync.RWMutex{},
+		runCtx:         nil,
+		runErr:         nil,
+		subscriptions:  make(map[string]Subscription, len(cfg.subscriptions)),
+		pausedTopics:   make(map[string]pausedTopic),
+		workers:        make(map[recordKey]*partitionWorker),
+		client:         client,
+		cfg:            cfg,
+		log:            cfg.logger,
+		runCancel:      nil,
+		commitSignal:   nil,
+		dispatchSignal: nil,
+		processSem:     nil,
+		commitMu:       sync.Mutex{},
+		mu:             sync.RWMutex{},
+		runErrOnce:     sync.Once{},
+		runWG:          sync.WaitGroup{},
 	}
 
-	for topic, handler := range cfg.topicRouter {
-		if err := consumer.registerTopic(topic, handler, false); err != nil {
+	for _, subscription := range cfg.subscriptions {
+		if err := consumer.registerSubscription(subscription, false); err != nil {
 			return nil, err
 		}
 	}
@@ -46,111 +102,98 @@ func newConsumer(cfg *config, client *Client) (*Consumer, error) {
 	return consumer, nil
 }
 
-// Run starts the consumer loop. It blocks until the context is cancelled or a fatal error occurs.
-// It uses a pool of workers to process records in parallel if configured.
-func (c *Consumer) Run(ctx context.Context) error {
-	c.log.InfoContext(ctx, "Starting Kafka consumer loop",
-		"groupId", c.cfg.groupId,
-		"workers", c.cfg.workers)
+func (c *Consumer) partitionBatches(records []*kgo.Record) ([]partitionBatch, error) {
+	grouped := make(map[recordKey]partitionBatch)
 
-	if c.client == nil || c.client.kgoClient == nil {
-		return fmt.Errorf("consumer client is not initialized")
-	}
-
-	if err := c.runClient(ctx, c.client.kgoClient); err != nil {
-		if ctx.Err() != nil {
-			c.log.InfoContext(ctx, "Kafka consumer context cancelled, shutting down...")
-			return ctx.Err()
-		}
-		c.log.Error("Kafka consumer loop error", "err", err)
-		return err
-	}
-	return nil
-}
-
-func (c *Consumer) runClient(ctx context.Context, cl *kgo.Client) error {
-	sem := make(chan struct{}, c.cfg.workers)
-	for {
-		fetches := cl.PollRecords(ctx, -1)
-		if fetches.IsClientClosed() {
-			return nil
-		}
-		if err := fetches.Err(); err != nil {
-			if ctx.Err() != nil {
-				return nil
-			}
-			c.log.Warn("Kafka poll error", "err", err)
+	for _, record := range records {
+		if c.isTopicPaused(record.Topic) {
 			continue
 		}
 
-		records := fetches.Records()
-		if len(records) == 0 {
-			continue
+		subscription, ok := c.subscriptionForTopic(record.Topic)
+		if !ok {
+			return nil, fmt.Errorf("failed to map topic to subscription: %s", record.Topic)
 		}
 
-		if c.cfg.ackMode == AckModeAtMostOnce {
-			if err := cl.CommitRecords(ctx, records...); err != nil {
-				c.log.ErrorContext(ctx, "failed to commit records (at most once)", "err", err)
-				continue
+		key := recordKey{
+			topic:     record.Topic,
+			partition: record.Partition,
+		}
+		batch, ok := grouped[key]
+		if !ok {
+			batch = partitionBatch{
+				key:          key,
+				subscription: subscription,
+				records:      make([]*kgo.Record, 0, 1),
 			}
 		}
-
-		var recordWg sync.WaitGroup
-		aborted := false
-
-		for _, record := range records {
-			select {
-			case <-ctx.Done():
-				aborted = true
-			case sem <- struct{}{}:
-				recordWg.Add(1)
-				go func(r *kgo.Record) {
-					defer recordWg.Done()
-					defer func() { <-sem }()
-					c.handleRecord(ctx, r)
-				}(record)
-			}
-
-			if aborted {
-				break
-			}
-		}
-
-		recordWg.Wait()
-
-		if c.cfg.ackMode == AckModeAtLeastOnce {
-			if err := cl.CommitRecords(ctx, records...); err != nil {
-				c.log.ErrorContext(ctx, "failed to commit records (at least once)", "err", err)
-			}
-		}
-
-		if aborted {
-			return ctx.Err()
-		}
+		batch.records = append(batch.records, record)
+		grouped[key] = batch
 	}
+
+	keys := make([]recordKey, 0, len(grouped))
+	for key := range grouped {
+		keys = append(keys, key)
+	}
+	slices.SortFunc(keys, func(left, right recordKey) int {
+		switch {
+		case left.topic < right.topic:
+			return -1
+		case left.topic > right.topic:
+			return 1
+		case left.partition < right.partition:
+			return -1
+		case left.partition > right.partition:
+			return 1
+		default:
+			return 0
+		}
+	})
+
+	batches := make([]partitionBatch, 0, len(keys))
+	for _, key := range keys {
+		batch := grouped[key]
+		slices.SortFunc(batch.records, func(left, right *kgo.Record) int {
+			switch {
+			case left.Offset < right.Offset:
+				return -1
+			case left.Offset > right.Offset:
+				return 1
+			default:
+				return 0
+			}
+		})
+		batches = append(batches, batch)
+	}
+	return batches, nil
 }
 
-// AddTopic registers a new topic handler and updates the underlying client to
-// start consuming the topic immediately.
+// AddSubscription registers a new topic subscription and updates the underlying
+// client to start consuming the topic immediately.
 //
-// Unlike startup topics registered through WithTopic, topics added here were not part
-// of the client's initial kgo.ConsumeTopics configuration, so AddTopic also calls the
-// franz-go runtime subscription API to begin consuming the new topic.
-func (c *Consumer) AddTopic(topic string, handler Handler) error {
-	return c.registerTopic(topic, handler, true)
+// It returns an error if the subscription is invalid, the topic is already
+// registered, or the client has been closed.
+func (c *Consumer) AddSubscription(subscription Subscription) error {
+	return c.registerSubscription(subscription, true)
 }
 
-// registerTopic stores a topic handler in the consumer router.
+// AddTopic registers a new topic handler using the consumer's default
+// acknowledgment mode.
+//
+// It is a shorthand for AddSubscription with a default Subscription.
+func (c *Consumer) AddTopic(topic string, handler Handler) error {
+	return c.AddSubscription(newDefaultSubscription(topic, handler, c.cfg.defaultAckMode))
+}
+
+// registerSubscription stores a topic subscription in the consumer router.
 //
 // When subscribe is true, the topic is also added to the underlying franz-go client at
-// runtime. When subscribe is false, only the handler router is updated because the
+// runtime. When subscribe is false, only the subscription router is updated because the
 // client is already subscribed from initial construction.
-func (c *Consumer) registerTopic(topic string, handler Handler, subscribe bool) error {
-	if topic == "" {
-		return fmt.Errorf("topic must not be empty")
-	}
-	if handler == nil {
-		return fmt.Errorf("handler must not be nil")
+func (c *Consumer) registerSubscription(subscription Subscription, subscribe bool) error {
+	normalized, err := subscription.normalize()
+	if err != nil {
+		return err
 	}
 
 	c.mu.Lock()
@@ -159,38 +202,22 @@ func (c *Consumer) registerTopic(topic string, handler Handler, subscribe bool) 
 	if c.client != nil && c.client.isClosed() {
 		return fmt.Errorf("consumer is closed")
 	}
-	if _, ok := c.topicRouter[topic]; ok {
-		return fmt.Errorf("topic handler already registered for %q", topic)
+	if _, ok := c.subscriptions[normalized.Topic]; ok {
+		return fmt.Errorf("topic handler already registered for %q", normalized.Topic)
 	}
 
-	c.topicRouter[topic] = handler
+	c.subscriptions[normalized.Topic] = normalized
 	if subscribe && c.client != nil && c.client.kgoClient != nil {
-		c.client.kgoClient.AddConsumeTopics(topic)
+		c.client.kgoClient.AddConsumeTopics(normalized.Topic)
 	}
 
 	return nil
 }
 
-func (c *Consumer) handleRecord(ctx context.Context, record *kgo.Record) {
-	handler, ok := c.handlerForTopic(record.Topic)
-	if !ok {
-		c.log.ErrorContext(ctx, "failed to map topic to handler", "topic", record.Topic)
-		return
-	}
-
-	if err := handler(ctx, record); err != nil {
-		c.log.ErrorContext(ctx, "Handler error",
-			"topic", record.Topic,
-			"partition", record.Partition,
-			"offset", record.Offset,
-			"err", err)
-	}
-}
-
-func (c *Consumer) handlerForTopic(topic string) (Handler, bool) {
+func (c *Consumer) subscriptionForTopic(topic string) (Subscription, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	handler, ok := c.topicRouter[topic]
-	return handler, ok
+	subscription, ok := c.subscriptions[topic]
+	return subscription, ok
 }

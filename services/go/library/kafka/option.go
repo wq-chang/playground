@@ -9,11 +9,11 @@ import (
 
 // AuthConfig contains credentials and mechanism for SASL authentication.
 type AuthConfig struct {
-	// Username for authentication.
+	// Username is the SASL username.
 	Username string
-	// Password for authentication.
+	// Password is the SASL password.
 	Password string
-	// Mechanism for authentication (e.g., PLAIN, SCRAM-SHA-256).
+	// Mechanism selects the SASL mechanism, such as PLAIN or SCRAM-SHA-256.
 	Mechanism AuthMechanism
 }
 
@@ -27,35 +27,37 @@ type config struct {
 	groupId string
 	// brokers is the list of seed brokers.
 	brokers []string
-	// topicRouter stores startup topic registrations that are applied when the
+	// subscriptions stores startup topic registrations that are applied when the
 	// consumer is constructed. Runtime additions live on Consumer itself.
-	topicRouter map[string]Handler
+	subscriptions map[string]Subscription
 	// kgoOpts are additional franz-go client options.
 	kgoOpts []kgo.Opt
-	// workers is the number of parallel workers for processing records.
+	// workers is the max number of records processed concurrently across
+	// partition workers.
 	workers int
-	// ackMode determines when records are committed.
-	ackMode AckMode
+	// defaultAckMode determines which acknowledgment mode is applied by the
+	// compatibility topic APIs.
+	defaultAckMode AckMode
 }
 
 // newConfig creates a new kafka onfig with default values.
 func newConfig(brokers []string, groupId string) *config {
 	return &config{
-		groupId:     groupId,
-		topicRouter: make(map[string]Handler),
-		workers:     1,
-		ackMode:     AckModeAtLeastOnce,
-		logger:      slog.Default(),
-		auth:        nil,
-		brokers:     brokers,
-		kgoOpts:     []kgo.Opt{},
+		groupId:        groupId,
+		subscriptions:  make(map[string]Subscription),
+		workers:        16,
+		defaultAckMode: AckModeAtLeastOnce,
+		logger:         slog.Default(),
+		auth:           nil,
+		brokers:        brokers,
+		kgoOpts:        []kgo.Opt{},
 	}
 }
 
-// Option is a configuration function that can be applied to both Consumer and Producer.
+// Option configures the shared Client created by New.
 type Option func(*config)
 
-// WithAuth sets the SASL authentication configuration.
+// WithAuth configures SASL authentication for the shared client.
 func WithAuth(username, password string, mechanism AuthMechanism) Option {
 	return func(c *config) {
 		auth := &AuthConfig{
@@ -67,14 +69,15 @@ func WithAuth(username, password string, mechanism AuthMechanism) Option {
 	}
 }
 
-// WithLogger sets the logger.
+// WithLogger sets the logger used by the consumer runtime.
 func WithLogger(logger *slog.Logger) Option {
 	return func(c *config) {
 		c.logger = logger
 	}
 }
 
-// WithKgoOptions allows passing additional franz-go client options for both.
+// WithKgoOptions appends raw franz-go options to the shared client
+// configuration.
 func WithKgoOptions(opts ...kgo.Opt) Option {
 	return func(c *config) {
 		c.kgoOpts = append(c.kgoOpts, opts...)
@@ -83,7 +86,8 @@ func WithKgoOptions(opts ...kgo.Opt) Option {
 
 // --- Consumer Specific Options ---
 
-// WithWorkers sets the number of worker goroutines for processing records (Consumer only).
+// WithWorkers sets the maximum number of records processed concurrently across
+// all partition workers.
 func WithWorkers(workers int) Option {
 	return func(c *config) {
 		if workers > 0 {
@@ -92,28 +96,48 @@ func WithWorkers(workers int) Option {
 	}
 }
 
-// WithAckMode sets the acknowledgment mode (Consumer only).
+// WithAckMode sets the default acknowledgment mode used by WithTopic and
+// Consumer.AddTopic.
 func WithAckMode(mode AckMode) Option {
 	return func(c *config) {
-		c.ackMode = mode
+		c.defaultAckMode = mode
+	}
+}
+
+// WithSubscription registers a processing subscription during client
+// construction.
+//
+// For runtime registration after New, use Consumer.AddSubscription. If a
+// subscription is already registered for the given topic, this option panics.
+func WithSubscription(subscription Subscription) Option {
+	return func(c *config) {
+		normalized, err := subscription.normalize()
+		if err != nil {
+			panic(err)
+		}
+		if _, ok := c.subscriptions[normalized.Topic]; ok {
+			panic(fmt.Sprintf("topic handler already registered for %q", normalized.Topic))
+		}
+		c.subscriptions[normalized.Topic] = normalized
 	}
 }
 
 // WithTopic registers a processing handler for a specific Kafka topic during
-// consumer construction. For runtime registration after New, use Consumer.AddTopic.
-// If a handler is already registered for the given topic, this function will panic.
+// client construction.
+//
+// The created subscription uses the default acknowledgment mode configured by
+// WithAckMode. For runtime registration after New, use Consumer.AddTopic. If a
+// handler is already registered for the given topic, this option panics.
 func WithTopic(topic string, handler Handler) Option {
 	return func(c *config) {
-		if _, ok := c.topicRouter[topic]; ok {
-			panic(fmt.Sprintf("topic handler already registered for %q", topic))
-		}
-		c.topicRouter[topic] = handler
+		WithSubscription(newDefaultSubscription(topic, handler, c.defaultAckMode))(c)
 	}
 }
 
 // --- Producer Specific Options ---
 
-// WithProducerAcks sets the required acknowledgments for the producer.
+// WithProducerAcks sets the broker acknowledgment requirement for produced
+// records.
 func WithProducerAcks(acks kgo.Acks) Option {
 	return func(c *config) {
 		c.kgoOpts = append(c.kgoOpts, kgo.RequiredAcks(acks))

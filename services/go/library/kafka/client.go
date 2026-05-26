@@ -1,6 +1,7 @@
 package kafka
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"slices"
@@ -15,7 +16,9 @@ import (
 // Client owns the shared franz-go client and exposes the consumer and producer
 // capability wrappers that operate on it.
 type Client struct {
-	Consumer  *Consumer
+	// Consumer exposes the package's topic subscription and consumption APIs.
+	Consumer *Consumer
+	// Producer exposes the package's record publishing APIs.
 	Producer  *Producer
 	kgoClient *kgo.Client
 	closeOnce sync.Once
@@ -24,6 +27,7 @@ type Client struct {
 }
 
 // Close closes the shared franz-go client used by both Consumer and Producer.
+// It is safe to call more than once.
 func (c *Client) Close() {
 	if c == nil {
 		return
@@ -52,26 +56,26 @@ func (c *Client) isClosed() bool {
 // New creates and initializes a Kafka client using a single shared
 // kgo.Client. This is the primary entry point for the kafka package.
 //
-// It automatically configures the client based on the provided brokers, groupId, and
-// functional options. It handles:
+// It configures the shared client from the provided brokers, consumer group ID,
+// and functional options. It handles:
 //   - SASL Authentication (Plain, SCRAM-256, SCRAM-512)
-//   - Topic routing based on registered handlers
-//   - Offset management strategy (e.g., disabling auto-commit for AtLeastOnce mode)
+//   - Topic routing based on registered subscriptions
+//   - Package-managed manual offset commits with rebalance coordination
 //
 // Both Client.Consumer and Client.Producer share the same underlying TCP connections
 // to the Kafka brokers, which is more resource-efficient than creating separate clients.
 //
-// Any topics registered through WithTopic are subscribed up front via kgo.ConsumeTopics
-// during client creation. Additional topics can be registered later through
-// Consumer.AddTopic, which updates both the consumer's handler router and the franz-go
-// runtime subscription.
+// Any topics registered through WithSubscription / WithTopic are subscribed up front
+// via kgo.ConsumeTopics during client creation. Additional topics can be registered
+// later through Consumer.AddSubscription / Consumer.AddTopic, which update both the
+// consumer router and the franz-go runtime subscription.
 func New(brokers []string, groupId string, opts ...Option) (*Client, error) {
 	cfg := newConfig(brokers, groupId)
 	for _, opt := range opts {
 		opt(cfg)
 	}
 
-	topics := slices.Collect(maps.Keys(cfg.topicRouter))
+	topics := slices.Collect(maps.Keys(cfg.subscriptions))
 	kgoOpts := []kgo.Opt{
 		kgo.SeedBrokers(cfg.brokers...),
 		kgo.ConsumerGroup(cfg.groupId),
@@ -104,11 +108,25 @@ func New(brokers []string, groupId string, opts ...Option) (*Client, error) {
 		kgoOpts = append(kgoOpts, kgo.SASL(m))
 	}
 
-	if cfg.ackMode == AckModeAtLeastOnce {
-		kgoOpts = append(kgoOpts, kgo.DisableAutoCommit())
-	}
-
 	kgoOpts = append(kgoOpts, cfg.kgoOpts...)
+
+	var consumer *Consumer
+	kgoOpts = append(kgoOpts,
+		kgo.DisableAutoCommit(),
+		kgo.BlockRebalanceOnPoll(),
+		kgo.OnPartitionsRevoked(func(ctx context.Context, cl *kgo.Client, partitions map[string][]int32) {
+			if consumer == nil {
+				return
+			}
+			consumer.onPartitionsRevoked(ctx, cl, partitions)
+		}),
+		kgo.OnPartitionsLost(func(ctx context.Context, _ *kgo.Client, partitions map[string][]int32) {
+			if consumer == nil {
+				return
+			}
+			consumer.onPartitionsLost(ctx, partitions)
+		}),
+	)
 
 	kgoClient, err := kgo.NewClient(kgoOpts...)
 	if err != nil {
@@ -124,7 +142,7 @@ func New(brokers []string, groupId string, opts ...Option) (*Client, error) {
 		mu:        sync.RWMutex{},
 	}
 
-	consumer, err := newConsumer(cfg, client)
+	consumer, err = newConsumer(cfg, client)
 	if err != nil {
 		client.Close()
 		return nil, fmt.Errorf("failed to initialize consumer: %w", err)

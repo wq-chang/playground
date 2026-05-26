@@ -6,7 +6,7 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
-// Producer is a wrapper around franz-go kgo.Client for producing records.
+// Producer wraps the shared Kafka client with record publishing helpers.
 type Producer struct {
 	cfg    *config
 	client *Client
@@ -20,18 +20,19 @@ func newProducer(cfg *config, client *Client) *Producer {
 	}
 }
 
-// Produce sends a record to Kafka.
+// Produce sends a record to Kafka asynchronously and invokes promise when the
+// broker acknowledges the record or the send fails.
 func (p *Producer) Produce(ctx context.Context, record *kgo.Record, promise func(*kgo.Record, error)) {
 	p.client.kgoClient.Produce(ctx, record, promise)
 }
 
-// ProduceSync sends a record to Kafka and waits for it to be acknowledged.
+// ProduceSync sends a record to Kafka and waits for the send result.
 func (p *Producer) ProduceSync(ctx context.Context, record *kgo.Record) error {
 	results := p.client.kgoClient.ProduceSync(ctx, record)
 	return results.FirstErr()
 }
 
-// Flush waits for all buffered records to be sent.
+// Flush waits for all buffered records to be sent before returning.
 func (p *Producer) Flush(ctx context.Context) error {
 	return p.client.kgoClient.Flush(ctx)
 }

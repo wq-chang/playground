@@ -19,7 +19,12 @@ func newKafkaConsumer(cfg *config.Config, svc *service) (*kafka.Client, error) {
 	}
 
 	eventConsumer := user.NewEventConsumer(svc.UserEventCommandService)
-	if err := kafkaClient.Consumer.AddTopic(cfg.Kafka.UserEventTopic, eventConsumer.HandleRecord); err != nil {
+	if err := kafkaClient.Consumer.AddSubscription(kafka.Subscription{
+		Topic:         cfg.Kafka.UserEventTopic,
+		Handler:       eventConsumer.HandleRecord,
+		AckMode:       kafka.AckModeAtLeastOnce,
+		FailurePolicy: kafka.FailurePolicy{},
+	}); err != nil {
 		kafkaClient.Close()
 		return nil, fmt.Errorf("failed to register user event topic handler: %w", err)
 	}
