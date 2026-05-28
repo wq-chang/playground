@@ -23,7 +23,7 @@
     <plugin.jar.version>3.5.0</plugin.jar.version>
     <plugin.shade.version>3.6.2</plugin.shade.version>
     <plugin.spotless.version>3.4.0</plugin.spotless.version>
-    <plugin.surefire.version>3.5.5</plugin.surefire.version>
+    <plugin.surefire.version>3.5.6</plugin.surefire.version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
   </properties>
   <dependencyManagement>
