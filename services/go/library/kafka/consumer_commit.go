@@ -4,11 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/kmsg"
 )
+
+var commitOffsetsSyncFn = commitOffsetsSync
 
 func (c *Consumer) runCommitLoop(ctx context.Context, cl *kgo.Client) {
 	defer c.runWG.Done()
@@ -91,17 +94,16 @@ func (c *Consumer) flushDirtyOffsets(ctx context.Context, cl *kgo.Client) error 
 }
 
 func (c *Consumer) snapshotDirtyOffsets() map[string]map[int32]kgo.EpochOffset {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if len(c.workers) == 0 {
+	dirtyWorkers := c.snapshotDirtyWorkers()
+	if len(dirtyWorkers) == 0 {
 		return nil
 	}
 
 	offsets := make(map[string]map[int32]kgo.EpochOffset)
-	for key, worker := range c.workers {
+	for key, worker := range dirtyWorkers {
 		offset, ok := worker.snapshotDirtyOffset()
 		if !ok {
+			c.clearDirtyWorker(key, worker)
 			continue
 		}
 
@@ -124,16 +126,19 @@ func (c *Consumer) markCommittedOffsets(offsets map[string]map[int32]kgo.EpochOf
 		return
 	}
 
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
 	for topic, partitions := range offsets {
 		for partition, offset := range partitions {
-			worker, ok := c.workers[recordKey{topic: topic, partition: partition}]
+			key := recordKey{topic: topic, partition: partition}
+			c.workersMu.RLock()
+			worker, ok := c.workers[key]
+			c.workersMu.RUnlock()
 			if !ok {
+				c.clearDirtyWorker(key, nil)
 				continue
 			}
-			worker.markCommitted(offset)
+			if !worker.markCommitted(offset) {
+				c.clearDirtyWorker(key, worker)
+			}
 		}
 	}
 }
@@ -157,7 +162,7 @@ func (c *Consumer) commitOffsets(
 	c.commitMu.Lock()
 	defer c.commitMu.Unlock()
 
-	return commitOffsetsSync(ctx, cl, offsets)
+	return commitOffsetsSyncFn(ctx, cl, offsets)
 }
 
 func commitOffsetsSync(
@@ -170,26 +175,39 @@ func commitOffsetsSync(
 	}
 
 	var commitErr error
-	cl.CommitOffsetsSync(ctx, offsets, func(_ *kgo.Client, _ *kmsg.OffsetCommitRequest, _ *kmsg.OffsetCommitResponse, err error) {
-		commitErr = err
-	})
+	cl.CommitOffsetsSync(
+		ctx,
+		offsets,
+		func(
+			_ *kgo.Client,
+			_ *kmsg.OffsetCommitRequest,
+			_ *kmsg.OffsetCommitResponse,
+			err error,
+		) {
+			commitErr = err
+		},
+	)
 	return commitErr
 }
 
 func (c *Consumer) pauseTopic(cl *kgo.Client, topic string, cause error) error {
-	c.mu.Lock()
+	c.pausedTopicsMu.Lock()
 	if _, ok := c.pausedTopics[topic]; ok {
-		c.mu.Unlock()
+		c.pausedTopicsMu.Unlock()
 		return nil
 	}
 	c.pausedTopics[topic] = pausedTopic{
 		cause:    cause,
 		pausedAt: time.Now(),
 	}
+	c.pausedTopicsState.Store(maps.Clone(c.pausedTopics))
+	c.pausedTopicsMu.Unlock()
+
+	c.workersMu.Lock()
 	offsets := c.stopWorkersLocked(func(key recordKey) bool {
 		return key.topic == topic
 	})
-	c.mu.Unlock()
+	c.workersMu.Unlock()
 
 	if cl != nil {
 		cl.PauseFetchTopics(topic)
@@ -205,10 +223,7 @@ func (c *Consumer) pauseTopic(cl *kgo.Client, topic string, cause error) error {
 }
 
 func (c *Consumer) isTopicPaused(topic string) bool {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	_, ok := c.pausedTopics[topic]
+	_, ok := c.pausedTopicSnapshot()[topic]
 	return ok
 }
 
@@ -222,6 +237,7 @@ func (c *Consumer) stopWorkersLocked(match func(recordKey) bool) map[string]map[
 
 		offset, ok := worker.stop()
 		delete(c.workers, key)
+		delete(c.dirtyWorkers, key)
 		if !ok {
 			continue
 		}
@@ -248,8 +264,8 @@ func (c *Consumer) stopWorkersForPartitions(partitions map[string][]int32) map[s
 		}
 	}
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.workersMu.Lock()
+	defer c.workersMu.Unlock()
 
 	return c.stopWorkersLocked(func(key recordKey) bool {
 		_, ok := allowed[key]
@@ -265,8 +281,8 @@ func (c *Consumer) stopWorkersForLostPartitions(partitions map[string][]int32) {
 		}
 	}
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.workersMu.Lock()
+	defer c.workersMu.Unlock()
 
 	_ = c.stopWorkersLocked(func(key recordKey) bool {
 		_, ok := allowed[key]
@@ -298,4 +314,43 @@ func (c *Consumer) onPartitionsRevoked(ctx context.Context, cl *kgo.Client, part
 func (c *Consumer) onPartitionsLost(ctx context.Context, partitions map[string][]int32) {
 	c.log.WarnContext(ctx, "Kafka partitions lost; dropping in-memory commit progress", "partitions", partitions)
 	c.stopWorkersForLostPartitions(partitions)
+}
+
+func (c *Consumer) markWorkerDirty(worker *partitionWorker) bool {
+	c.workersMu.Lock()
+	defer c.workersMu.Unlock()
+
+	current, ok := c.workers[worker.key]
+	if !ok || current != worker {
+		return false
+	}
+	c.dirtyWorkers[worker.key] = worker
+	return true
+}
+
+func (c *Consumer) clearDirtyWorker(key recordKey, worker *partitionWorker) {
+	c.workersMu.Lock()
+	defer c.workersMu.Unlock()
+
+	if worker == nil {
+		delete(c.dirtyWorkers, key)
+		return
+	}
+	current, ok := c.dirtyWorkers[key]
+	if ok && current == worker {
+		delete(c.dirtyWorkers, key)
+	}
+}
+
+func (c *Consumer) snapshotDirtyWorkers() map[recordKey]*partitionWorker {
+	c.workersMu.RLock()
+	defer c.workersMu.RUnlock()
+
+	if len(c.dirtyWorkers) == 0 {
+		return nil
+	}
+
+	dirtyWorkers := make(map[recordKey]*partitionWorker, len(c.dirtyWorkers))
+	maps.Copy(dirtyWorkers, c.dirtyWorkers)
+	return dirtyWorkers
 }

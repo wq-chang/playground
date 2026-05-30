@@ -14,9 +14,12 @@ import (
 // Run blocks until the context is canceled or a fatal processing error occurs.
 // Only one active Run call is allowed at a time for a given Consumer.
 func (c *Consumer) Run(ctx context.Context) error {
-	c.log.InfoContext(ctx, "Starting Kafka consumer loop",
+	c.log.InfoContext(
+		ctx,
+		"Starting Kafka consumer loop",
 		"groupId", c.cfg.groupId,
-		"workers", c.cfg.workers)
+		"workers", c.cfg.workers,
+	)
 
 	if c.client == nil || c.client.kgoClient == nil {
 		return fmt.Errorf("consumer client is not initialized")
@@ -66,8 +69,8 @@ func (c *Consumer) Run(ctx context.Context) error {
 }
 
 func (c *Consumer) beginRun(parent context.Context) (context.Context, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.runMu.Lock()
+	defer c.runMu.Unlock()
 
 	if c.runCtx != nil {
 		return nil, fmt.Errorf("consumer run is already active")
@@ -82,15 +85,18 @@ func (c *Consumer) beginRun(parent context.Context) (context.Context, error) {
 	c.commitSignal = make(chan struct{}, 1)
 	c.dispatchSignal = make(chan struct{}, 1)
 	c.processSem = make(chan struct{}, c.processConcurrency())
+	c.workersMu.Lock()
 	c.workers = make(map[recordKey]*partitionWorker)
+	c.dirtyWorkers = make(map[recordKey]*partitionWorker)
+	c.workersMu.Unlock()
 
 	return runCtx, nil
 }
 
 func (c *Consumer) stopRun() {
-	c.mu.RLock()
+	c.runMu.RLock()
 	runCancel := c.runCancel
-	c.mu.RUnlock()
+	c.runMu.RUnlock()
 
 	if runCancel != nil {
 		runCancel()
@@ -98,8 +104,8 @@ func (c *Consumer) stopRun() {
 }
 
 func (c *Consumer) resetRunState() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.runMu.Lock()
+	defer c.runMu.Unlock()
 
 	c.runCtx = nil
 	c.runCancel = nil
@@ -107,7 +113,10 @@ func (c *Consumer) resetRunState() {
 	c.commitSignal = nil
 	c.dispatchSignal = nil
 	c.processSem = nil
+	c.workersMu.Lock()
 	c.workers = make(map[recordKey]*partitionWorker)
+	c.dirtyWorkers = make(map[recordKey]*partitionWorker)
+	c.workersMu.Unlock()
 }
 
 func (c *Consumer) fail(err error) {
@@ -115,8 +124,8 @@ func (c *Consumer) fail(err error) {
 		return
 	}
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.runMu.Lock()
+	defer c.runMu.Unlock()
 
 	c.runErrOnce.Do(func() {
 		c.runErr = err
@@ -127,16 +136,16 @@ func (c *Consumer) fail(err error) {
 }
 
 func (c *Consumer) runFailure() error {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	c.runMu.RLock()
+	defer c.runMu.RUnlock()
 
 	return c.runErr
 }
 
 func (c *Consumer) signalCommitLoop() {
-	c.mu.RLock()
+	c.runMu.RLock()
 	ch := c.commitSignal
-	c.mu.RUnlock()
+	c.runMu.RUnlock()
 
 	if ch == nil {
 		return
@@ -149,9 +158,9 @@ func (c *Consumer) signalCommitLoop() {
 }
 
 func (c *Consumer) signalDispatchCapacity() {
-	c.mu.RLock()
+	c.runMu.RLock()
 	ch := c.dispatchSignal
-	c.mu.RUnlock()
+	c.runMu.RUnlock()
 
 	if ch == nil {
 		return
@@ -164,9 +173,9 @@ func (c *Consumer) signalDispatchCapacity() {
 }
 
 func (c *Consumer) waitForDispatchCapacity(ctx context.Context) error {
-	c.mu.RLock()
+	c.runMu.RLock()
 	ch := c.dispatchSignal
-	c.mu.RUnlock()
+	c.runMu.RUnlock()
 
 	if ch == nil {
 		return fmt.Errorf("dispatch signal is not initialized")
@@ -177,6 +186,38 @@ func (c *Consumer) waitForDispatchCapacity(ctx context.Context) error {
 		return ctx.Err()
 	case <-ch:
 		return nil
+	}
+}
+
+func (c *Consumer) acquireProcessSlot(ctx context.Context) error {
+	c.runMu.RLock()
+	sem := c.processSem
+	c.runMu.RUnlock()
+
+	if sem == nil {
+		return fmt.Errorf("process semaphore is not initialized")
+	}
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case sem <- struct{}{}:
+		return nil
+	}
+}
+
+func (c *Consumer) releaseProcessSlot() {
+	c.runMu.RLock()
+	sem := c.processSem
+	c.runMu.RUnlock()
+
+	if sem == nil {
+		return
+	}
+
+	select {
+	case <-sem:
+	default:
 	}
 }
 
@@ -205,6 +246,38 @@ func (c *Consumer) partitionQueueHighWatermark() int {
 
 func (c *Consumer) partitionQueueLowWatermark() int {
 	return c.partitionQueueCapacity() / 2
+}
+
+func (c *Consumer) runPartitionWorker(worker *partitionWorker, cl *kgo.Client) {
+	defer close(worker.done)
+
+	for {
+		select {
+		case <-worker.ctx.Done():
+			return
+		case record := <-worker.queue:
+			queueLen := worker.onDequeue()
+			c.signalDispatchCapacity()
+			c.maybeResumePartitionAfterDrain(cl, worker, queueLen)
+
+			if c.isTopicPaused(record.Topic) {
+				continue
+			}
+
+			if err := c.acquireProcessSlot(worker.ctx); err != nil {
+				return
+			}
+
+			err := func() error {
+				defer c.releaseProcessSlot()
+				return c.processWorkerRecord(worker.ctx, cl, worker, record)
+			}()
+			if err != nil && !errors.Is(err, context.Canceled) {
+				c.fail(err)
+				return
+			}
+		}
+	}
 }
 
 func (c *Consumer) runClient(ctx context.Context, cl *kgo.Client) error {
@@ -272,16 +345,13 @@ func (c *Consumer) dispatchRecords(ctx context.Context, cl *kgo.Client, records 
 			if err != nil {
 				return err
 			}
+			if worker == nil {
+				progressed = true
+				continue
+			}
 
 			for cursor.next < len(cursor.batch.records) {
-				record := cursor.batch.records[cursor.next]
-				if c.isTopicPaused(record.Topic) {
-					progressed = true
-					cursor.next = len(cursor.batch.records)
-					break
-				}
-
-				enqueued, err := c.enqueueRecord(cl, worker, record)
+				enqueued, err := c.enqueueRecord(cl, worker, cursor.batch.records[cursor.next])
 				if err != nil {
 					return err
 				}
@@ -310,17 +380,38 @@ func (c *Consumer) dispatchRecords(ctx context.Context, cl *kgo.Client, records 
 }
 
 func (c *Consumer) workerForPartition(key recordKey, subscription Subscription) (*partitionWorker, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if c.runCtx == nil {
+	c.runMu.RLock()
+	runCtx := c.runCtx
+	c.runMu.RUnlock()
+	if runCtx == nil {
 		return nil, fmt.Errorf("consumer run is not active")
 	}
+
+	c.workersMu.RLock()
+	if worker, ok := c.workers[key]; ok {
+		c.workersMu.RUnlock()
+		return worker, nil
+	}
+	c.workersMu.RUnlock()
+
+	c.workersMu.Lock()
+	defer c.workersMu.Unlock()
+
 	if worker, ok := c.workers[key]; ok {
 		return worker, nil
 	}
+	if c.isTopicPaused(key.topic) {
+		return nil, nil
+	}
 
-	worker := newPartitionWorker(c.runCtx, key, subscription, c.partitionQueueCapacity())
+	c.runMu.RLock()
+	runCtx = c.runCtx
+	c.runMu.RUnlock()
+	if runCtx == nil {
+		return nil, fmt.Errorf("consumer run is not active")
+	}
+
+	worker := newPartitionWorker(runCtx, key, subscription, c.partitionQueueCapacity())
 	c.workers[key] = worker
 
 	var kgoClient *kgo.Client
@@ -331,7 +422,7 @@ func (c *Consumer) workerForPartition(key recordKey, subscription Subscription) 
 	c.runWG.Add(1)
 	go func() {
 		defer c.runWG.Done()
-		worker.run(c, kgoClient)
+		c.runPartitionWorker(worker, kgoClient)
 	}()
 
 	return worker, nil

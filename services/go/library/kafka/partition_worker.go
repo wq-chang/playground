@@ -2,7 +2,6 @@ package kafka
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 
@@ -96,68 +95,6 @@ func (c *Consumer) maybeResumePartitionAfterDrain(cl *kgo.Client, worker *partit
 	})
 }
 
-func (w *partitionWorker) run(c *Consumer, cl *kgo.Client) {
-	defer close(w.done)
-
-	for {
-		select {
-		case <-w.ctx.Done():
-			return
-		case record := <-w.queue:
-			queueLen := w.onDequeue()
-			c.signalDispatchCapacity()
-			c.maybeResumePartitionAfterDrain(cl, w, queueLen)
-
-			if c.isTopicPaused(record.Topic) {
-				continue
-			}
-
-			if err := c.acquireProcessSlot(w.ctx); err != nil {
-				return
-			}
-
-			err := c.processWorkerRecord(w.ctx, cl, w, record)
-			c.releaseProcessSlot()
-			if err != nil && !errors.Is(err, context.Canceled) {
-				c.fail(err)
-				return
-			}
-		}
-	}
-}
-
-func (c *Consumer) acquireProcessSlot(ctx context.Context) error {
-	c.mu.RLock()
-	sem := c.processSem
-	c.mu.RUnlock()
-
-	if sem == nil {
-		return fmt.Errorf("process semaphore is not initialized")
-	}
-
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case sem <- struct{}{}:
-		return nil
-	}
-}
-
-func (c *Consumer) releaseProcessSlot() {
-	c.mu.RLock()
-	sem := c.processSem
-	c.mu.RUnlock()
-
-	if sem == nil {
-		return
-	}
-
-	select {
-	case <-sem:
-	default:
-	}
-}
-
 func (c *Consumer) processWorkerRecord(
 	ctx context.Context,
 	cl *kgo.Client,
@@ -183,7 +120,7 @@ func (c *Consumer) processWorkerRecord(
 		return c.pauseTopic(cl, record.Topic, result.cause)
 	}
 	if worker.subscription.AckMode == AckModeAtLeastOnce && result.resolved {
-		if worker.advanceCommitOffset(record) {
+		if worker.advanceCommitOffset(record) && c.markWorkerDirty(worker) {
 			c.signalCommitLoop()
 		}
 	}
@@ -208,9 +145,6 @@ func (w *partitionWorker) tryEnqueue(record *kgo.Record) (bool, int) {
 }
 
 func (w *partitionWorker) onDequeue() int {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
 	return len(w.queue)
 }
 
@@ -267,7 +201,7 @@ func (w *partitionWorker) snapshotDirtyOffset() (kgo.EpochOffset, bool) {
 	return w.nextCommitOffset, true
 }
 
-func (w *partitionWorker) markCommitted(offset kgo.EpochOffset) {
+func (w *partitionWorker) markCommitted(offset kgo.EpochOffset) bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -277,6 +211,7 @@ func (w *partitionWorker) markCommitted(offset kgo.EpochOffset) {
 	if !w.committedOffset.Less(w.nextCommitOffset) {
 		w.dirty = false
 	}
+	return w.dirty
 }
 
 func (w *partitionWorker) stop() (kgo.EpochOffset, bool) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime/debug"
 	"strconv"
 	"time"
 
@@ -19,7 +20,7 @@ func (c *Consumer) executeRecord(ctx context.Context, subscription Subscription,
 			return recordResult{}, err
 		}
 
-		err := subscription.Handler(ctx, record)
+		err := invokeHandler(ctx, subscription.Handler, record)
 		if err == nil {
 			return recordResult{
 				cause:      nil,
@@ -29,7 +30,9 @@ func (c *Consumer) executeRecord(ctx context.Context, subscription Subscription,
 		}
 
 		lastErr = err
-		c.log.ErrorContext(ctx, "Kafka handler error",
+		c.log.ErrorContext(
+			ctx,
+			"Kafka handler error",
 			"topic", record.Topic,
 			"partition", record.Partition,
 			"offset", record.Offset,
@@ -60,7 +63,9 @@ func (c *Consumer) executeRecord(ctx context.Context, subscription Subscription,
 			pauseTopic: true,
 		}, nil
 	case ExhaustedActionCommit:
-		c.log.WarnContext(ctx, "Kafka record dropped after retry exhaustion",
+		c.log.WarnContext(
+			ctx,
+			"Kafka record dropped after retry exhaustion",
 			"topic", record.Topic,
 			"partition", record.Partition,
 			"offset", record.Offset,
@@ -81,7 +86,9 @@ func (c *Consumer) executeRecord(ctx context.Context, subscription Subscription,
 				errors.Join(lastErr, err),
 			)
 		}
-		c.log.WarnContext(ctx, "Kafka record sent to DLQ after retry exhaustion",
+		c.log.WarnContext(
+			ctx,
+			"Kafka record sent to DLQ after retry exhaustion",
 			"topic", record.Topic,
 			"partition", record.Partition,
 			"offset", record.Offset,
@@ -95,6 +102,16 @@ func (c *Consumer) executeRecord(ctx context.Context, subscription Subscription,
 	default:
 		return recordResult{}, fmt.Errorf("unsupported exhausted action: %d", subscription.FailurePolicy.OnExhausted)
 	}
+}
+
+func invokeHandler(ctx context.Context, handler Handler, record *kgo.Record) (err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("handler panicked: %v\n%s", recovered, debug.Stack())
+		}
+	}()
+
+	return handler(ctx, record)
 }
 
 func (c *Consumer) publishToDLQ(

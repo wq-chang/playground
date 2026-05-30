@@ -4,8 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"slices"
+	"maps"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -26,22 +27,28 @@ type Handler func(ctx context.Context, record *kgo.Record) error
 // Consumer wraps the shared Kafka client with topic routing, partition worker
 // management, and package-managed manual offset commits.
 type Consumer struct {
-	runCtx         context.Context
-	runErr         error
-	runCancel      context.CancelFunc
-	processSem     chan struct{}
-	workers        map[recordKey]*partitionWorker
-	client         *Client
-	cfg            *config
-	log            *slog.Logger
-	subscriptions  map[string]Subscription
-	pausedTopics   map[string]pausedTopic
-	commitSignal   chan struct{}
-	dispatchSignal chan struct{}
-	runWG          sync.WaitGroup
-	mu             sync.RWMutex
-	runErrOnce     sync.Once
-	commitMu       sync.Mutex
+	client            *Client
+	cfg               *config
+	log               *slog.Logger
+	runCtx            context.Context
+	runCancel         context.CancelFunc
+	runErr            error
+	processSem        chan struct{}
+	commitSignal      chan struct{}
+	dispatchSignal    chan struct{}
+	subscriptionState atomic.Value
+	pausedTopicsState atomic.Value
+	subscriptions     map[string]Subscription
+	pausedTopics      map[string]pausedTopic
+	workers           map[recordKey]*partitionWorker
+	dirtyWorkers      map[recordKey]*partitionWorker
+	subscriptionMu    sync.Mutex
+	pausedTopicsMu    sync.Mutex
+	runMu             sync.RWMutex
+	workersMu         sync.RWMutex
+	commitMu          sync.Mutex
+	runWG             sync.WaitGroup
+	runErrOnce        sync.Once
 }
 
 type recordKey struct {
@@ -75,23 +82,31 @@ type recordResult struct {
 // subscription a second time.
 func newConsumer(cfg *config, client *Client) (*Consumer, error) {
 	consumer := &Consumer{
-		runCtx:         nil,
-		runErr:         nil,
-		subscriptions:  make(map[string]Subscription, len(cfg.subscriptions)),
-		pausedTopics:   make(map[string]pausedTopic),
-		workers:        make(map[recordKey]*partitionWorker),
-		client:         client,
-		cfg:            cfg,
-		log:            cfg.logger,
-		runCancel:      nil,
-		commitSignal:   nil,
-		dispatchSignal: nil,
-		processSem:     nil,
-		commitMu:       sync.Mutex{},
-		mu:             sync.RWMutex{},
-		runErrOnce:     sync.Once{},
-		runWG:          sync.WaitGroup{},
+		client:            client,
+		cfg:               cfg,
+		log:               cfg.logger,
+		runCtx:            nil,
+		runCancel:         nil,
+		runErr:            nil,
+		processSem:        nil,
+		commitSignal:      nil,
+		dispatchSignal:    nil,
+		subscriptionState: atomic.Value{},
+		pausedTopicsState: atomic.Value{},
+		subscriptions:     make(map[string]Subscription, len(cfg.subscriptions)),
+		pausedTopics:      make(map[string]pausedTopic),
+		workers:           make(map[recordKey]*partitionWorker),
+		dirtyWorkers:      make(map[recordKey]*partitionWorker),
+		commitMu:          sync.Mutex{},
+		runMu:             sync.RWMutex{},
+		workersMu:         sync.RWMutex{},
+		subscriptionMu:    sync.Mutex{},
+		pausedTopicsMu:    sync.Mutex{},
+		runErrOnce:        sync.Once{},
+		runWG:             sync.WaitGroup{},
 	}
+	consumer.subscriptionState.Store(map[string]Subscription{})
+	consumer.pausedTopicsState.Store(map[string]pausedTopic{})
 
 	for _, subscription := range cfg.subscriptions {
 		if err := consumer.registerSubscription(subscription, false); err != nil {
@@ -103,14 +118,17 @@ func newConsumer(cfg *config, client *Client) (*Consumer, error) {
 }
 
 func (c *Consumer) partitionBatches(records []*kgo.Record) ([]partitionBatch, error) {
-	grouped := make(map[recordKey]partitionBatch)
+	subscriptions := c.subscriptionSnapshot()
+	pausedTopics := c.pausedTopicSnapshot()
+	indexByKey := make(map[recordKey]int)
+	batches := make([]partitionBatch, 0)
 
 	for _, record := range records {
-		if c.isTopicPaused(record.Topic) {
+		if _, paused := pausedTopics[record.Topic]; paused {
 			continue
 		}
 
-		subscription, ok := c.subscriptionForTopic(record.Topic)
+		subscription, ok := subscriptions[record.Topic]
 		if !ok {
 			return nil, fmt.Errorf("failed to map topic to subscription: %s", record.Topic)
 		}
@@ -119,52 +137,19 @@ func (c *Consumer) partitionBatches(records []*kgo.Record) ([]partitionBatch, er
 			topic:     record.Topic,
 			partition: record.Partition,
 		}
-		batch, ok := grouped[key]
+		index, ok := indexByKey[key]
 		if !ok {
-			batch = partitionBatch{
+			index = len(batches)
+			indexByKey[key] = index
+			batches = append(batches, partitionBatch{
 				key:          key,
 				subscription: subscription,
 				records:      make([]*kgo.Record, 0, 1),
-			}
+			})
 		}
-		batch.records = append(batch.records, record)
-		grouped[key] = batch
+		batches[index].records = append(batches[index].records, record)
 	}
 
-	keys := make([]recordKey, 0, len(grouped))
-	for key := range grouped {
-		keys = append(keys, key)
-	}
-	slices.SortFunc(keys, func(left, right recordKey) int {
-		switch {
-		case left.topic < right.topic:
-			return -1
-		case left.topic > right.topic:
-			return 1
-		case left.partition < right.partition:
-			return -1
-		case left.partition > right.partition:
-			return 1
-		default:
-			return 0
-		}
-	})
-
-	batches := make([]partitionBatch, 0, len(keys))
-	for _, key := range keys {
-		batch := grouped[key]
-		slices.SortFunc(batch.records, func(left, right *kgo.Record) int {
-			switch {
-			case left.Offset < right.Offset:
-				return -1
-			case left.Offset > right.Offset:
-				return 1
-			default:
-				return 0
-			}
-		})
-		batches = append(batches, batch)
-	}
 	return batches, nil
 }
 
@@ -196,8 +181,8 @@ func (c *Consumer) registerSubscription(subscription Subscription, subscribe boo
 		return err
 	}
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.subscriptionMu.Lock()
+	defer c.subscriptionMu.Unlock()
 
 	if c.client != nil && c.client.isClosed() {
 		return fmt.Errorf("consumer is closed")
@@ -207,6 +192,7 @@ func (c *Consumer) registerSubscription(subscription Subscription, subscribe boo
 	}
 
 	c.subscriptions[normalized.Topic] = normalized
+	c.subscriptionState.Store(maps.Clone(c.subscriptions))
 	if subscribe && c.client != nil && c.client.kgoClient != nil {
 		c.client.kgoClient.AddConsumeTopics(normalized.Topic)
 	}
@@ -215,9 +201,30 @@ func (c *Consumer) registerSubscription(subscription Subscription, subscribe boo
 }
 
 func (c *Consumer) subscriptionForTopic(topic string) (Subscription, bool) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	subscription, ok := c.subscriptions[topic]
+	subscription, ok := c.subscriptionSnapshot()[topic]
 	return subscription, ok
+}
+
+func (c *Consumer) subscriptionSnapshot() map[string]Subscription {
+	value := c.subscriptionState.Load()
+	if value == nil {
+		return map[string]Subscription{}
+	}
+	snapshot, ok := value.(map[string]Subscription)
+	if !ok || snapshot == nil {
+		return map[string]Subscription{}
+	}
+	return snapshot
+}
+
+func (c *Consumer) pausedTopicSnapshot() map[string]pausedTopic {
+	value := c.pausedTopicsState.Load()
+	if value == nil {
+		return map[string]pausedTopic{}
+	}
+	snapshot, ok := value.(map[string]pausedTopic)
+	if !ok || snapshot == nil {
+		return map[string]pausedTopic{}
+	}
+	return snapshot
 }

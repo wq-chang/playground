@@ -2,9 +2,11 @@ package kafka
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -124,6 +126,110 @@ func TestConsumerAddTopicRejectsClosedConsumer(t *testing.T) {
 	assert.StringContains(t, err.Error(), "consumer is closed", "error message")
 }
 
+func TestConsumerExecuteRecordRecoversHandlerPanicAndStops(t *testing.T) {
+	consumer := newTestConsumer()
+	attempts := 0
+
+	subscription, err := Subscription{
+		Topic: "topic-a",
+		Handler: func(context.Context, *kgo.Record) error {
+			attempts++
+			panic("boom")
+		},
+		AckMode: AckModeAtLeastOnce,
+		FailurePolicy: FailurePolicy{
+			DLQ:          nil,
+			RetryBackoff: 0,
+			MaxAttempts:  2,
+			OnExhausted:  ExhaustedActionStop,
+		},
+	}.normalize()
+	require.NoError(t, err, "panicking subscription should normalize")
+
+	result, err := consumer.executeRecord(context.Background(), subscription, &kgo.Record{
+		Topic:     "topic-a",
+		Partition: 1,
+		Offset:    9,
+	})
+	require.NoError(t, err, "recovered handler panic should stay inside failure policy flow")
+
+	assert.Equal(t, attempts, 2, "recovered panic should retry up to max attempts")
+	assert.False(t, result.resolved, "stop-on-exhausted should leave the record unresolved")
+	assert.True(t, result.pauseTopic, "stop-on-exhausted should pause the topic")
+	require.NotNil(t, result.cause, "stop-on-exhausted should return a failure cause")
+	assert.ErrorContains(t, result.cause, `handler failed for topic "topic-a" partition 1 offset 9 after 2 attempts`, "result should describe retry exhaustion")
+	assert.ErrorContains(t, result.cause, "handler panicked: boom", "panic should be converted into a handler error")
+}
+
+func TestConsumerExecuteRecordRecoversHandlerPanicAndCanSucceedOnRetry(t *testing.T) {
+	consumer := newTestConsumer()
+	attempts := 0
+
+	subscription, err := Subscription{
+		Topic: "topic-a",
+		Handler: func(context.Context, *kgo.Record) error {
+			attempts++
+			if attempts == 1 {
+				panic("boom")
+			}
+			return nil
+		},
+		AckMode: AckModeAtLeastOnce,
+		FailurePolicy: FailurePolicy{
+			DLQ:          nil,
+			RetryBackoff: 0,
+			MaxAttempts:  2,
+			OnExhausted:  ExhaustedActionUnspecified,
+		},
+	}.normalize()
+	require.NoError(t, err, "subscription should normalize")
+
+	result, err := consumer.executeRecord(context.Background(), subscription, &kgo.Record{
+		Topic:     "topic-a",
+		Partition: 1,
+		Offset:    9,
+	})
+	require.NoError(t, err, "successful retry should not return an execution error")
+
+	assert.Equal(t, attempts, 2, "recovered panic should count as the first failed attempt")
+	assert.True(t, result.resolved, "successful retry should resolve the record")
+	assert.False(t, result.pauseTopic, "successful retry should not pause the topic")
+	assert.Nil(t, result.cause, "successful retry should not keep a failure cause")
+}
+
+func TestConsumerExecuteRecordRecoversHandlerPanicAndCommitExhausted(t *testing.T) {
+	consumer := newTestConsumer()
+	attempts := 0
+
+	subscription, err := Subscription{
+		Topic: "topic-a",
+		Handler: func(context.Context, *kgo.Record) error {
+			attempts++
+			panic("boom")
+		},
+		AckMode: AckModeAtLeastOnce,
+		FailurePolicy: FailurePolicy{
+			DLQ:          nil,
+			RetryBackoff: 0,
+			MaxAttempts:  1,
+			OnExhausted:  ExhaustedActionCommit,
+		},
+	}.normalize()
+	require.NoError(t, err, "commit-on-exhausted subscription should normalize")
+
+	result, err := consumer.executeRecord(context.Background(), subscription, &kgo.Record{
+		Topic:     "topic-a",
+		Partition: 1,
+		Offset:    9,
+	})
+	require.NoError(t, err, "commit-on-exhausted should resolve recovered panic without bubbling an error")
+
+	assert.Equal(t, attempts, 1, "single-attempt policy should not retry")
+	assert.True(t, result.resolved, "commit-on-exhausted should resolve the record")
+	assert.False(t, result.pauseTopic, "commit-on-exhausted should not pause the topic")
+	assert.Nil(t, result.cause, "commit-on-exhausted should not return a failure cause")
+}
+
 func TestPartitionWorkerCommitLifecycle(t *testing.T) {
 	worker := newPartitionWorker(
 		context.Background(),
@@ -186,6 +292,8 @@ func TestConsumerSnapshotDirtyOffsets(t *testing.T) {
 
 	consumer.workers[recordKey{topic: "topic-a", partition: 1}] = workerA
 	consumer.workers[recordKey{topic: "topic-b", partition: 0}] = workerB
+	require.True(t, consumer.markWorkerDirty(workerA), "worker should be tracked as dirty")
+	require.True(t, consumer.markWorkerDirty(workerB), "worker should be tracked as dirty")
 
 	offsets := consumer.snapshotDirtyOffsets()
 	assert.Equal(t, len(offsets), 2, "snapshot should contain both topics")
@@ -228,6 +336,8 @@ func TestConsumerStopWorkersForPartitions(t *testing.T) {
 
 	consumer.workers[recordKey{topic: "topic-a", partition: 1}] = workerA
 	consumer.workers[recordKey{topic: "topic-b", partition: 0}] = workerB
+	require.True(t, consumer.markWorkerDirty(workerA), "worker should be tracked as dirty")
+	require.True(t, consumer.markWorkerDirty(workerB), "worker should be tracked as dirty")
 
 	offsets := consumer.stopWorkersForPartitions(map[string][]int32{
 		"topic-b": {0},
@@ -259,6 +369,146 @@ func TestConsumerPauseTopic(t *testing.T) {
 
 	require.NoError(t, consumer.pauseTopic(nil, "topic-a", fmt.Errorf("another")), "pausing an already paused topic should be a no-op")
 	assert.Equal(t, len(consumer.pausedTopics), 1, "pausing the same topic twice should not duplicate state")
+}
+
+func TestConsumerOnPartitionsRevokedCommitsSelectedOffsets(t *testing.T) {
+	consumer := newTestConsumer()
+
+	workerA := newPartitionWorker(
+		context.Background(),
+		recordKey{topic: "topic-a", partition: 1},
+		testSubscription("topic-a"),
+		4,
+	)
+	workerB := newPartitionWorker(
+		context.Background(),
+		recordKey{topic: "topic-b", partition: 0},
+		testSubscription("topic-b"),
+		4,
+	)
+	assert.True(t, workerA.advanceCommitOffset(&kgo.Record{
+		Topic:       "topic-a",
+		Partition:   1,
+		Offset:      5,
+		LeaderEpoch: 4,
+	}), "worker should advance topic-a offset")
+	assert.True(t, workerB.advanceCommitOffset(&kgo.Record{
+		Topic:       "topic-b",
+		Partition:   0,
+		Offset:      1,
+		LeaderEpoch: 7,
+	}), "worker should advance topic-b offset")
+
+	consumer.workers[recordKey{topic: "topic-a", partition: 1}] = workerA
+	consumer.workers[recordKey{topic: "topic-b", partition: 0}] = workerB
+	require.True(t, consumer.markWorkerDirty(workerA), "worker should be tracked as dirty")
+	require.True(t, consumer.markWorkerDirty(workerB), "worker should be tracked as dirty")
+
+	originalCommitOffsetsSyncFn := commitOffsetsSyncFn
+	t.Cleanup(func() {
+		commitOffsetsSyncFn = originalCommitOffsetsSyncFn
+	})
+
+	var committed map[string]map[int32]kgo.EpochOffset
+	commitOffsetsSyncFn = func(_ context.Context, _ *kgo.Client, offsets map[string]map[int32]kgo.EpochOffset) error {
+		committed = offsets
+		return nil
+	}
+
+	consumer.onPartitionsRevoked(context.Background(), nil, map[string][]int32{
+		"topic-b": {0},
+	})
+
+	assert.Equal(t, len(committed), 1, "revoked partitions should commit only matching topics")
+	assert.Equal(t, committed["topic-b"][0].Offset, int64(2), "revoked partition should commit its next offset")
+	assert.Equal(t, committed["topic-b"][0].Epoch, int32(7), "revoked partition should commit its leader epoch")
+	assert.Equal(t, len(consumer.workers), 1, "revoked partitions should remove only matching workers")
+	_, topicARemains := consumer.workers[recordKey{topic: "topic-a", partition: 1}]
+	assert.True(t, topicARemains, "unrelated worker should remain active")
+	assert.Nil(t, consumer.runFailure(), "successful revoke commit should not fail the run")
+}
+
+func TestConsumerOnPartitionsRevokedFailsRunOnCommitError(t *testing.T) {
+	consumer := newTestConsumer()
+
+	worker := newPartitionWorker(
+		context.Background(),
+		recordKey{topic: "topic-a", partition: 1},
+		testSubscription("topic-a"),
+		4,
+	)
+	assert.True(t, worker.advanceCommitOffset(&kgo.Record{
+		Topic:       "topic-a",
+		Partition:   1,
+		Offset:      5,
+		LeaderEpoch: 4,
+	}), "worker should advance topic-a offset")
+	consumer.workers[recordKey{topic: "topic-a", partition: 1}] = worker
+
+	originalCommitOffsetsSyncFn := commitOffsetsSyncFn
+	t.Cleanup(func() {
+		commitOffsetsSyncFn = originalCommitOffsetsSyncFn
+	})
+
+	commitOffsetsSyncFn = func(context.Context, *kgo.Client, map[string]map[int32]kgo.EpochOffset) error {
+		return errors.New("boom")
+	}
+
+	consumer.onPartitionsRevoked(context.Background(), nil, map[string][]int32{
+		"topic-a": {1},
+	})
+
+	assert.Equal(t, len(consumer.workers), 0, "revoked workers should be removed even if commit fails")
+	runErr := consumer.runFailure()
+	assert.NotNil(t, runErr, "commit failure on revoke should fail the consumer run")
+	assert.StringContains(t, runErr.Error(), "failed to commit processed offsets on revoke", "run failure should explain revoke commit failure")
+}
+
+func TestConsumerOnPartitionsLostDropsSelectedOffsets(t *testing.T) {
+	consumer := newTestConsumer()
+
+	workerA := newPartitionWorker(
+		context.Background(),
+		recordKey{topic: "topic-a", partition: 1},
+		testSubscription("topic-a"),
+		4,
+	)
+	workerB := newPartitionWorker(
+		context.Background(),
+		recordKey{topic: "topic-b", partition: 0},
+		testSubscription("topic-b"),
+		4,
+	)
+	assert.True(t, workerA.advanceCommitOffset(&kgo.Record{
+		Topic:       "topic-a",
+		Partition:   1,
+		Offset:      5,
+		LeaderEpoch: 4,
+	}), "worker should advance topic-a offset")
+	assert.True(t, workerB.advanceCommitOffset(&kgo.Record{
+		Topic:       "topic-b",
+		Partition:   0,
+		Offset:      1,
+		LeaderEpoch: 7,
+	}), "worker should advance topic-b offset")
+
+	consumer.workers[recordKey{topic: "topic-a", partition: 1}] = workerA
+	consumer.workers[recordKey{topic: "topic-b", partition: 0}] = workerB
+	require.True(t, consumer.markWorkerDirty(workerA), "worker should be tracked as dirty")
+	require.True(t, consumer.markWorkerDirty(workerB), "worker should be tracked as dirty")
+
+	consumer.onPartitionsLost(context.Background(), map[string][]int32{
+		"topic-b": {0},
+	})
+
+	assert.Equal(t, len(consumer.workers), 1, "lost partitions should remove only matching workers")
+	_, topicARemains := consumer.workers[recordKey{topic: "topic-a", partition: 1}]
+	assert.True(t, topicARemains, "unrelated worker should remain active")
+
+	offsets := consumer.snapshotDirtyOffsets()
+	assert.Equal(t, len(offsets), 1, "lost partition progress should be dropped from dirty offsets")
+	assert.Equal(t, offsets["topic-a"][1].Offset, int64(6), "remaining partition should preserve its dirty offset")
+	assert.Nil(t, consumer.runFailure(), "lost partitions should not fail the run")
 }
 
 func TestConsumerDispatchRecordsDoesNotBlockOtherPartitions(t *testing.T) {
@@ -295,7 +545,7 @@ func TestConsumerDispatchRecordsDoesNotBlockOtherPartitions(t *testing.T) {
 		FailurePolicy: FailurePolicy{},
 	}.normalize()
 	require.NoError(t, err, "slow topic subscription should normalize")
-	consumer.subscriptions[slowTopic] = slowSubscription
+	require.NoError(t, consumer.registerSubscription(slowSubscription, false), "slow topic should register")
 
 	otherSubscription, err := Subscription{
 		Topic: otherTopic,
@@ -307,7 +557,7 @@ func TestConsumerDispatchRecordsDoesNotBlockOtherPartitions(t *testing.T) {
 		FailurePolicy: FailurePolicy{},
 	}.normalize()
 	require.NoError(t, err, "other topic subscription should normalize")
-	consumer.subscriptions[otherTopic] = otherSubscription
+	require.NoError(t, consumer.registerSubscription(otherSubscription, false), "other topic should register")
 
 	runCtx, err := consumer.beginRun(context.Background())
 	require.NoError(t, err, "consumer run state should initialize")
@@ -349,9 +599,9 @@ func TestConsumerDispatchRecordsDoesNotBlockOtherPartitions(t *testing.T) {
 	assert.True(t, otherTopicSeen, "other topic should finish while slow partition is blocked")
 }
 
-func TestConsumerPartitionBatchesSortRecordsByOffsetWithinPartition(t *testing.T) {
+func TestConsumerPartitionBatchesPreservePolledOrderWithinPartition(t *testing.T) {
 	consumer := newTestConsumer()
-	consumer.subscriptions["topic-a"] = testSubscription("topic-a")
+	require.NoError(t, consumer.registerSubscription(testSubscription("topic-a"), false), "topic should register")
 
 	batches, err := consumer.partitionBatches([]*kgo.Record{
 		{Topic: "topic-a", Partition: 1, Offset: 5},
@@ -360,15 +610,15 @@ func TestConsumerPartitionBatchesSortRecordsByOffsetWithinPartition(t *testing.T
 	})
 	require.NoError(t, err, "partition batching should succeed")
 	assert.Equal(t, len(batches), 1, "records from one partition should form one batch")
-	assert.Equal(t, batches[0].records[0].Offset, int64(2), "lowest offset should be processed first")
-	assert.Equal(t, batches[0].records[1].Offset, int64(3), "records should remain sorted by offset")
-	assert.Equal(t, batches[0].records[2].Offset, int64(5), "highest offset should be processed last")
+	assert.Equal(t, batches[0].records[0].Offset, int64(5), "batching should preserve the polled record order")
+	assert.Equal(t, batches[0].records[1].Offset, int64(2), "batching should not reorder records within a partition")
+	assert.Equal(t, batches[0].records[2].Offset, int64(3), "later records should remain in polled order")
 }
 
-func TestConsumerPartitionBatchesSortKeysByTopicPartition(t *testing.T) {
+func TestConsumerPartitionBatchesPreserveFirstSeenPartitionOrder(t *testing.T) {
 	consumer := newTestConsumer()
-	consumer.subscriptions["topic-a"] = testSubscription("topic-a")
-	consumer.subscriptions["topic-b"] = testSubscription("topic-b")
+	require.NoError(t, consumer.registerSubscription(testSubscription("topic-a"), false), "topic-a should register")
+	require.NoError(t, consumer.registerSubscription(testSubscription("topic-b"), false), "topic-b should register")
 
 	batches, err := consumer.partitionBatches([]*kgo.Record{
 		{Topic: "topic-b", Partition: 2, Offset: 1},
@@ -377,34 +627,43 @@ func TestConsumerPartitionBatchesSortKeysByTopicPartition(t *testing.T) {
 	})
 	require.NoError(t, err, "partition batching should succeed")
 	assert.Equal(t, len(batches), 3, "each topic-partition should produce one batch")
-	assert.Equal(t, batches[0].records[0].Topic, "topic-a", "batches should sort by topic first")
-	assert.Equal(t, batches[0].records[0].Partition, int32(1), "lowest partition should come first within topic")
-	assert.Equal(t, batches[1].records[0].Topic, "topic-a", "same topic batches should remain grouped")
-	assert.Equal(t, batches[1].records[0].Partition, int32(3), "higher partition should come after lower partition")
-	assert.Equal(t, batches[2].records[0].Topic, "topic-b", "later topics should come after earlier topics")
-	assert.Equal(t, batches[2].records[0].Partition, int32(2), "topic-b batch should preserve its partition")
+	assert.Equal(t, batches[0].records[0].Topic, "topic-b", "batch order should follow the first seen partition in the poll")
+	assert.Equal(t, batches[0].records[0].Partition, int32(2), "first seen partition should remain first")
+	assert.Equal(t, batches[1].records[0].Topic, "topic-a", "later first-seen partitions should follow in encounter order")
+	assert.Equal(t, batches[1].records[0].Partition, int32(3), "second batch should preserve its partition")
+	assert.Equal(t, batches[2].records[0].Topic, "topic-a", "subsequent partitions from the same topic should keep encounter order")
+	assert.Equal(t, batches[2].records[0].Partition, int32(1), "third batch should preserve its partition")
 }
 
 func newTestConsumer() *Consumer {
 	cfg := newConfig([]string{"broker:9092"}, "group")
-	return &Consumer{
-		subscriptions:  make(map[string]Subscription),
-		client:         nil,
-		cfg:            cfg,
-		log:            slog.Default(),
-		pausedTopics:   make(map[string]pausedTopic),
-		workers:        make(map[recordKey]*partitionWorker),
-		commitMu:       sync.Mutex{},
-		mu:             sync.RWMutex{},
-		runCtx:         nil,
-		runCancel:      nil,
-		runErr:         nil,
-		runErrOnce:     sync.Once{},
-		runWG:          sync.WaitGroup{},
-		commitSignal:   nil,
-		dispatchSignal: nil,
-		processSem:     nil,
+	consumer := &Consumer{
+		client:            nil,
+		cfg:               cfg,
+		log:               slog.Default(),
+		runCtx:            nil,
+		runCancel:         nil,
+		runErr:            nil,
+		processSem:        nil,
+		commitSignal:      nil,
+		dispatchSignal:    nil,
+		subscriptionState: atomic.Value{},
+		pausedTopicsState: atomic.Value{},
+		subscriptions:     make(map[string]Subscription),
+		pausedTopics:      make(map[string]pausedTopic),
+		workers:           make(map[recordKey]*partitionWorker),
+		dirtyWorkers:      make(map[recordKey]*partitionWorker),
+		commitMu:          sync.Mutex{},
+		runMu:             sync.RWMutex{},
+		workersMu:         sync.RWMutex{},
+		subscriptionMu:    sync.Mutex{},
+		pausedTopicsMu:    sync.Mutex{},
+		runErrOnce:        sync.Once{},
+		runWG:             sync.WaitGroup{},
 	}
+	consumer.subscriptionState.Store(map[string]Subscription{})
+	consumer.pausedTopicsState.Store(map[string]pausedTopic{})
+	return consumer
 }
 
 func testSubscription(topic string) Subscription {
