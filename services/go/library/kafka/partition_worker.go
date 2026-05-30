@@ -8,9 +8,9 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
-type partitionWorker struct {
+type partitionState struct {
 	ctx                context.Context
-	queue              chan *kgo.Record
+	queue              chan []*kgo.Record
 	cancel             context.CancelFunc
 	done               chan struct{}
 	key                recordKey
@@ -19,21 +19,23 @@ type partitionWorker struct {
 	committedOffset    kgo.EpochOffset
 	stopOnce           sync.Once
 	mu                 sync.Mutex
+	maxBufferedRecords int32
+	bufferedRecords    int32
 	accepting          bool
 	backpressurePaused bool
 	dirty              bool
 }
 
-func newPartitionWorker(
+func newPartitionState(
 	parent context.Context,
 	key recordKey,
 	subscription Subscription,
 	queueCapacity int,
-) *partitionWorker {
-	workerCtx, cancel := context.WithCancel(parent)
-	return &partitionWorker{
-		ctx:                workerCtx,
-		queue:              make(chan *kgo.Record, queueCapacity),
+) *partitionState {
+	stateCtx, cancel := context.WithCancel(parent)
+	return &partitionState{
+		ctx:                stateCtx,
+		queue:              make(chan []*kgo.Record, queueCapacity),
 		cancel:             cancel,
 		done:               make(chan struct{}),
 		key:                key,
@@ -42,32 +44,38 @@ func newPartitionWorker(
 		committedOffset:    kgo.EpochOffset{},
 		stopOnce:           sync.Once{},
 		mu:                 sync.Mutex{},
+		maxBufferedRecords: int32(queueCapacity),
+		bufferedRecords:    0,
 		accepting:          true,
 		backpressurePaused: false,
 		dirty:              false,
 	}
 }
 
-func (c *Consumer) enqueueRecord(cl *kgo.Client, worker *partitionWorker, record *kgo.Record) (bool, error) {
-	if err := worker.ctx.Err(); err != nil {
-		return false, err
+func (c *Consumer) enqueuePartitionRecords(
+	cl *kgo.Client,
+	state *partitionState,
+	records []*kgo.Record,
+) (int, error) {
+	if err := state.ctx.Err(); err != nil {
+		return 0, err
 	}
 
-	enqueued, queueLen := worker.tryEnqueue(record)
-	if enqueued {
-		c.maybePausePartitionForBackpressure(cl, worker, queueLen)
-		return true, nil
+	enqueued, bufferedRecords := state.tryEnqueueRecords(records)
+	if enqueued > 0 {
+		c.maybePausePartitionForBackpressure(cl, state, bufferedRecords)
+		return enqueued, nil
 	}
 
-	c.maybePausePartitionForBackpressure(cl, worker, queueLen)
-	return false, nil
+	c.maybePausePartitionForBackpressure(cl, state, bufferedRecords)
+	return 0, nil
 }
 
-func (c *Consumer) maybePausePartitionForBackpressure(cl *kgo.Client, worker *partitionWorker, queueLen int) {
-	if queueLen < c.partitionQueueHighWatermark() {
+func (c *Consumer) maybePausePartitionForBackpressure(cl *kgo.Client, state *partitionState, bufferedRecords int) {
+	if bufferedRecords < c.partitionQueueHighWatermark() {
 		return
 	}
-	if !worker.markBackpressurePaused() {
+	if !state.markBackpressurePaused() {
 		return
 	}
 	if cl == nil {
@@ -75,15 +83,15 @@ func (c *Consumer) maybePausePartitionForBackpressure(cl *kgo.Client, worker *pa
 	}
 
 	cl.PauseFetchPartitions(map[string][]int32{
-		worker.key.topic: {worker.key.partition},
+		state.key.topic: {state.key.partition},
 	})
 }
 
-func (c *Consumer) maybeResumePartitionAfterDrain(cl *kgo.Client, worker *partitionWorker, queueLen int) {
-	if queueLen > c.partitionQueueLowWatermark() || c.isTopicPaused(worker.key.topic) {
+func (c *Consumer) maybeResumePartitionAfterDrain(cl *kgo.Client, state *partitionState, bufferedRecords int) {
+	if bufferedRecords > c.partitionQueueLowWatermark() || c.isTopicPaused(state.key.topic) {
 		return
 	}
-	if !worker.clearBackpressurePaused() {
+	if !state.clearBackpressurePaused() {
 		return
 	}
 	if cl == nil {
@@ -91,17 +99,17 @@ func (c *Consumer) maybeResumePartitionAfterDrain(cl *kgo.Client, worker *partit
 	}
 
 	cl.ResumeFetchPartitions(map[string][]int32{
-		worker.key.topic: {worker.key.partition},
+		state.key.topic: {state.key.partition},
 	})
 }
 
-func (c *Consumer) processWorkerRecord(
+func (c *Consumer) processPartitionRecord(
 	ctx context.Context,
 	cl *kgo.Client,
-	worker *partitionWorker,
+	state *partitionState,
 	record *kgo.Record,
 ) error {
-	switch worker.subscription.AckMode {
+	switch state.subscription.AckMode {
 	case AckModeAtMostOnce:
 		if err := c.commitRecord(ctx, cl, record); err != nil {
 			return fmt.Errorf("failed to commit record before handling: %w", err)
@@ -109,18 +117,18 @@ func (c *Consumer) processWorkerRecord(
 	case AckModeAtLeastOnce:
 		// Manual offset commit happens after successful processing.
 	default:
-		return fmt.Errorf("unsupported ack mode: %d", worker.subscription.AckMode)
+		return fmt.Errorf("unsupported ack mode: %d", state.subscription.AckMode)
 	}
 
-	result, err := c.executeRecord(ctx, worker.subscription, record)
+	result, err := c.executeRecord(ctx, state.subscription, record)
 	if err != nil {
 		return err
 	}
 	if result.pauseTopic {
 		return c.pauseTopic(cl, record.Topic, result.cause)
 	}
-	if worker.subscription.AckMode == AckModeAtLeastOnce && result.resolved {
-		if worker.advanceCommitOffset(record) && c.markWorkerDirty(worker) {
+	if state.subscription.AckMode == AckModeAtLeastOnce && result.resolved {
+		if state.advanceCommitOffset(record) && c.markDirtyPartitionState(state) {
 			c.signalCommitLoop()
 		}
 	}
@@ -128,107 +136,123 @@ func (c *Consumer) processWorkerRecord(
 	return nil
 }
 
-func (w *partitionWorker) tryEnqueue(record *kgo.Record) (bool, int) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
+func (s *partitionState) tryEnqueueRecords(records []*kgo.Record) (int, int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	if !w.accepting {
-		return false, len(w.queue)
+	if !s.accepting || len(records) == 0 {
+		return 0, int(s.bufferedRecords)
+	}
+
+	available := int(s.maxBufferedRecords - s.bufferedRecords)
+	if available <= 0 {
+		return 0, int(s.bufferedRecords)
+	}
+	if len(records) > available {
+		records = records[:available]
 	}
 
 	select {
-	case w.queue <- record:
-		return true, len(w.queue)
+	case s.queue <- records:
+		s.bufferedRecords += int32(len(records))
+		return len(records), int(s.bufferedRecords)
 	default:
-		return false, len(w.queue)
+		return 0, int(s.bufferedRecords)
 	}
 }
 
-func (w *partitionWorker) onDequeue() int {
-	return len(w.queue)
+func (s *partitionState) onDequeueBatch(records []*kgo.Record) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.bufferedRecords -= int32(len(records))
+	if s.bufferedRecords < 0 {
+		s.bufferedRecords = 0
+	}
+	return int(s.bufferedRecords)
 }
 
-func (w *partitionWorker) markBackpressurePaused() bool {
-	w.mu.Lock()
-	defer w.mu.Unlock()
+func (s *partitionState) markBackpressurePaused() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	if !w.accepting || w.backpressurePaused {
+	if !s.accepting || s.backpressurePaused {
 		return false
 	}
 
-	w.backpressurePaused = true
+	s.backpressurePaused = true
 	return true
 }
 
-func (w *partitionWorker) clearBackpressurePaused() bool {
-	w.mu.Lock()
-	defer w.mu.Unlock()
+func (s *partitionState) clearBackpressurePaused() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	if !w.accepting || !w.backpressurePaused {
+	if !s.accepting || !s.backpressurePaused {
 		return false
 	}
 
-	w.backpressurePaused = false
+	s.backpressurePaused = false
 	return true
 }
 
-func (w *partitionWorker) advanceCommitOffset(record *kgo.Record) bool {
+func (s *partitionState) advanceCommitOffset(record *kgo.Record) bool {
 	nextOffset := kgo.EpochOffset{
 		Epoch:  record.LeaderEpoch,
 		Offset: record.Offset + 1,
 	}
 
-	w.mu.Lock()
-	defer w.mu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	if !w.nextCommitOffset.Less(nextOffset) {
+	if !s.nextCommitOffset.Less(nextOffset) {
 		return false
 	}
 
-	w.nextCommitOffset = nextOffset
-	w.dirty = w.committedOffset.Less(nextOffset)
+	s.nextCommitOffset = nextOffset
+	s.dirty = s.committedOffset.Less(nextOffset)
 	return true
 }
 
-func (w *partitionWorker) snapshotDirtyOffset() (kgo.EpochOffset, bool) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
+func (s *partitionState) snapshotDirtyOffset() (kgo.EpochOffset, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	if !w.dirty || !w.committedOffset.Less(w.nextCommitOffset) {
+	if !s.dirty || !s.committedOffset.Less(s.nextCommitOffset) {
 		return kgo.EpochOffset{}, false
 	}
 
-	return w.nextCommitOffset, true
+	return s.nextCommitOffset, true
 }
 
-func (w *partitionWorker) markCommitted(offset kgo.EpochOffset) bool {
-	w.mu.Lock()
-	defer w.mu.Unlock()
+func (s *partitionState) markCommitted(offset kgo.EpochOffset) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	if w.committedOffset.Less(offset) {
-		w.committedOffset = offset
+	if s.committedOffset.Less(offset) {
+		s.committedOffset = offset
 	}
-	if !w.committedOffset.Less(w.nextCommitOffset) {
-		w.dirty = false
+	if !s.committedOffset.Less(s.nextCommitOffset) {
+		s.dirty = false
 	}
-	return w.dirty
+	return s.dirty
 }
 
-func (w *partitionWorker) stop() (kgo.EpochOffset, bool) {
+func (s *partitionState) stop() (kgo.EpochOffset, bool) {
 	var (
 		offset kgo.EpochOffset
 		ok     bool
 	)
 
-	w.stopOnce.Do(func() {
-		w.mu.Lock()
-		w.accepting = false
-		w.backpressurePaused = false
-		offset = w.nextCommitOffset
-		ok = w.committedOffset.Less(offset)
-		w.mu.Unlock()
+	s.stopOnce.Do(func() {
+		s.mu.Lock()
+		s.accepting = false
+		s.backpressurePaused = false
+		offset = s.nextCommitOffset
+		ok = s.committedOffset.Less(offset)
+		s.mu.Unlock()
 
-		w.cancel()
+		s.cancel()
 	})
 
 	return offset, ok

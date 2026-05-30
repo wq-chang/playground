@@ -13,7 +13,7 @@
 // polls records, routes them by topic, and processes each topic-partition
 // sequentially while still allowing different partitions to run concurrently.
 // WithWorkers sets the global record-processing concurrency limit across those
-// partition workers.
+// per-partition runners.
 //
 // Delivery guarantees are controlled per subscription:
 //

@@ -33,7 +33,7 @@ type config struct {
 	// kgoOpts are additional franz-go client options.
 	kgoOpts []kgo.Opt
 	// workers is the max number of records processed concurrently across
-	// partition workers.
+	// all per-partition runners.
 	workers int
 	// defaultAckMode determines which acknowledgment mode is applied by the
 	// compatibility topic APIs.
@@ -87,7 +87,7 @@ func WithKgoOptions(opts ...kgo.Opt) Option {
 // --- Consumer Specific Options ---
 
 // WithWorkers sets the maximum number of records processed concurrently across
-// all partition workers.
+// all per-partition runners.
 func WithWorkers(workers int) Option {
 	return func(c *config) {
 		if workers > 0 {

@@ -230,70 +230,70 @@ func TestConsumerExecuteRecordRecoversHandlerPanicAndCommitExhausted(t *testing.
 	assert.Nil(t, result.cause, "commit-on-exhausted should not return a failure cause")
 }
 
-func TestPartitionWorkerCommitLifecycle(t *testing.T) {
-	worker := newPartitionWorker(
+func TestPartitionStateCommitLifecycle(t *testing.T) {
+	state := newPartitionState(
 		context.Background(),
 		recordKey{topic: "topic-a", partition: 1},
 		testSubscription("topic-a"),
 		4,
 	)
 
-	assert.True(t, worker.advanceCommitOffset(&kgo.Record{
+	assert.True(t, state.advanceCommitOffset(&kgo.Record{
 		Topic:       "topic-a",
 		Partition:   1,
 		Offset:      2,
 		LeaderEpoch: 4,
 	}), "first successful record should advance next commit offset")
-	assert.True(t, worker.advanceCommitOffset(&kgo.Record{
+	assert.True(t, state.advanceCommitOffset(&kgo.Record{
 		Topic:       "topic-a",
 		Partition:   1,
 		Offset:      5,
 		LeaderEpoch: 4,
 	}), "later successful record should advance next commit offset")
 
-	offset, ok := worker.snapshotDirtyOffset()
-	assert.True(t, ok, "worker should expose dirty commit progress")
+	offset, ok := state.snapshotDirtyOffset()
+	assert.True(t, ok, "state should expose dirty commit progress")
 	assert.Equal(t, offset.Offset, int64(6), "snapshot should keep latest offset + 1")
 	assert.Equal(t, offset.Epoch, int32(4), "snapshot should keep leader epoch")
 
-	worker.markCommitted(offset)
+	state.markCommitted(offset)
 
-	_, ok = worker.snapshotDirtyOffset()
+	_, ok = state.snapshotDirtyOffset()
 	assert.False(t, ok, "marking committed offset should clear dirty state")
 }
 
 func TestConsumerSnapshotDirtyOffsets(t *testing.T) {
 	consumer := newTestConsumer()
 
-	workerA := newPartitionWorker(
+	stateA := newPartitionState(
 		context.Background(),
 		recordKey{topic: "topic-a", partition: 1},
 		testSubscription("topic-a"),
 		4,
 	)
-	workerB := newPartitionWorker(
+	stateB := newPartitionState(
 		context.Background(),
 		recordKey{topic: "topic-b", partition: 0},
 		testSubscription("topic-b"),
 		4,
 	)
-	assert.True(t, workerA.advanceCommitOffset(&kgo.Record{
+	assert.True(t, stateA.advanceCommitOffset(&kgo.Record{
 		Topic:       "topic-a",
 		Partition:   1,
 		Offset:      5,
 		LeaderEpoch: 4,
-	}), "worker should advance topic-a offset")
-	assert.True(t, workerB.advanceCommitOffset(&kgo.Record{
+	}), "state should advance topic-a offset")
+	assert.True(t, stateB.advanceCommitOffset(&kgo.Record{
 		Topic:       "topic-b",
 		Partition:   0,
 		Offset:      1,
 		LeaderEpoch: 7,
-	}), "worker should advance topic-b offset")
+	}), "state should advance topic-b offset")
 
-	consumer.workers[recordKey{topic: "topic-a", partition: 1}] = workerA
-	consumer.workers[recordKey{topic: "topic-b", partition: 0}] = workerB
-	require.True(t, consumer.markWorkerDirty(workerA), "worker should be tracked as dirty")
-	require.True(t, consumer.markWorkerDirty(workerB), "worker should be tracked as dirty")
+	consumer.partitionStates[recordKey{topic: "topic-a", partition: 1}] = stateA
+	consumer.partitionStates[recordKey{topic: "topic-b", partition: 0}] = stateB
+	require.True(t, consumer.markDirtyPartitionState(stateA), "state should be tracked as dirty")
+	require.True(t, consumer.markDirtyPartitionState(stateB), "state should be tracked as dirty")
 
 	offsets := consumer.snapshotDirtyOffsets()
 	assert.Equal(t, len(offsets), 2, "snapshot should contain both topics")
@@ -306,59 +306,91 @@ func TestConsumerSnapshotDirtyOffsets(t *testing.T) {
 	assert.Nil(t, remaining, "marking committed offsets should clear dirty progress")
 }
 
-func TestConsumerStopWorkersForPartitions(t *testing.T) {
+func TestConsumerStopPartitionStatesForPartitions(t *testing.T) {
 	consumer := newTestConsumer()
 
-	workerA := newPartitionWorker(
+	stateA := newPartitionState(
 		context.Background(),
 		recordKey{topic: "topic-a", partition: 1},
 		testSubscription("topic-a"),
 		4,
 	)
-	workerB := newPartitionWorker(
+	stateB := newPartitionState(
 		context.Background(),
 		recordKey{topic: "topic-b", partition: 0},
 		testSubscription("topic-b"),
 		4,
 	)
-	assert.True(t, workerA.advanceCommitOffset(&kgo.Record{
+	assert.True(t, stateA.advanceCommitOffset(&kgo.Record{
 		Topic:       "topic-a",
 		Partition:   1,
 		Offset:      5,
 		LeaderEpoch: 4,
-	}), "worker should advance topic-a offset")
-	assert.True(t, workerB.advanceCommitOffset(&kgo.Record{
+	}), "state should advance topic-a offset")
+	assert.True(t, stateB.advanceCommitOffset(&kgo.Record{
 		Topic:       "topic-b",
 		Partition:   0,
 		Offset:      1,
 		LeaderEpoch: 7,
-	}), "worker should advance topic-b offset")
+	}), "state should advance topic-b offset")
 
-	consumer.workers[recordKey{topic: "topic-a", partition: 1}] = workerA
-	consumer.workers[recordKey{topic: "topic-b", partition: 0}] = workerB
-	require.True(t, consumer.markWorkerDirty(workerA), "worker should be tracked as dirty")
-	require.True(t, consumer.markWorkerDirty(workerB), "worker should be tracked as dirty")
+	consumer.partitionStates[recordKey{topic: "topic-a", partition: 1}] = stateA
+	consumer.partitionStates[recordKey{topic: "topic-b", partition: 0}] = stateB
+	require.True(t, consumer.markDirtyPartitionState(stateA), "state should be tracked as dirty")
+	require.True(t, consumer.markDirtyPartitionState(stateB), "state should be tracked as dirty")
 
-	offsets := consumer.stopWorkersForPartitions(map[string][]int32{
+	offsets := consumer.stopPartitionStatesForPartitions(map[string][]int32{
 		"topic-b": {0},
 	})
 	assert.Equal(t, len(offsets), 1, "stopping selected partitions should return only matching offsets")
 	assert.Equal(t, offsets["topic-b"][0].Offset, int64(2), "stopped partition should expose its next commit offset")
-	assert.Equal(t, len(consumer.workers), 1, "stopping selected partitions should keep unrelated workers")
+	assert.Equal(t, len(consumer.partitionStates), 1, "stopping selected partitions should keep unrelated states")
 }
 
-func TestPartitionWorkerBackpressureState(t *testing.T) {
-	worker := newPartitionWorker(
+func TestPartitionStateBackpressureState(t *testing.T) {
+	state := newPartitionState(
 		context.Background(),
 		recordKey{topic: "topic-a", partition: 1},
 		testSubscription("topic-a"),
 		4,
 	)
 
-	assert.True(t, worker.markBackpressurePaused(), "worker should enter backpressure pause")
-	assert.False(t, worker.markBackpressurePaused(), "worker should not pause twice")
-	assert.True(t, worker.clearBackpressurePaused(), "worker should clear backpressure pause")
-	assert.False(t, worker.clearBackpressurePaused(), "worker should not clear an inactive pause")
+	assert.True(t, state.markBackpressurePaused(), "state should enter backpressure pause")
+	assert.False(t, state.markBackpressurePaused(), "state should not pause twice")
+	assert.True(t, state.clearBackpressurePaused(), "state should clear backpressure pause")
+	assert.False(t, state.clearBackpressurePaused(), "state should not clear an inactive pause")
+}
+
+func TestPartitionStateTryEnqueueRecordsUsesRemainingRecordCapacity(t *testing.T) {
+	state := newPartitionState(
+		context.Background(),
+		recordKey{topic: "topic-a", partition: 1},
+		testSubscription("topic-a"),
+		3,
+	)
+
+	records := []*kgo.Record{
+		{Topic: "topic-a", Partition: 1, Offset: 1},
+		{Topic: "topic-a", Partition: 1, Offset: 2},
+		{Topic: "topic-a", Partition: 1, Offset: 3},
+		{Topic: "topic-a", Partition: 1, Offset: 4},
+	}
+
+	enqueued, buffered := state.tryEnqueueRecords(records)
+	assert.Equal(t, enqueued, 3, "state should enqueue only up to the remaining record capacity")
+	assert.Equal(t, buffered, 3, "state should track the buffered record count")
+
+	queued := <-state.queue
+	assert.Equal(t, len(queued), 3, "enqueued batch should contain the admitted records")
+	assert.Equal(t, queued[0].Offset, int64(1), "queued batch should preserve order")
+	assert.Equal(t, queued[2].Offset, int64(3), "queued batch should keep the third admitted record")
+
+	buffered = state.onDequeueBatch(queued)
+	assert.Equal(t, buffered, 0, "dequeueing should release the buffered capacity")
+
+	enqueued, buffered = state.tryEnqueueRecords(records[3:])
+	assert.Equal(t, enqueued, 1, "freed capacity should allow the remaining record to enqueue")
+	assert.Equal(t, buffered, 1, "buffered count should reflect the new queued record")
 }
 
 func TestConsumerPauseTopic(t *testing.T) {
@@ -374,35 +406,35 @@ func TestConsumerPauseTopic(t *testing.T) {
 func TestConsumerOnPartitionsRevokedCommitsSelectedOffsets(t *testing.T) {
 	consumer := newTestConsumer()
 
-	workerA := newPartitionWorker(
+	stateA := newPartitionState(
 		context.Background(),
 		recordKey{topic: "topic-a", partition: 1},
 		testSubscription("topic-a"),
 		4,
 	)
-	workerB := newPartitionWorker(
+	stateB := newPartitionState(
 		context.Background(),
 		recordKey{topic: "topic-b", partition: 0},
 		testSubscription("topic-b"),
 		4,
 	)
-	assert.True(t, workerA.advanceCommitOffset(&kgo.Record{
+	assert.True(t, stateA.advanceCommitOffset(&kgo.Record{
 		Topic:       "topic-a",
 		Partition:   1,
 		Offset:      5,
 		LeaderEpoch: 4,
-	}), "worker should advance topic-a offset")
-	assert.True(t, workerB.advanceCommitOffset(&kgo.Record{
+	}), "state should advance topic-a offset")
+	assert.True(t, stateB.advanceCommitOffset(&kgo.Record{
 		Topic:       "topic-b",
 		Partition:   0,
 		Offset:      1,
 		LeaderEpoch: 7,
-	}), "worker should advance topic-b offset")
+	}), "state should advance topic-b offset")
 
-	consumer.workers[recordKey{topic: "topic-a", partition: 1}] = workerA
-	consumer.workers[recordKey{topic: "topic-b", partition: 0}] = workerB
-	require.True(t, consumer.markWorkerDirty(workerA), "worker should be tracked as dirty")
-	require.True(t, consumer.markWorkerDirty(workerB), "worker should be tracked as dirty")
+	consumer.partitionStates[recordKey{topic: "topic-a", partition: 1}] = stateA
+	consumer.partitionStates[recordKey{topic: "topic-b", partition: 0}] = stateB
+	require.True(t, consumer.markDirtyPartitionState(stateA), "state should be tracked as dirty")
+	require.True(t, consumer.markDirtyPartitionState(stateB), "state should be tracked as dirty")
 
 	originalCommitOffsetsSyncFn := commitOffsetsSyncFn
 	t.Cleanup(func() {
@@ -422,28 +454,28 @@ func TestConsumerOnPartitionsRevokedCommitsSelectedOffsets(t *testing.T) {
 	assert.Equal(t, len(committed), 1, "revoked partitions should commit only matching topics")
 	assert.Equal(t, committed["topic-b"][0].Offset, int64(2), "revoked partition should commit its next offset")
 	assert.Equal(t, committed["topic-b"][0].Epoch, int32(7), "revoked partition should commit its leader epoch")
-	assert.Equal(t, len(consumer.workers), 1, "revoked partitions should remove only matching workers")
-	_, topicARemains := consumer.workers[recordKey{topic: "topic-a", partition: 1}]
-	assert.True(t, topicARemains, "unrelated worker should remain active")
+	assert.Equal(t, len(consumer.partitionStates), 1, "revoked partitions should remove only matching states")
+	_, topicARemains := consumer.partitionStates[recordKey{topic: "topic-a", partition: 1}]
+	assert.True(t, topicARemains, "unrelated state should remain active")
 	assert.Nil(t, consumer.runFailure(), "successful revoke commit should not fail the run")
 }
 
 func TestConsumerOnPartitionsRevokedFailsRunOnCommitError(t *testing.T) {
 	consumer := newTestConsumer()
 
-	worker := newPartitionWorker(
+	state := newPartitionState(
 		context.Background(),
 		recordKey{topic: "topic-a", partition: 1},
 		testSubscription("topic-a"),
 		4,
 	)
-	assert.True(t, worker.advanceCommitOffset(&kgo.Record{
+	assert.True(t, state.advanceCommitOffset(&kgo.Record{
 		Topic:       "topic-a",
 		Partition:   1,
 		Offset:      5,
 		LeaderEpoch: 4,
-	}), "worker should advance topic-a offset")
-	consumer.workers[recordKey{topic: "topic-a", partition: 1}] = worker
+	}), "state should advance topic-a offset")
+	consumer.partitionStates[recordKey{topic: "topic-a", partition: 1}] = state
 
 	originalCommitOffsetsSyncFn := commitOffsetsSyncFn
 	t.Cleanup(func() {
@@ -458,7 +490,7 @@ func TestConsumerOnPartitionsRevokedFailsRunOnCommitError(t *testing.T) {
 		"topic-a": {1},
 	})
 
-	assert.Equal(t, len(consumer.workers), 0, "revoked workers should be removed even if commit fails")
+	assert.Equal(t, len(consumer.partitionStates), 0, "revoked states should be removed even if commit fails")
 	runErr := consumer.runFailure()
 	assert.NotNil(t, runErr, "commit failure on revoke should fail the consumer run")
 	assert.StringContains(t, runErr.Error(), "failed to commit processed offsets on revoke", "run failure should explain revoke commit failure")
@@ -467,43 +499,43 @@ func TestConsumerOnPartitionsRevokedFailsRunOnCommitError(t *testing.T) {
 func TestConsumerOnPartitionsLostDropsSelectedOffsets(t *testing.T) {
 	consumer := newTestConsumer()
 
-	workerA := newPartitionWorker(
+	stateA := newPartitionState(
 		context.Background(),
 		recordKey{topic: "topic-a", partition: 1},
 		testSubscription("topic-a"),
 		4,
 	)
-	workerB := newPartitionWorker(
+	stateB := newPartitionState(
 		context.Background(),
 		recordKey{topic: "topic-b", partition: 0},
 		testSubscription("topic-b"),
 		4,
 	)
-	assert.True(t, workerA.advanceCommitOffset(&kgo.Record{
+	assert.True(t, stateA.advanceCommitOffset(&kgo.Record{
 		Topic:       "topic-a",
 		Partition:   1,
 		Offset:      5,
 		LeaderEpoch: 4,
-	}), "worker should advance topic-a offset")
-	assert.True(t, workerB.advanceCommitOffset(&kgo.Record{
+	}), "state should advance topic-a offset")
+	assert.True(t, stateB.advanceCommitOffset(&kgo.Record{
 		Topic:       "topic-b",
 		Partition:   0,
 		Offset:      1,
 		LeaderEpoch: 7,
-	}), "worker should advance topic-b offset")
+	}), "state should advance topic-b offset")
 
-	consumer.workers[recordKey{topic: "topic-a", partition: 1}] = workerA
-	consumer.workers[recordKey{topic: "topic-b", partition: 0}] = workerB
-	require.True(t, consumer.markWorkerDirty(workerA), "worker should be tracked as dirty")
-	require.True(t, consumer.markWorkerDirty(workerB), "worker should be tracked as dirty")
+	consumer.partitionStates[recordKey{topic: "topic-a", partition: 1}] = stateA
+	consumer.partitionStates[recordKey{topic: "topic-b", partition: 0}] = stateB
+	require.True(t, consumer.markDirtyPartitionState(stateA), "state should be tracked as dirty")
+	require.True(t, consumer.markDirtyPartitionState(stateB), "state should be tracked as dirty")
 
 	consumer.onPartitionsLost(context.Background(), map[string][]int32{
 		"topic-b": {0},
 	})
 
-	assert.Equal(t, len(consumer.workers), 1, "lost partitions should remove only matching workers")
-	_, topicARemains := consumer.workers[recordKey{topic: "topic-a", partition: 1}]
-	assert.True(t, topicARemains, "unrelated worker should remain active")
+	assert.Equal(t, len(consumer.partitionStates), 1, "lost partitions should remove only matching states")
+	_, topicARemains := consumer.partitionStates[recordKey{topic: "topic-a", partition: 1}]
+	assert.True(t, topicARemains, "unrelated state should remain active")
 
 	offsets := consumer.snapshotDirtyOffsets()
 	assert.Equal(t, len(offsets), 1, "lost partition progress should be dropped from dirty offsets")
@@ -651,8 +683,8 @@ func newTestConsumer() *Consumer {
 		pausedTopicsState: atomic.Value{},
 		subscriptions:     make(map[string]Subscription),
 		pausedTopics:      make(map[string]pausedTopic),
-		workers:           make(map[recordKey]*partitionWorker),
-		dirtyWorkers:      make(map[recordKey]*partitionWorker),
+		partitionStates:   make(map[recordKey]*partitionState),
+		dirtyStates:       make(map[recordKey]*partitionState),
 		commitMu:          sync.Mutex{},
 		runMu:             sync.RWMutex{},
 		workersMu:         sync.RWMutex{},

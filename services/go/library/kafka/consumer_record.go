@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"runtime/debug"
 	"strconv"
 	"time"
@@ -11,7 +12,30 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
+type recordExecutor struct {
+	log          *slog.Logger
+	publishToDLQ func(context.Context, Subscription, *kgo.Record, error, int) error
+}
+
 func (c *Consumer) executeRecord(ctx context.Context, subscription Subscription, record *kgo.Record) (recordResult, error) {
+	return newRecordExecutor(c.log, c.publishToDLQ).execute(ctx, subscription, record)
+}
+
+func newRecordExecutor(
+	log *slog.Logger,
+	publishToDLQ func(context.Context, Subscription, *kgo.Record, error, int) error,
+) recordExecutor {
+	if log == nil {
+		log = slog.Default()
+	}
+
+	return recordExecutor{
+		log:          log,
+		publishToDLQ: publishToDLQ,
+	}
+}
+
+func (e recordExecutor) execute(ctx context.Context, subscription Subscription, record *kgo.Record) (recordResult, error) {
 	attempts := subscription.FailurePolicy.MaxAttempts
 	var lastErr error
 
@@ -30,7 +54,7 @@ func (c *Consumer) executeRecord(ctx context.Context, subscription Subscription,
 		}
 
 		lastErr = err
-		c.log.ErrorContext(
+		e.log.ErrorContext(
 			ctx,
 			"Kafka handler error",
 			"topic", record.Topic,
@@ -48,6 +72,16 @@ func (c *Consumer) executeRecord(ctx context.Context, subscription Subscription,
 		}
 	}
 
+	return e.resolveExhausted(ctx, subscription, record, lastErr, attempts)
+}
+
+func (e recordExecutor) resolveExhausted(
+	ctx context.Context,
+	subscription Subscription,
+	record *kgo.Record,
+	lastErr error,
+	attempts int,
+) (recordResult, error) {
 	switch subscription.FailurePolicy.OnExhausted {
 	case ExhaustedActionStop:
 		return recordResult{
@@ -63,7 +97,7 @@ func (c *Consumer) executeRecord(ctx context.Context, subscription Subscription,
 			pauseTopic: true,
 		}, nil
 	case ExhaustedActionCommit:
-		c.log.WarnContext(
+		e.log.WarnContext(
 			ctx,
 			"Kafka record dropped after retry exhaustion",
 			"topic", record.Topic,
@@ -76,7 +110,7 @@ func (c *Consumer) executeRecord(ctx context.Context, subscription Subscription,
 			pauseTopic: false,
 		}, nil
 	case ExhaustedActionDLQThenCommit:
-		if err := c.publishToDLQ(ctx, subscription, record, lastErr, attempts); err != nil {
+		if err := e.publishToDLQ(ctx, subscription, record, lastErr, attempts); err != nil {
 			return recordResult{}, fmt.Errorf(
 				"failed to publish topic %q partition %d offset %d to dlq after %d attempts: %w",
 				record.Topic,
@@ -86,7 +120,7 @@ func (c *Consumer) executeRecord(ctx context.Context, subscription Subscription,
 				errors.Join(lastErr, err),
 			)
 		}
-		c.log.WarnContext(
+		e.log.WarnContext(
 			ctx,
 			"Kafka record sent to DLQ after retry exhaustion",
 			"topic", record.Topic,

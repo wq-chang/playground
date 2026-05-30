@@ -24,7 +24,7 @@ const (
 // activates the subscription's failure policy.
 type Handler func(ctx context.Context, record *kgo.Record) error
 
-// Consumer wraps the shared Kafka client with topic routing, partition worker
+// Consumer wraps the shared Kafka client with topic routing, per-partition state
 // management, and package-managed manual offset commits.
 type Consumer struct {
 	client            *Client
@@ -40,8 +40,8 @@ type Consumer struct {
 	pausedTopicsState atomic.Value
 	subscriptions     map[string]Subscription
 	pausedTopics      map[string]pausedTopic
-	workers           map[recordKey]*partitionWorker
-	dirtyWorkers      map[recordKey]*partitionWorker
+	partitionStates   map[recordKey]*partitionState
+	dirtyStates       map[recordKey]*partitionState
 	subscriptionMu    sync.Mutex
 	pausedTopicsMu    sync.Mutex
 	runMu             sync.RWMutex
@@ -61,7 +61,7 @@ type pausedTopic struct {
 	pausedAt time.Time
 }
 
-type partitionBatch struct {
+type partitionRecordBatch struct {
 	key          recordKey
 	records      []*kgo.Record
 	subscription Subscription
@@ -95,8 +95,8 @@ func newConsumer(cfg *config, client *Client) (*Consumer, error) {
 		pausedTopicsState: atomic.Value{},
 		subscriptions:     make(map[string]Subscription, len(cfg.subscriptions)),
 		pausedTopics:      make(map[string]pausedTopic),
-		workers:           make(map[recordKey]*partitionWorker),
-		dirtyWorkers:      make(map[recordKey]*partitionWorker),
+		partitionStates:   make(map[recordKey]*partitionState),
+		dirtyStates:       make(map[recordKey]*partitionState),
 		commitMu:          sync.Mutex{},
 		runMu:             sync.RWMutex{},
 		workersMu:         sync.RWMutex{},
@@ -117,11 +117,11 @@ func newConsumer(cfg *config, client *Client) (*Consumer, error) {
 	return consumer, nil
 }
 
-func (c *Consumer) partitionBatches(records []*kgo.Record) ([]partitionBatch, error) {
+func (c *Consumer) partitionBatches(records []*kgo.Record) ([]partitionRecordBatch, error) {
 	subscriptions := c.subscriptionSnapshot()
 	pausedTopics := c.pausedTopicSnapshot()
 	indexByKey := make(map[recordKey]int)
-	batches := make([]partitionBatch, 0)
+	batches := make([]partitionRecordBatch, 0)
 
 	for _, record := range records {
 		if _, paused := pausedTopics[record.Topic]; paused {
@@ -141,7 +141,7 @@ func (c *Consumer) partitionBatches(records []*kgo.Record) ([]partitionBatch, er
 		if !ok {
 			index = len(batches)
 			indexByKey[key] = index
-			batches = append(batches, partitionBatch{
+			batches = append(batches, partitionRecordBatch{
 				key:          key,
 				subscription: subscription,
 				records:      make([]*kgo.Record, 0, 1),

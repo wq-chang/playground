@@ -94,16 +94,16 @@ func (c *Consumer) flushDirtyOffsets(ctx context.Context, cl *kgo.Client) error 
 }
 
 func (c *Consumer) snapshotDirtyOffsets() map[string]map[int32]kgo.EpochOffset {
-	dirtyWorkers := c.snapshotDirtyWorkers()
-	if len(dirtyWorkers) == 0 {
+	dirtyStates := c.snapshotDirtyStates()
+	if len(dirtyStates) == 0 {
 		return nil
 	}
 
 	offsets := make(map[string]map[int32]kgo.EpochOffset)
-	for key, worker := range dirtyWorkers {
-		offset, ok := worker.snapshotDirtyOffset()
+	for key, state := range dirtyStates {
+		offset, ok := state.snapshotDirtyOffset()
 		if !ok {
-			c.clearDirtyWorker(key, worker)
+			c.clearDirtyPartitionState(key, state)
 			continue
 		}
 
@@ -130,14 +130,14 @@ func (c *Consumer) markCommittedOffsets(offsets map[string]map[int32]kgo.EpochOf
 		for partition, offset := range partitions {
 			key := recordKey{topic: topic, partition: partition}
 			c.workersMu.RLock()
-			worker, ok := c.workers[key]
+			state, ok := c.partitionStates[key]
 			c.workersMu.RUnlock()
 			if !ok {
-				c.clearDirtyWorker(key, nil)
+				c.clearDirtyPartitionState(key, nil)
 				continue
 			}
-			if !worker.markCommitted(offset) {
-				c.clearDirtyWorker(key, worker)
+			if !state.markCommitted(offset) {
+				c.clearDirtyPartitionState(key, state)
 			}
 		}
 	}
@@ -204,7 +204,7 @@ func (c *Consumer) pauseTopic(cl *kgo.Client, topic string, cause error) error {
 	c.pausedTopicsMu.Unlock()
 
 	c.workersMu.Lock()
-	offsets := c.stopWorkersLocked(func(key recordKey) bool {
+	offsets := c.stopPartitionStatesLocked(func(key recordKey) bool {
 		return key.topic == topic
 	})
 	c.workersMu.Unlock()
@@ -227,17 +227,17 @@ func (c *Consumer) isTopicPaused(topic string) bool {
 	return ok
 }
 
-func (c *Consumer) stopWorkersLocked(match func(recordKey) bool) map[string]map[int32]kgo.EpochOffset {
+func (c *Consumer) stopPartitionStatesLocked(match func(recordKey) bool) map[string]map[int32]kgo.EpochOffset {
 	offsets := make(map[string]map[int32]kgo.EpochOffset)
 
-	for key, worker := range c.workers {
+	for key, state := range c.partitionStates {
 		if !match(key) {
 			continue
 		}
 
-		offset, ok := worker.stop()
-		delete(c.workers, key)
-		delete(c.dirtyWorkers, key)
+		offset, ok := state.stop()
+		delete(c.partitionStates, key)
+		delete(c.dirtyStates, key)
 		if !ok {
 			continue
 		}
@@ -256,7 +256,7 @@ func (c *Consumer) stopWorkersLocked(match func(recordKey) bool) map[string]map[
 	return offsets
 }
 
-func (c *Consumer) stopWorkersForPartitions(partitions map[string][]int32) map[string]map[int32]kgo.EpochOffset {
+func (c *Consumer) stopPartitionStatesForPartitions(partitions map[string][]int32) map[string]map[int32]kgo.EpochOffset {
 	allowed := make(map[recordKey]struct{})
 	for topic, partitionIDs := range partitions {
 		for _, partition := range partitionIDs {
@@ -267,13 +267,13 @@ func (c *Consumer) stopWorkersForPartitions(partitions map[string][]int32) map[s
 	c.workersMu.Lock()
 	defer c.workersMu.Unlock()
 
-	return c.stopWorkersLocked(func(key recordKey) bool {
+	return c.stopPartitionStatesLocked(func(key recordKey) bool {
 		_, ok := allowed[key]
 		return ok
 	})
 }
 
-func (c *Consumer) stopWorkersForLostPartitions(partitions map[string][]int32) {
+func (c *Consumer) stopPartitionStatesForLostPartitions(partitions map[string][]int32) {
 	allowed := make(map[recordKey]struct{})
 	for topic, partitionIDs := range partitions {
 		for _, partition := range partitionIDs {
@@ -284,7 +284,7 @@ func (c *Consumer) stopWorkersForLostPartitions(partitions map[string][]int32) {
 	c.workersMu.Lock()
 	defer c.workersMu.Unlock()
 
-	_ = c.stopWorkersLocked(func(key recordKey) bool {
+	_ = c.stopPartitionStatesLocked(func(key recordKey) bool {
 		_, ok := allowed[key]
 		return ok
 	})
@@ -299,7 +299,7 @@ func (c *Consumer) onPartitionsRevoked(ctx context.Context, cl *kgo.Client, part
 		cl.PauseFetchPartitions(partitions)
 	}
 
-	offsets := c.stopWorkersForPartitions(partitions)
+	offsets := c.stopPartitionStatesForPartitions(partitions)
 	if len(offsets) == 0 {
 		return
 	}
@@ -313,44 +313,44 @@ func (c *Consumer) onPartitionsRevoked(ctx context.Context, cl *kgo.Client, part
 
 func (c *Consumer) onPartitionsLost(ctx context.Context, partitions map[string][]int32) {
 	c.log.WarnContext(ctx, "Kafka partitions lost; dropping in-memory commit progress", "partitions", partitions)
-	c.stopWorkersForLostPartitions(partitions)
+	c.stopPartitionStatesForLostPartitions(partitions)
 }
 
-func (c *Consumer) markWorkerDirty(worker *partitionWorker) bool {
+func (c *Consumer) markDirtyPartitionState(state *partitionState) bool {
 	c.workersMu.Lock()
 	defer c.workersMu.Unlock()
 
-	current, ok := c.workers[worker.key]
-	if !ok || current != worker {
+	current, ok := c.partitionStates[state.key]
+	if !ok || current != state {
 		return false
 	}
-	c.dirtyWorkers[worker.key] = worker
+	c.dirtyStates[state.key] = state
 	return true
 }
 
-func (c *Consumer) clearDirtyWorker(key recordKey, worker *partitionWorker) {
+func (c *Consumer) clearDirtyPartitionState(key recordKey, state *partitionState) {
 	c.workersMu.Lock()
 	defer c.workersMu.Unlock()
 
-	if worker == nil {
-		delete(c.dirtyWorkers, key)
+	if state == nil {
+		delete(c.dirtyStates, key)
 		return
 	}
-	current, ok := c.dirtyWorkers[key]
-	if ok && current == worker {
-		delete(c.dirtyWorkers, key)
+	current, ok := c.dirtyStates[key]
+	if ok && current == state {
+		delete(c.dirtyStates, key)
 	}
 }
 
-func (c *Consumer) snapshotDirtyWorkers() map[recordKey]*partitionWorker {
+func (c *Consumer) snapshotDirtyStates() map[recordKey]*partitionState {
 	c.workersMu.RLock()
 	defer c.workersMu.RUnlock()
 
-	if len(c.dirtyWorkers) == 0 {
+	if len(c.dirtyStates) == 0 {
 		return nil
 	}
 
-	dirtyWorkers := make(map[recordKey]*partitionWorker, len(c.dirtyWorkers))
-	maps.Copy(dirtyWorkers, c.dirtyWorkers)
-	return dirtyWorkers
+	dirtyStates := make(map[recordKey]*partitionState, len(c.dirtyStates))
+	maps.Copy(dirtyStates, c.dirtyStates)
+	return dirtyStates
 }

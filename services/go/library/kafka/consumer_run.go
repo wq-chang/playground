@@ -86,8 +86,8 @@ func (c *Consumer) beginRun(parent context.Context) (context.Context, error) {
 	c.dispatchSignal = make(chan struct{}, 1)
 	c.processSem = make(chan struct{}, c.processConcurrency())
 	c.workersMu.Lock()
-	c.workers = make(map[recordKey]*partitionWorker)
-	c.dirtyWorkers = make(map[recordKey]*partitionWorker)
+	c.partitionStates = make(map[recordKey]*partitionState)
+	c.dirtyStates = make(map[recordKey]*partitionState)
 	c.workersMu.Unlock()
 
 	return runCtx, nil
@@ -114,8 +114,8 @@ func (c *Consumer) resetRunState() {
 	c.dispatchSignal = nil
 	c.processSem = nil
 	c.workersMu.Lock()
-	c.workers = make(map[recordKey]*partitionWorker)
-	c.dirtyWorkers = make(map[recordKey]*partitionWorker)
+	c.partitionStates = make(map[recordKey]*partitionState)
+	c.dirtyStates = make(map[recordKey]*partitionState)
 	c.workersMu.Unlock()
 }
 
@@ -248,33 +248,35 @@ func (c *Consumer) partitionQueueLowWatermark() int {
 	return c.partitionQueueCapacity() / 2
 }
 
-func (c *Consumer) runPartitionWorker(worker *partitionWorker, cl *kgo.Client) {
-	defer close(worker.done)
+func (c *Consumer) runPartitionState(state *partitionState, cl *kgo.Client) {
+	defer close(state.done)
 
 	for {
 		select {
-		case <-worker.ctx.Done():
+		case <-state.ctx.Done():
 			return
-		case record := <-worker.queue:
-			queueLen := worker.onDequeue()
+		case records := <-state.queue:
+			bufferedRecords := state.onDequeueBatch(records)
 			c.signalDispatchCapacity()
-			c.maybeResumePartitionAfterDrain(cl, worker, queueLen)
+			c.maybeResumePartitionAfterDrain(cl, state, bufferedRecords)
 
-			if c.isTopicPaused(record.Topic) {
-				continue
-			}
+			for _, record := range records {
+				if c.isTopicPaused(record.Topic) {
+					continue
+				}
 
-			if err := c.acquireProcessSlot(worker.ctx); err != nil {
-				return
-			}
+				if err := c.acquireProcessSlot(state.ctx); err != nil {
+					return
+				}
 
-			err := func() error {
-				defer c.releaseProcessSlot()
-				return c.processWorkerRecord(worker.ctx, cl, worker, record)
-			}()
-			if err != nil && !errors.Is(err, context.Canceled) {
-				c.fail(err)
-				return
+				err := func() error {
+					defer c.releaseProcessSlot()
+					return c.processPartitionRecord(state.ctx, cl, state, record)
+				}()
+				if err != nil && !errors.Is(err, context.Canceled) {
+					c.fail(err)
+					return
+				}
 			}
 		}
 	}
@@ -319,7 +321,7 @@ func (c *Consumer) dispatchRecords(ctx context.Context, cl *kgo.Client, records 
 	}
 
 	type pendingBatch struct {
-		batch partitionBatch
+		batch partitionRecordBatch
 		next  int
 	}
 
@@ -341,27 +343,27 @@ func (c *Consumer) dispatchRecords(ctx context.Context, cl *kgo.Client, records 
 				continue
 			}
 
-			worker, err := c.workerForPartition(cursor.batch.key, cursor.batch.subscription)
+			state, err := c.partitionStateFor(cursor.batch.key, cursor.batch.subscription)
 			if err != nil {
 				return err
 			}
-			if worker == nil {
+			if state == nil {
 				progressed = true
 				continue
 			}
 
 			for cursor.next < len(cursor.batch.records) {
-				enqueued, err := c.enqueueRecord(cl, worker, cursor.batch.records[cursor.next])
+				enqueued, err := c.enqueuePartitionRecords(cl, state, cursor.batch.records[cursor.next:])
 				if err != nil {
 					return err
 				}
-				if !enqueued {
+				if enqueued == 0 {
 					nextPending = append(nextPending, cursor)
 					break
 				}
 
 				progressed = true
-				cursor.next++
+				cursor.next += enqueued
 			}
 		}
 
@@ -379,7 +381,7 @@ func (c *Consumer) dispatchRecords(ctx context.Context, cl *kgo.Client, records 
 	return nil
 }
 
-func (c *Consumer) workerForPartition(key recordKey, subscription Subscription) (*partitionWorker, error) {
+func (c *Consumer) partitionStateFor(key recordKey, subscription Subscription) (*partitionState, error) {
 	c.runMu.RLock()
 	runCtx := c.runCtx
 	c.runMu.RUnlock()
@@ -388,17 +390,17 @@ func (c *Consumer) workerForPartition(key recordKey, subscription Subscription) 
 	}
 
 	c.workersMu.RLock()
-	if worker, ok := c.workers[key]; ok {
+	if state, ok := c.partitionStates[key]; ok {
 		c.workersMu.RUnlock()
-		return worker, nil
+		return state, nil
 	}
 	c.workersMu.RUnlock()
 
 	c.workersMu.Lock()
 	defer c.workersMu.Unlock()
 
-	if worker, ok := c.workers[key]; ok {
-		return worker, nil
+	if state, ok := c.partitionStates[key]; ok {
+		return state, nil
 	}
 	if c.isTopicPaused(key.topic) {
 		return nil, nil
@@ -411,8 +413,8 @@ func (c *Consumer) workerForPartition(key recordKey, subscription Subscription) 
 		return nil, fmt.Errorf("consumer run is not active")
 	}
 
-	worker := newPartitionWorker(runCtx, key, subscription, c.partitionQueueCapacity())
-	c.workers[key] = worker
+	state := newPartitionState(runCtx, key, subscription, c.partitionQueueCapacity())
+	c.partitionStates[key] = state
 
 	var kgoClient *kgo.Client
 	if c.client != nil {
@@ -422,8 +424,8 @@ func (c *Consumer) workerForPartition(key recordKey, subscription Subscription) 
 	c.runWG.Add(1)
 	go func() {
 		defer c.runWG.Done()
-		c.runPartitionWorker(worker, kgoClient)
+		c.runPartitionState(state, kgoClient)
 	}()
 
-	return worker, nil
+	return state, nil
 }
