@@ -22,6 +22,7 @@ func TestNewConsumer_RegistersStartupTopics(t *testing.T) {
 	cfg.subscriptions["topic-a"] = Subscription{
 		Topic:         "topic-a",
 		Handler:       startupHandler,
+		BatchHandler:  nil,
 		AckMode:       AckModeAtLeastOnce,
 		FailurePolicy: FailurePolicy{},
 	}
@@ -47,6 +48,7 @@ func TestConsumerAddSubscriptionValidation(t *testing.T) {
 		err := consumer.AddSubscription(Subscription{
 			Topic:         "",
 			Handler:       handler,
+			BatchHandler:  nil,
 			AckMode:       AckModeAtLeastOnce,
 			FailurePolicy: FailurePolicy{},
 		})
@@ -58,18 +60,20 @@ func TestConsumerAddSubscriptionValidation(t *testing.T) {
 		err := consumer.AddSubscription(Subscription{
 			Topic:         "topic-a",
 			Handler:       nil,
+			BatchHandler:  nil,
 			AckMode:       AckModeAtLeastOnce,
 			FailurePolicy: FailurePolicy{},
 		})
 		assert.NotNil(t, err, "should reject nil handler")
-		assert.StringContains(t, err.Error(), "handler must not be nil", "error message")
+		assert.StringContains(t, err.Error(), "exactly one of handler or batch handler must be set", "error message")
 	})
 
 	t.Run("reject invalid dlq config", func(t *testing.T) {
 		err := consumer.AddSubscription(Subscription{
-			Topic:   "topic-a",
-			Handler: handler,
-			AckMode: AckModeAtLeastOnce,
+			Topic:        "topic-a",
+			Handler:      handler,
+			BatchHandler: nil,
+			AckMode:      AckModeAtLeastOnce,
 			FailurePolicy: FailurePolicy{
 				MaxAttempts:  0,
 				RetryBackoff: 0,
@@ -85,6 +89,7 @@ func TestConsumerAddSubscriptionValidation(t *testing.T) {
 		err := consumer.AddSubscription(Subscription{
 			Topic:         "topic-a",
 			Handler:       handler,
+			BatchHandler:  nil,
 			AckMode:       AckModeAtLeastOnce,
 			FailurePolicy: FailurePolicy{},
 		})
@@ -93,6 +98,7 @@ func TestConsumerAddSubscriptionValidation(t *testing.T) {
 		err = consumer.AddSubscription(Subscription{
 			Topic:         "topic-a",
 			Handler:       handler,
+			BatchHandler:  nil,
 			AckMode:       AckModeAtLeastOnce,
 			FailurePolicy: FailurePolicy{},
 		})
@@ -119,6 +125,7 @@ func TestConsumerAddTopicRejectsClosedConsumer(t *testing.T) {
 	err = consumer.AddSubscription(Subscription{
 		Topic:         "topic-a",
 		Handler:       func(context.Context, *kgo.Record) error { return nil },
+		BatchHandler:  nil,
 		AckMode:       AckModeAtLeastOnce,
 		FailurePolicy: FailurePolicy{},
 	})
@@ -136,7 +143,8 @@ func TestConsumerExecuteRecordRecoversHandlerPanicAndStops(t *testing.T) {
 			attempts++
 			panic("boom")
 		},
-		AckMode: AckModeAtLeastOnce,
+		BatchHandler: nil,
+		AckMode:      AckModeAtLeastOnce,
 		FailurePolicy: FailurePolicy{
 			DLQ:          nil,
 			RetryBackoff: 0,
@@ -174,7 +182,8 @@ func TestConsumerExecuteRecordRecoversHandlerPanicAndCanSucceedOnRetry(t *testin
 			}
 			return nil
 		},
-		AckMode: AckModeAtLeastOnce,
+		BatchHandler: nil,
+		AckMode:      AckModeAtLeastOnce,
 		FailurePolicy: FailurePolicy{
 			DLQ:          nil,
 			RetryBackoff: 0,
@@ -207,7 +216,8 @@ func TestConsumerExecuteRecordRecoversHandlerPanicAndCommitExhausted(t *testing.
 			attempts++
 			panic("boom")
 		},
-		AckMode: AckModeAtLeastOnce,
+		BatchHandler: nil,
+		AckMode:      AckModeAtLeastOnce,
 		FailurePolicy: FailurePolicy{
 			DLQ:          nil,
 			RetryBackoff: 0,
@@ -573,6 +583,7 @@ func TestConsumerDispatchRecordsDoesNotBlockOtherPartitions(t *testing.T) {
 			fastValues <- fmt.Sprintf("%s/%d:%s", record.Topic, record.Partition, string(record.Value))
 			return nil
 		},
+		BatchHandler:  nil,
 		AckMode:       AckModeAtLeastOnce,
 		FailurePolicy: FailurePolicy{},
 	}.normalize()
@@ -585,6 +596,7 @@ func TestConsumerDispatchRecordsDoesNotBlockOtherPartitions(t *testing.T) {
 			fastValues <- fmt.Sprintf("%s/%d:%s", otherTopic, 0, "other-fast")
 			return nil
 		},
+		BatchHandler:  nil,
 		AckMode:       AckModeAtLeastOnce,
 		FailurePolicy: FailurePolicy{},
 	}.normalize()
@@ -702,6 +714,7 @@ func testSubscription(topic string) Subscription {
 	subscription, err := Subscription{
 		Topic:         topic,
 		Handler:       func(context.Context, *kgo.Record) error { return nil },
+		BatchHandler:  nil,
 		AckMode:       AckModeAtLeastOnce,
 		FailurePolicy: FailurePolicy{},
 	}.normalize()

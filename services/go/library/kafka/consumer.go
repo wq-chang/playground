@@ -24,6 +24,23 @@ const (
 // activates the subscription's failure policy.
 type Handler func(ctx context.Context, record *kgo.Record) error
 
+// BatchHandler processes a topic-partition batch in the polled order.
+//
+// Returning a zero-value BatchResult marks the whole batch as successfully
+// handled. To report a failure after successfully handling a contiguous prefix,
+// set Err and FailedAt to the index of the first failed record in the input
+// slice.
+type BatchHandler func(ctx context.Context, records []*kgo.Record) BatchResult
+
+// BatchResult reports the outcome of a BatchHandler invocation.
+//
+// The zero value means the whole input batch succeeded. FailedAt is only used
+// when Err is non-nil, and must point at the first failed record in the batch.
+type BatchResult struct {
+	Err      error
+	FailedAt int
+}
+
 // Consumer wraps the shared Kafka client with topic routing, per-partition state
 // management, and package-managed manual offset commits.
 type Consumer struct {
@@ -75,11 +92,11 @@ type recordResult struct {
 
 // newConsumer creates a new Kafka consumer.
 //
-// Subscriptions already present in cfg.subscriptions came from WithSubscription /
-// WithTopic during startup configuration. Those topics are already included in the
-// client's initial kgo.ConsumeTopics subscription, so they are copied into the
-// in-memory router with subscribe=false to avoid re-adding the same Kafka
-// subscription a second time.
+// Subscriptions already present in cfg.subscriptions came from
+// WithSubscription / WithTopic / WithBatchTopic during startup configuration.
+// Those topics are already included in the client's initial kgo.ConsumeTopics
+// subscription, so they are copied into the in-memory router with subscribe=false
+// to avoid re-adding the same Kafka subscription a second time.
 func newConsumer(cfg *config, client *Client) (*Consumer, error) {
 	consumer := &Consumer{
 		client:            client,
@@ -162,12 +179,20 @@ func (c *Consumer) AddSubscription(subscription Subscription) error {
 	return c.registerSubscription(subscription, true)
 }
 
-// AddTopic registers a new topic handler using the consumer's default
-// acknowledgment mode.
+// AddTopic registers a new single-record topic handler using the consumer's
+// default acknowledgment mode.
 //
 // It is a shorthand for AddSubscription with a default Subscription.
 func (c *Consumer) AddTopic(topic string, handler Handler) error {
 	return c.AddSubscription(newDefaultSubscription(topic, handler, c.cfg.defaultAckMode))
+}
+
+// AddBatchTopic registers a new batch topic handler using the consumer's
+// default acknowledgment mode.
+//
+// It is a shorthand for AddSubscription with a default Subscription.
+func (c *Consumer) AddBatchTopic(topic string, handler BatchHandler) error {
+	return c.AddSubscription(newDefaultBatchSubscription(topic, handler, c.cfg.defaultAckMode))
 }
 
 // registerSubscription stores a topic subscription in the consumer router.

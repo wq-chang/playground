@@ -9,8 +9,10 @@ import (
 type Subscription struct {
 	// Topic is the Kafka topic name consumed by this subscription.
 	Topic string
-	// Handler processes each record delivered for Topic.
+	// Handler processes each record delivered for Topic in single-record mode.
 	Handler Handler
+	// BatchHandler processes each dequeued topic-partition batch for Topic.
+	BatchHandler BatchHandler
 	// FailurePolicy controls retry and exhaustion behavior for handler errors.
 	FailurePolicy FailurePolicy
 	// AckMode controls whether commits happen before or after successful
@@ -57,6 +59,17 @@ func newDefaultSubscription(topic string, handler Handler, ackMode AckMode) Subs
 	return Subscription{
 		Topic:         topic,
 		Handler:       handler,
+		BatchHandler:  nil,
+		FailurePolicy: FailurePolicy{},
+		AckMode:       ackMode,
+	}
+}
+
+func newDefaultBatchSubscription(topic string, handler BatchHandler, ackMode AckMode) Subscription {
+	return Subscription{
+		Topic:         topic,
+		Handler:       nil,
+		BatchHandler:  handler,
 		FailurePolicy: FailurePolicy{},
 		AckMode:       ackMode,
 	}
@@ -66,8 +79,11 @@ func (s Subscription) normalize() (Subscription, error) {
 	if s.Topic == "" {
 		return Subscription{}, fmt.Errorf("topic must not be empty")
 	}
-	if s.Handler == nil {
-		return Subscription{}, fmt.Errorf("handler must not be nil")
+	switch {
+	case s.Handler == nil && s.BatchHandler == nil:
+		return Subscription{}, fmt.Errorf("exactly one of handler or batch handler must be set")
+	case s.Handler != nil && s.BatchHandler != nil:
+		return Subscription{}, fmt.Errorf("exactly one of handler or batch handler must be set")
 	}
 	if s.AckMode != AckModeAtLeastOnce && s.AckMode != AckModeAtMostOnce {
 		return Subscription{}, fmt.Errorf("unsupported ack mode: %d", s.AckMode)

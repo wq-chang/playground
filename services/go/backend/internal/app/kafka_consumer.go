@@ -22,6 +22,7 @@ func newKafkaConsumer(cfg *config.Config, svc *service) (*kafka.Client, error) {
 	if err := kafkaClient.Consumer.AddSubscription(kafka.Subscription{
 		Topic:         cfg.Kafka.UserEventTopic,
 		Handler:       eventConsumer.HandleRecord,
+		BatchHandler:  nil,
 		AckMode:       kafka.AckModeAtLeastOnce,
 		FailurePolicy: kafka.FailurePolicy{},
 	}); err != nil {

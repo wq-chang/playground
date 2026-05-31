@@ -260,6 +260,25 @@ func (c *Consumer) runPartitionState(state *partitionState, cl *kgo.Client) {
 			c.signalDispatchCapacity()
 			c.maybeResumePartitionAfterDrain(cl, state, bufferedRecords)
 
+			if state.subscription.BatchHandler != nil {
+				if len(records) == 0 || c.isTopicPaused(state.key.topic) {
+					continue
+				}
+				if err := c.acquireProcessSlot(state.ctx); err != nil {
+					return
+				}
+
+				err := func() error {
+					defer c.releaseProcessSlot()
+					return c.processPartitionBatch(state.ctx, cl, state, records)
+				}()
+				if err != nil && !errors.Is(err, context.Canceled) {
+					c.fail(err)
+					return
+				}
+				continue
+			}
+
 			for _, record := range records {
 				if c.isTopicPaused(record.Topic) {
 					continue

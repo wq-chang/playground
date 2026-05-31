@@ -136,6 +136,44 @@ func (c *Consumer) processPartitionRecord(
 	return nil
 }
 
+func (c *Consumer) processPartitionBatch(
+	ctx context.Context,
+	cl *kgo.Client,
+	state *partitionState,
+	records []*kgo.Record,
+) error {
+	if len(records) == 0 {
+		return nil
+	}
+
+	switch state.subscription.AckMode {
+	case AckModeAtMostOnce:
+		if err := c.commitRecords(ctx, cl, records...); err != nil {
+			return fmt.Errorf("failed to commit batch before handling: %w", err)
+		}
+	case AckModeAtLeastOnce:
+		// Manual offset commit happens after successful processing.
+	default:
+		return fmt.Errorf("unsupported ack mode: %d", state.subscription.AckMode)
+	}
+
+	result, err := c.executeBatch(ctx, state.subscription, records)
+	if err != nil {
+		return err
+	}
+	if state.subscription.AckMode == AckModeAtLeastOnce && result.resolvedCount > 0 {
+		lastResolvedRecord := records[result.resolvedCount-1]
+		if state.advanceCommitOffset(lastResolvedRecord) && c.markDirtyPartitionState(state) {
+			c.signalCommitLoop()
+		}
+	}
+	if result.pauseTopic {
+		return c.pauseTopic(cl, records[0].Topic, result.cause)
+	}
+
+	return nil
+}
+
 func (s *partitionState) tryEnqueueRecords(records []*kgo.Record) (int, int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

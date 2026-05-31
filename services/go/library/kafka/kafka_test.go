@@ -46,6 +46,7 @@ func TestKafkaProducerConsumer(t *testing.T) {
 				kafka.WithSubscription(kafka.Subscription{
 					Topic:         topic,
 					Handler:       handler,
+					BatchHandler:  nil,
 					AckMode:       kafka.AckModeAtLeastOnce,
 					FailurePolicy: kafka.FailurePolicy{},
 				}),
@@ -109,6 +110,7 @@ func TestKafkaConsumerAddSubscription(t *testing.T) {
 		err = client.Consumer.AddSubscription(kafka.Subscription{
 			Topic:         topic,
 			Handler:       handler,
+			BatchHandler:  nil,
 			AckMode:       kafka.AckModeAtLeastOnce,
 			FailurePolicy: kafka.FailurePolicy{},
 		})
@@ -167,6 +169,7 @@ func TestKafkaConsumerAddSubscription(t *testing.T) {
 		err = client.Consumer.AddSubscription(kafka.Subscription{
 			Topic:         topic,
 			Handler:       handler,
+			BatchHandler:  nil,
 			AckMode:       kafka.AckModeAtLeastOnce,
 			FailurePolicy: kafka.FailurePolicy{},
 		})
@@ -206,7 +209,8 @@ func TestKafkaConsumerDLQOnFailure(t *testing.T) {
 			Handler: func(context.Context, *kgo.Record) error {
 				return fmt.Errorf("boom")
 			},
-			AckMode: kafka.AckModeAtLeastOnce,
+			BatchHandler: nil,
+			AckMode:      kafka.AckModeAtLeastOnce,
 			FailurePolicy: kafka.FailurePolicy{
 				MaxAttempts:  0,
 				RetryBackoff: 0,
@@ -220,6 +224,7 @@ func TestKafkaConsumerDLQOnFailure(t *testing.T) {
 				dlqRecords <- record
 				return nil
 			},
+			BatchHandler:  nil,
 			AckMode:       kafka.AckModeAtLeastOnce,
 			FailurePolicy: kafka.FailurePolicy{},
 		}),
@@ -286,6 +291,7 @@ func TestKafkaConsumerStopPausesTopicOnly(t *testing.T) {
 				}
 				return fmt.Errorf("boom")
 			},
+			BatchHandler:  nil,
 			AckMode:       kafka.AckModeAtLeastOnce,
 			FailurePolicy: kafka.FailurePolicy{},
 		}),
@@ -295,6 +301,7 @@ func TestKafkaConsumerStopPausesTopicOnly(t *testing.T) {
 				healthyValues <- string(record.Value)
 				return nil
 			},
+			BatchHandler:  nil,
 			AckMode:       kafka.AckModeAtLeastOnce,
 			FailurePolicy: kafka.FailurePolicy{},
 		}),

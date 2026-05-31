@@ -69,6 +69,7 @@ func TestSubscriptionNormalize_RejectsInvalidAckMode(t *testing.T) {
 	_, err := (Subscription{
 		Topic:         "topic-a",
 		Handler:       func(context.Context, *kgo.Record) error { return nil },
+		BatchHandler:  nil,
 		AckMode:       AckMode(99),
 		FailurePolicy: FailurePolicy{},
 	}).normalize()

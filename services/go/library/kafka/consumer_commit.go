@@ -144,10 +144,18 @@ func (c *Consumer) markCommittedOffsets(offsets map[string]map[int32]kgo.EpochOf
 }
 
 func (c *Consumer) commitRecord(ctx context.Context, cl *kgo.Client, record *kgo.Record) error {
+	return c.commitRecords(ctx, cl, record)
+}
+
+func (c *Consumer) commitRecords(ctx context.Context, cl *kgo.Client, records ...*kgo.Record) error {
+	if len(records) == 0 {
+		return nil
+	}
+
 	c.commitMu.Lock()
 	defer c.commitMu.Unlock()
 
-	return cl.CommitRecords(ctx, record)
+	return cl.CommitRecords(ctx, records...)
 }
 
 func (c *Consumer) commitOffsets(

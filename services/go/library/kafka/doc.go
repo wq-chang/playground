@@ -8,12 +8,14 @@
 //
 // # Consuming
 //
-// Register topic handlers up front with WithSubscription or WithTopic, or add
-// them later with Consumer.AddSubscription or Consumer.AddTopic. Consumer.Run
-// polls records, routes them by topic, and processes each topic-partition
-// sequentially while still allowing different partitions to run concurrently.
-// WithWorkers sets the global record-processing concurrency limit across those
-// per-partition runners.
+// Register topic handlers up front with WithSubscription, WithTopic, or
+// WithBatchTopic, or add them later with Consumer.AddSubscription,
+// Consumer.AddTopic, or Consumer.AddBatchTopic. Consumer.Run polls records,
+// routes them by topic, and processes each topic-partition sequentially while
+// still allowing different partitions to run concurrently. Batch handlers
+// receive the dequeued slice for a topic-partition and can report the first
+// failed index for partial progress. WithWorkers sets the global
+// handler-invocation concurrency limit across those per-partition runners.
 //
 // Delivery guarantees are controlled per subscription:
 //

@@ -32,8 +32,8 @@ type config struct {
 	subscriptions map[string]Subscription
 	// kgoOpts are additional franz-go client options.
 	kgoOpts []kgo.Opt
-	// workers is the max number of records processed concurrently across
-	// all per-partition runners.
+	// workers is the max number of handler invocations processed concurrently
+	// across all per-partition runners.
 	workers int
 	// defaultAckMode determines which acknowledgment mode is applied by the
 	// compatibility topic APIs.
@@ -86,8 +86,8 @@ func WithKgoOptions(opts ...kgo.Opt) Option {
 
 // --- Consumer Specific Options ---
 
-// WithWorkers sets the maximum number of records processed concurrently across
-// all per-partition runners.
+// WithWorkers sets the maximum number of handler invocations processed
+// concurrently across all per-partition runners.
 func WithWorkers(workers int) Option {
 	return func(c *config) {
 		if workers > 0 {
@@ -96,8 +96,8 @@ func WithWorkers(workers int) Option {
 	}
 }
 
-// WithAckMode sets the default acknowledgment mode used by WithTopic and
-// Consumer.AddTopic.
+// WithAckMode sets the default acknowledgment mode used by WithTopic,
+// WithBatchTopic, Consumer.AddTopic, and Consumer.AddBatchTopic.
 func WithAckMode(mode AckMode) Option {
 	return func(c *config) {
 		c.defaultAckMode = mode
@@ -122,8 +122,8 @@ func WithSubscription(subscription Subscription) Option {
 	}
 }
 
-// WithTopic registers a processing handler for a specific Kafka topic during
-// client construction.
+// WithTopic registers a single-record processing handler for a specific Kafka
+// topic during client construction.
 //
 // The created subscription uses the default acknowledgment mode configured by
 // WithAckMode. For runtime registration after New, use Consumer.AddTopic. If a
@@ -131,6 +131,18 @@ func WithSubscription(subscription Subscription) Option {
 func WithTopic(topic string, handler Handler) Option {
 	return func(c *config) {
 		WithSubscription(newDefaultSubscription(topic, handler, c.defaultAckMode))(c)
+	}
+}
+
+// WithBatchTopic registers a batch processing handler for a specific Kafka
+// topic during client construction.
+//
+// The created subscription uses the default acknowledgment mode configured by
+// WithAckMode. For runtime registration after New, use Consumer.AddBatchTopic.
+// If a handler is already registered for the given topic, this option panics.
+func WithBatchTopic(topic string, handler BatchHandler) Option {
+	return func(c *config) {
+		WithSubscription(newDefaultBatchSubscription(topic, handler, c.defaultAckMode))(c)
 	}
 }
 
