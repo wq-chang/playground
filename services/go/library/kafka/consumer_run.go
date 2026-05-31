@@ -9,6 +9,17 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
+var (
+	runClientFn = func(
+		c *Consumer,
+		ctx context.Context,
+		cl *kgo.Client,
+	) error {
+		return c.runClient(ctx, cl)
+	}
+	beforeWaitForDispatchHook = func() {}
+)
+
 // Run starts the consumer loop.
 //
 // Run blocks until the context is canceled or a fatal processing error occurs.
@@ -25,24 +36,30 @@ func (c *Consumer) Run(ctx context.Context) error {
 		return fmt.Errorf("consumer client is not initialized")
 	}
 
-	runCtx, err := c.beginRun(ctx)
+	runCtx, err := c.beginRun()
 	if err != nil {
 		return err
 	}
+	pollCtx, stopPolling := mergeRunContexts(ctx, runCtx)
+	defer stopPolling()
 
 	cl := c.client.kgoClient
 	c.runWG.Add(1)
 	go c.runCommitLoop(runCtx, cl)
 
-	err = c.runClient(runCtx, cl)
-	if err == nil && c.runFailure() == nil && ctx.Err() == nil {
-		err = c.flushDirtyOffsetsWithTimeout(cl)
+	err = runClientFn(c, pollCtx, cl)
+	runErr := c.runFailure()
+	if shouldGracefullyShutdown(ctx, err, runErr) {
+		shutdownErr := c.shutdownRun(cl)
+		if shutdownErr != nil {
+			err = shutdownErr
+		}
 	}
 
 	c.stopRun()
 	c.runWG.Wait()
 
-	runErr := c.runFailure()
+	runErr = c.runFailure()
 	c.resetRunState()
 
 	switch {
@@ -57,7 +74,7 @@ func (c *Consumer) Run(ctx context.Context) error {
 	}
 
 	if err != nil {
-		if ctx.Err() != nil && !errors.Is(err, runErr) {
+		if ctx.Err() != nil && errors.Is(err, context.Canceled) && !errors.Is(err, runErr) {
 			c.log.InfoContext(ctx, "Kafka consumer context cancelled, shutting down...")
 			return ctx.Err()
 		}
@@ -68,7 +85,19 @@ func (c *Consumer) Run(ctx context.Context) error {
 	return nil
 }
 
-func (c *Consumer) beginRun(parent context.Context) (context.Context, error) {
+func shouldGracefullyShutdown(parentCtx context.Context, runClientErr, runErr error) bool {
+	if runErr != nil {
+		return false
+	}
+
+	if runClientErr == nil {
+		return true
+	}
+
+	return errors.Is(runClientErr, context.Canceled) && parentCtx.Err() != nil
+}
+
+func (c *Consumer) beginRun() (context.Context, error) {
 	c.runMu.Lock()
 	defer c.runMu.Unlock()
 
@@ -76,7 +105,7 @@ func (c *Consumer) beginRun(parent context.Context) (context.Context, error) {
 		return nil, fmt.Errorf("consumer run is already active")
 	}
 
-	runCtx, runCancel := context.WithCancel(parent)
+	runCtx, runCancel := context.WithCancel(context.Background())
 	c.runCtx = runCtx
 	c.runCancel = runCancel
 	c.runErr = nil
@@ -91,6 +120,21 @@ func (c *Consumer) beginRun(parent context.Context) (context.Context, error) {
 	c.workersMu.Unlock()
 
 	return runCtx, nil
+}
+
+func mergeRunContexts(parent, run context.Context) (context.Context, context.CancelFunc) {
+	mergedCtx, mergedCancel := context.WithCancel(context.Background())
+	go func() {
+		select {
+		case <-parent.Done():
+			mergedCancel()
+		case <-run.Done():
+			mergedCancel()
+		case <-mergedCtx.Done():
+		}
+	}()
+
+	return mergedCtx, mergedCancel
 }
 
 func (c *Consumer) stopRun() {
@@ -117,6 +161,13 @@ func (c *Consumer) resetRunState() {
 	c.partitionStates = make(map[recordKey]*partitionState)
 	c.dirtyStates = make(map[recordKey]*partitionState)
 	c.workersMu.Unlock()
+}
+
+func (c *Consumer) shutdownRun(cl *kgo.Client) error {
+	states := c.beginClosingAllPartitionStates()
+	drainCtx, cancel := context.WithTimeout(context.Background(), partitionDrainTimeout)
+	defer cancel()
+	return c.finalizeClosingPartitionStates(drainCtx, nil, cl, states, "failed to commit processed offsets on shutdown")
 }
 
 func (c *Consumer) fail(err error) {
@@ -180,6 +231,8 @@ func (c *Consumer) waitForDispatchCapacity(ctx context.Context) error {
 	if ch == nil {
 		return fmt.Errorf("dispatch signal is not initialized")
 	}
+
+	beforeWaitForDispatchHook()
 
 	select {
 	case <-ctx.Done():
@@ -249,13 +302,19 @@ func (c *Consumer) partitionQueueLowWatermark() int {
 }
 
 func (c *Consumer) runPartitionState(state *partitionState, cl *kgo.Client) {
-	defer close(state.done)
+	defer func() {
+		state.markStopped()
+		close(state.done)
+	}()
 
 	for {
 		select {
 		case <-state.ctx.Done():
 			return
-		case records := <-state.queue:
+		case records, ok := <-state.queue:
+			if !ok {
+				return
+			}
 			bufferedRecords := state.onDequeueBatch(records)
 			c.signalDispatchCapacity()
 			c.maybeResumePartitionAfterDrain(cl, state, bufferedRecords)
@@ -411,6 +470,9 @@ func (c *Consumer) partitionStateFor(key recordKey, subscription Subscription) (
 	c.workersMu.RLock()
 	if state, ok := c.partitionStates[key]; ok {
 		c.workersMu.RUnlock()
+		if !state.isRunning() {
+			return nil, nil
+		}
 		return state, nil
 	}
 	c.workersMu.RUnlock()
@@ -419,17 +481,13 @@ func (c *Consumer) partitionStateFor(key recordKey, subscription Subscription) (
 	defer c.workersMu.Unlock()
 
 	if state, ok := c.partitionStates[key]; ok {
+		if !state.isRunning() {
+			return nil, nil
+		}
 		return state, nil
 	}
 	if c.isTopicPaused(key.topic) {
 		return nil, nil
-	}
-
-	c.runMu.RLock()
-	runCtx = c.runCtx
-	c.runMu.RUnlock()
-	if runCtx == nil {
-		return nil, fmt.Errorf("consumer run is not active")
 	}
 
 	state := newPartitionState(runCtx, key, subscription, c.partitionQueueCapacity())

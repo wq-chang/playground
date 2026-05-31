@@ -117,11 +117,7 @@ func (e batchExecutor) execute(
 			}, nil
 		}
 		if !exhaustedResult.resolved {
-			return batchExecutionResult{
-				cause:         exhaustedResult.cause,
-				resolvedCount: resolvedCount,
-				pauseTopic:    exhaustedResult.pauseTopic,
-			}, nil
+			panic("unreachable: resolveExhausted returned resolved=false without pauseTopic=true")
 		}
 
 		resolvedCount++

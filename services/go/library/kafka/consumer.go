@@ -6,8 +6,9 @@ import (
 	"log/slog"
 	"maps"
 	"sync"
-	"sync/atomic"
 	"time"
+
+	"go-services/library/gsync"
 
 	"github.com/twmb/franz-go/pkg/kgo"
 )
@@ -16,6 +17,8 @@ const (
 	defaultPartitionQueueCapacity = 64
 	commitDebounceInterval        = 100 * time.Millisecond
 	commitFlushInterval           = 500 * time.Millisecond
+	finalCommitTimeout            = 30 * time.Second
+	partitionDrainTimeout         = 30 * time.Second
 )
 
 // Handler processes a single Kafka record.
@@ -44,27 +47,27 @@ type BatchResult struct {
 // Consumer wraps the shared Kafka client with topic routing, per-partition state
 // management, and package-managed manual offset commits.
 type Consumer struct {
+	runCtx            context.Context
+	runErr            error
+	subscriptionState gsync.Value[map[string]Subscription]
+	pausedTopicsState gsync.Value[map[string]pausedTopic]
 	client            *Client
 	cfg               *config
 	log               *slog.Logger
-	runCtx            context.Context
 	runCancel         context.CancelFunc
-	runErr            error
 	processSem        chan struct{}
 	commitSignal      chan struct{}
 	dispatchSignal    chan struct{}
-	subscriptionState atomic.Value
-	pausedTopicsState atomic.Value
+	commitMu          chan struct{}
 	subscriptions     map[string]Subscription
 	pausedTopics      map[string]pausedTopic
 	partitionStates   map[recordKey]*partitionState
 	dirtyStates       map[recordKey]*partitionState
-	subscriptionMu    sync.Mutex
-	pausedTopicsMu    sync.Mutex
+	runWG             sync.WaitGroup
 	runMu             sync.RWMutex
 	workersMu         sync.RWMutex
-	commitMu          sync.Mutex
-	runWG             sync.WaitGroup
+	subscriptionMu    sync.Mutex
+	pausedTopicsMu    sync.Mutex
 	runErrOnce        sync.Once
 }
 
@@ -108,13 +111,13 @@ func newConsumer(cfg *config, client *Client) (*Consumer, error) {
 		processSem:        nil,
 		commitSignal:      nil,
 		dispatchSignal:    nil,
-		subscriptionState: atomic.Value{},
-		pausedTopicsState: atomic.Value{},
+		subscriptionState: gsync.Value[map[string]Subscription]{},
+		pausedTopicsState: gsync.Value[map[string]pausedTopic]{},
 		subscriptions:     make(map[string]Subscription, len(cfg.subscriptions)),
 		pausedTopics:      make(map[string]pausedTopic),
 		partitionStates:   make(map[recordKey]*partitionState),
 		dirtyStates:       make(map[recordKey]*partitionState),
-		commitMu:          sync.Mutex{},
+		commitMu:          newCommitCoordinator(),
 		runMu:             sync.RWMutex{},
 		workersMu:         sync.RWMutex{},
 		subscriptionMu:    sync.Mutex{},
@@ -132,6 +135,12 @@ func newConsumer(cfg *config, client *Client) (*Consumer, error) {
 	}
 
 	return consumer, nil
+}
+
+func newCommitCoordinator() chan struct{} {
+	ch := make(chan struct{}, 1)
+	ch <- struct{}{}
+	return ch
 }
 
 func (c *Consumer) partitionBatches(records []*kgo.Record) ([]partitionRecordBatch, error) {
@@ -231,24 +240,16 @@ func (c *Consumer) subscriptionForTopic(topic string) (Subscription, bool) {
 }
 
 func (c *Consumer) subscriptionSnapshot() map[string]Subscription {
-	value := c.subscriptionState.Load()
-	if value == nil {
-		return map[string]Subscription{}
-	}
-	snapshot, ok := value.(map[string]Subscription)
-	if !ok || snapshot == nil {
+	snapshot := c.subscriptionState.Load()
+	if snapshot == nil {
 		return map[string]Subscription{}
 	}
 	return snapshot
 }
 
 func (c *Consumer) pausedTopicSnapshot() map[string]pausedTopic {
-	value := c.pausedTopicsState.Load()
-	if value == nil {
-		return map[string]pausedTopic{}
-	}
-	snapshot, ok := value.(map[string]pausedTopic)
-	if !ok || snapshot == nil {
+	snapshot := c.pausedTopicsState.Load()
+	if snapshot == nil {
 		return map[string]pausedTopic{}
 	}
 	return snapshot

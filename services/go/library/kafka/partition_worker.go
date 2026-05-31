@@ -17,14 +17,23 @@ type partitionState struct {
 	subscription       Subscription
 	nextCommitOffset   kgo.EpochOffset
 	committedOffset    kgo.EpochOffset
-	stopOnce           sync.Once
+	queueCloseOnce     sync.Once
 	mu                 sync.Mutex
 	maxBufferedRecords int32
 	bufferedRecords    int32
 	accepting          bool
 	backpressurePaused bool
 	dirty              bool
+	lifecycle          partitionLifecycle
 }
+
+type partitionLifecycle int
+
+const (
+	partitionLifecycleRunning partitionLifecycle = iota
+	partitionLifecycleClosing
+	partitionLifecycleStopped
+)
 
 func newPartitionState(
 	parent context.Context,
@@ -40,15 +49,16 @@ func newPartitionState(
 		done:               make(chan struct{}),
 		key:                key,
 		subscription:       subscription,
-		nextCommitOffset:   kgo.EpochOffset{},
-		committedOffset:    kgo.EpochOffset{},
-		stopOnce:           sync.Once{},
+		nextCommitOffset:   kgo.EpochOffset{Epoch: -1, Offset: -1},
+		committedOffset:    kgo.EpochOffset{Epoch: -1, Offset: -1},
+		queueCloseOnce:     sync.Once{},
 		mu:                 sync.Mutex{},
 		maxBufferedRecords: int32(queueCapacity),
 		bufferedRecords:    0,
 		accepting:          true,
 		backpressurePaused: false,
 		dirty:              false,
+		lifecycle:          partitionLifecycleRunning,
 	}
 }
 
@@ -276,22 +286,53 @@ func (s *partitionState) markCommitted(offset kgo.EpochOffset) bool {
 	return s.dirty
 }
 
-func (s *partitionState) stop() (kgo.EpochOffset, bool) {
-	var (
-		offset kgo.EpochOffset
-		ok     bool
-	)
+func (s *partitionState) beginClosing() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	s.stopOnce.Do(func() {
-		s.mu.Lock()
-		s.accepting = false
-		s.backpressurePaused = false
-		offset = s.nextCommitOffset
-		ok = s.committedOffset.Less(offset)
-		s.mu.Unlock()
+	s.beginClosingLocked()
+}
 
-		s.cancel()
+func (s *partitionState) beginClosingLocked() {
+	if s.lifecycle == partitionLifecycleStopped {
+		return
+	}
+
+	s.lifecycle = partitionLifecycleClosing
+	s.accepting = false
+	s.backpressurePaused = false
+	s.closeQueueLocked()
+}
+
+func (s *partitionState) closeQueueLocked() {
+	s.queueCloseOnce.Do(func() {
+		close(s.queue)
 	})
+}
 
+func (s *partitionState) abort() (kgo.EpochOffset, bool) {
+	s.mu.Lock()
+	s.beginClosingLocked()
+	offset := s.nextCommitOffset
+	ok := s.committedOffset.Less(offset)
+	s.mu.Unlock()
+
+	s.cancel()
 	return offset, ok
+}
+
+func (s *partitionState) markStopped() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.lifecycle = partitionLifecycleStopped
+	s.accepting = false
+	s.backpressurePaused = false
+}
+
+func (s *partitionState) isRunning() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.lifecycle == partitionLifecycleRunning
 }

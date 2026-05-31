@@ -2,5 +2,5 @@
 //
 // By utilizing Go generics, this package eliminates the need for manual type
 // assertions and improves type safety when working with synchronization
-// primitives like pools.
+// primitives like pools and atomic values.
 package gsync

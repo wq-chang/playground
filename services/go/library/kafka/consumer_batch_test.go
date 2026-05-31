@@ -226,7 +226,7 @@ func TestConsumerDispatchRecordsUsesBatchHandler(t *testing.T) {
 	require.NoError(t, err, "batch subscription should normalize")
 	require.NoError(t, consumer.registerSubscription(subscription, false), "batch topic should register")
 
-	runCtx, err := consumer.beginRun(context.Background())
+	runCtx, err := consumer.beginRun()
 	require.NoError(t, err, "consumer run state should initialize")
 	defer func() {
 		consumer.stopRun()
