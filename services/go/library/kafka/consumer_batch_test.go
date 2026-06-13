@@ -107,7 +107,7 @@ func TestConsumerExecuteBatchRetriesRemainingSuffix(t *testing.T) {
 			MaxAttempts:  2,
 			OnExhausted:  ExhaustedActionUnspecified,
 		},
-	}.normalize()
+	}.Normalize()
 	require.NoError(t, err, "batch subscription should normalize")
 
 	result, err := consumer.executeBatch(context.Background(), subscription, testRecords("topic-a", 0, 10, 11, 12))
@@ -144,7 +144,7 @@ func TestConsumerExecuteBatchCommitExhaustedContinuesRemainingRecords(t *testing
 			MaxAttempts:  1,
 			OnExhausted:  ExhaustedActionCommit,
 		},
-	}.normalize()
+	}.Normalize()
 	require.NoError(t, err, "batch subscription should normalize")
 
 	result, err := consumer.executeBatch(context.Background(), subscription, testRecords("topic-a", 0, 10, 11, 12))
@@ -173,7 +173,7 @@ func TestConsumerExecuteBatchStopOnExhaustedReturnsResolvedPrefix(t *testing.T) 
 			MaxAttempts:  1,
 			OnExhausted:  ExhaustedActionStop,
 		},
-	}.normalize()
+	}.Normalize()
 	require.NoError(t, err, "batch subscription should normalize")
 
 	result, err := consumer.executeBatch(context.Background(), subscription, testRecords("topic-a", 0, 10, 11, 12))
@@ -201,7 +201,7 @@ func TestConsumerExecuteBatchRejectsInvalidFailedIndex(t *testing.T) {
 			MaxAttempts:  1,
 			OnExhausted:  ExhaustedActionUnspecified,
 		},
-	}.normalize()
+	}.Normalize()
 	require.NoError(t, err, "batch subscription should normalize")
 
 	_, err = consumer.executeBatch(context.Background(), subscription, testRecords("topic-a", 0, 10, 11, 12))
@@ -222,7 +222,7 @@ func TestConsumerDispatchRecordsUsesBatchHandler(t *testing.T) {
 		},
 		AckMode:       AckModeAtLeastOnce,
 		FailurePolicy: FailurePolicy{},
-	}.normalize()
+	}.Normalize()
 	require.NoError(t, err, "batch subscription should normalize")
 	require.NoError(t, consumer.registerSubscription(subscription, false), "batch topic should register")
 

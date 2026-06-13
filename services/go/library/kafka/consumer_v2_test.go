@@ -5,6 +5,7 @@ package kafka
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"go-services/library/assert"
@@ -28,6 +29,10 @@ func newTestClientV2(t *testing.T) *Client {
 	return &Client{
 		kgoClient: kgoClient,
 		Consumer:  nil,
+		Producer:  nil,
+		closeOnce: sync.Once{},
+		closed:    false,
+		mu:        sync.RWMutex{},
 	}
 }
 
@@ -89,6 +94,7 @@ func TestConsumerV2_AddSubscription_Duplicate(t *testing.T) {
 	sub := Subscription{
 		Topic:         "my-topic",
 		Handler:       func(context.Context, *kgo.Record) error { return nil },
+		BatchHandler:  nil,
 		FailurePolicy: FailurePolicy{},
 		AckMode:       AckModeAtLeastOnce,
 	}
@@ -109,6 +115,7 @@ func TestConsumerV2_AddSubscription_Invalid(t *testing.T) {
 	sub := Subscription{
 		Topic:         "",
 		Handler:       func(context.Context, *kgo.Record) error { return nil },
+		BatchHandler:  nil,
 		FailurePolicy: FailurePolicy{},
 		AckMode:       AckModeAtLeastOnce,
 	}
@@ -165,6 +172,7 @@ func TestConsumerV2_SubscriptionSnapshot_IsImmutable(t *testing.T) {
 	err = v2.AddSubscription(Subscription{
 		Topic:         "t",
 		Handler:       func(context.Context, *kgo.Record) error { return nil },
+		BatchHandler:  nil,
 		FailurePolicy: FailurePolicy{},
 		AckMode:       AckModeAtLeastOnce,
 	})

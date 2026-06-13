@@ -17,17 +17,18 @@ import (
 	"maps"
 	"sync"
 
-	"go-services/library/kafka/internal/consumer"
-
 	"github.com/twmb/franz-go/pkg/kgo"
 )
+
+// errV2NotImplemented is returned by stub runtime methods on consumerV2.
+var errV2NotImplemented = fmt.Errorf("consumerV2: not yet implemented")
 
 // consumerV2 is the temporary v2 consumer façade.
 type consumerV2 struct {
 	cfg           *config
 	client        *Client
 	log           *slog.Logger
-	subscriptions map[string]consumer.Subscription
+	subscriptions map[string]Subscription
 	subMu         sync.Mutex
 }
 
@@ -37,16 +38,17 @@ func newConsumerV2(cfg *config, client *Client) (*consumerV2, error) {
 		cfg:           cfg,
 		client:        client,
 		log:           cfg.logger,
-		subscriptions: make(map[string]consumer.Subscription, len(cfg.subscriptions)),
+		subscriptions: make(map[string]Subscription, len(cfg.subscriptions)),
+		subMu:         sync.Mutex{},
 	}
 
-	// Convert startup subscriptions from config into internal form.
+	// Convert startup subscriptions from config.
 	for _, sub := range cfg.subscriptions {
-		intSub, err := toInternalSubscription(sub)
+		normalized, err := sub.Normalize()
 		if err != nil {
 			return nil, fmt.Errorf("v2 init: %w", err)
 		}
-		v2.subscriptions[intSub.Topic] = intSub
+		v2.subscriptions[normalized.Topic] = normalized
 	}
 
 	return v2, nil
@@ -54,7 +56,7 @@ func newConsumerV2(cfg *config, client *Client) (*consumerV2, error) {
 
 // AddSubscription registers a new topic subscription.
 func (v2 *consumerV2) AddSubscription(subscription Subscription) error {
-	intSub, err := toInternalSubscription(subscription)
+	normalized, err := subscription.Normalize()
 	if err != nil {
 		return err
 	}
@@ -65,13 +67,13 @@ func (v2 *consumerV2) AddSubscription(subscription Subscription) error {
 	if v2.client != nil && v2.client.isClosed() {
 		return fmt.Errorf("consumer is closed")
 	}
-	if _, ok := v2.subscriptions[intSub.Topic]; ok {
-		return fmt.Errorf("topic handler already registered for %q", intSub.Topic)
+	if _, ok := v2.subscriptions[normalized.Topic]; ok {
+		return fmt.Errorf("topic handler already registered for %q", normalized.Topic)
 	}
 
-	v2.subscriptions[intSub.Topic] = intSub
+	v2.subscriptions[normalized.Topic] = normalized
 	if v2.client != nil && v2.client.kgoClient != nil {
-		v2.client.kgoClient.AddConsumeTopics(intSub.Topic)
+		v2.client.kgoClient.AddConsumeTopics(normalized.Topic)
 	}
 
 	return nil
@@ -94,6 +96,8 @@ func (v2 *consumerV2) Run(ctx context.Context) error {
 }
 
 // onPartitionsRevoked handles partition revocation. STUB — no-op.
+//
+//nolint:unused
 func (v2 *consumerV2) onPartitionsRevoked(
 	ctx context.Context,
 	cl *kgo.Client,
@@ -102,6 +106,8 @@ func (v2 *consumerV2) onPartitionsRevoked(
 }
 
 // onPartitionsLost handles lost partitions. STUB — no-op.
+//
+//nolint:unused
 func (v2 *consumerV2) onPartitionsLost(
 	ctx context.Context,
 	partitions map[string][]int32,
@@ -109,7 +115,9 @@ func (v2 *consumerV2) onPartitionsLost(
 }
 
 // subscriptionSnapshot returns an immutable snapshot of the current subscriptions.
-func (v2 *consumerV2) subscriptionSnapshot() map[string]consumer.Subscription {
+//
+//nolint:unused
+func (v2 *consumerV2) subscriptionSnapshot() map[string]Subscription {
 	v2.subMu.Lock()
 	defer v2.subMu.Unlock()
 	return maps.Clone(v2.subscriptions)

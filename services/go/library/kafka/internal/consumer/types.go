@@ -1,70 +1,31 @@
 // Package consumer holds internal runtime types and collaborators for the
 // kafka package's consumer implementation. It must not import its parent
-// go-services/library/kafka package to avoid an import cycle.
+// go-services/library/kafka package. It uses go-services/library/kafka/ktype
+// for shared canonical types.
 package consumer
 
-import (
-	"context"
-	"time"
+import "go-services/library/kafka/ktype"
 
-	"github.com/twmb/franz-go/pkg/kgo"
-)
+// Key is an alias for ktype.Key for convenience within the consumer package.
+type Key = ktype.Key
 
-// Key identifies a Kafka topic-partition in internal operations.
-type Key struct {
-	Topic     string
-	Partition int32
-}
+// Subscription is an alias for ktype.Subscription.
+type Subscription = ktype.Subscription
 
-// AckMode controls when offsets are committed relative to handler execution.
-type AckMode int
+// AckMode is an alias for ktype.AckMode.
+type AckMode = ktype.AckMode
 
-const (
-	AckModeAtLeastOnce AckMode = iota
-	AckModeAtMostOnce
-)
+// ExhaustedAction is an alias for ktype.ExhaustedAction.
+type ExhaustedAction = ktype.ExhaustedAction
 
-// ExhaustedAction determines what happens after handler retries are exhausted.
-type ExhaustedAction int
+// DLQConfig is an alias for ktype.DLQConfig.
+type DLQConfig = ktype.DLQConfig
 
-const (
-	ExhaustedActionStop ExhaustedAction = iota
-	ExhaustedActionCommit
-	ExhaustedActionDLQThenCommit
-)
+// FailurePolicy is an alias for ktype.FailurePolicy.
+type FailurePolicy = ktype.FailurePolicy
 
-// DLQConfig configures where failed records are published after retry exhaustion.
-type DLQConfig struct {
-	Topic string
-}
+// PauseInfo is an alias for ktype.PauseInfo.
+type PauseInfo = ktype.PauseInfo
 
-// FailurePolicy controls retry and exhaustion behavior for handler errors.
-type FailurePolicy struct {
-	DLQ          *DLQConfig
-	RetryBackoff time.Duration
-	MaxAttempts  int
-	OnExhausted  ExhaustedAction
-}
-
-// PauseInfo records why and when a topic was paused.
-type PauseInfo struct {
-	Cause    error
-	PausedAt time.Time
-}
-
-// BatchResult reports the outcome of a batch handler invocation.
-type BatchResult struct {
-	Err      error
-	FailedAt int
-}
-
-// Subscription is the normalized runtime form of a topic subscription.
-// It uses the same handler signatures as the public kafka package, but
-// BatchResult is our own type (not kafka.BatchResult) to avoid import cycle.
-type Subscription struct {
-	Topic         string
-	Handler       func(ctx context.Context, record *kgo.Record) error
-	BatchHandler  func(ctx context.Context, records []*kgo.Record) BatchResult
-	FailurePolicy FailurePolicy
-	AckMode       AckMode
-}
+// BatchResult is an alias for ktype.BatchResult.
+type BatchResult = ktype.BatchResult

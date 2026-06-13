@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"go-services/library/gsync"
+	"go-services/library/kafka/ktype"
 
 	"github.com/twmb/franz-go/pkg/kgo"
 )
@@ -22,27 +23,13 @@ const (
 )
 
 // Handler processes a single Kafka record.
-//
-// Returning nil marks the record as successfully handled. Returning an error
-// activates the subscription's failure policy.
-type Handler func(ctx context.Context, record *kgo.Record) error
+type Handler = ktype.Handler
 
 // BatchHandler processes a topic-partition batch in the polled order.
-//
-// Returning a zero-value BatchResult marks the whole batch as successfully
-// handled. To report a failure after successfully handling a contiguous prefix,
-// set Err and FailedAt to the index of the first failed record in the input
-// slice.
-type BatchHandler func(ctx context.Context, records []*kgo.Record) BatchResult
+type BatchHandler = ktype.BatchHandler
 
 // BatchResult reports the outcome of a BatchHandler invocation.
-//
-// The zero value means the whole input batch succeeded. FailedAt is only used
-// when Err is non-nil, and must point at the first failed record in the batch.
-type BatchResult struct {
-	Err      error
-	FailedAt int
-}
+type BatchResult = ktype.BatchResult
 
 // Consumer wraps the shared Kafka client with topic routing, per-partition state
 // management, and package-managed manual offset commits.
@@ -210,7 +197,7 @@ func (c *Consumer) AddBatchTopic(topic string, handler BatchHandler) error {
 // runtime. When subscribe is false, only the subscription router is updated because the
 // client is already subscribed from initial construction.
 func (c *Consumer) registerSubscription(subscription Subscription, subscribe bool) error {
-	normalized, err := subscription.normalize()
+	normalized, err := subscription.Normalize()
 	if err != nil {
 		return err
 	}

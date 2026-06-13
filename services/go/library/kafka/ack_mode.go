@@ -1,16 +1,14 @@
 package kafka
 
+import "go-services/library/kafka/ktype"
+
 // AckMode determines how the consumer acknowledges records.
-type AckMode int
+type AckMode = ktype.AckMode
 
 const (
 	// AckModeAtLeastOnce ensures records are processed at least once.
-	// Records are committed after the handler finishes successfully.
-	// If the handler fails, the record might be processed again.
-	AckModeAtLeastOnce AckMode = iota
+	AckModeAtLeastOnce = ktype.AckModeAtLeastOnce
 
 	// AckModeAtMostOnce ensures records are processed at most once.
-	// Records are committed before the handler is called.
-	// If the handler fails, the record might be lost.
-	AckModeAtMostOnce
+	AckModeAtMostOnce = ktype.AckModeAtMostOnce
 )

@@ -111,7 +111,7 @@ func WithAckMode(mode AckMode) Option {
 // subscription is already registered for the given topic, this option panics.
 func WithSubscription(subscription Subscription) Option {
 	return func(c *config) {
-		normalized, err := subscription.normalize()
+		normalized, err := subscription.Normalize()
 		if err != nil {
 			panic(err)
 		}

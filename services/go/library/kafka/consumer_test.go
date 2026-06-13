@@ -151,7 +151,7 @@ func TestConsumerExecuteRecordRecoversHandlerPanicAndStops(t *testing.T) {
 			MaxAttempts:  2,
 			OnExhausted:  ExhaustedActionStop,
 		},
-	}.normalize()
+	}.Normalize()
 	require.NoError(t, err, "panicking subscription should normalize")
 
 	result, err := consumer.executeRecord(context.Background(), subscription, &kgo.Record{
@@ -190,7 +190,7 @@ func TestConsumerExecuteRecordRecoversHandlerPanicAndCanSucceedOnRetry(t *testin
 			MaxAttempts:  2,
 			OnExhausted:  ExhaustedActionUnspecified,
 		},
-	}.normalize()
+	}.Normalize()
 	require.NoError(t, err, "subscription should normalize")
 
 	result, err := consumer.executeRecord(context.Background(), subscription, &kgo.Record{
@@ -224,7 +224,7 @@ func TestConsumerExecuteRecordRecoversHandlerPanicAndCommitExhausted(t *testing.
 			MaxAttempts:  1,
 			OnExhausted:  ExhaustedActionCommit,
 		},
-	}.normalize()
+	}.Normalize()
 	require.NoError(t, err, "commit-on-exhausted subscription should normalize")
 
 	result, err := consumer.executeRecord(context.Background(), subscription, &kgo.Record{
@@ -528,7 +528,7 @@ func TestConsumerOnPartitionsRevokedWaitsForDrainBeforeCommit(t *testing.T) {
 		BatchHandler:  nil,
 		AckMode:       AckModeAtLeastOnce,
 		FailurePolicy: FailurePolicy{},
-	}.normalize()
+	}.Normalize()
 	require.NoError(t, err, "subscription should normalize")
 
 	state := newPartitionState(
@@ -675,7 +675,7 @@ func TestConsumerShutdownRunDrainsWorkersBeforeFinalFlush(t *testing.T) {
 		BatchHandler:  nil,
 		AckMode:       AckModeAtLeastOnce,
 		FailurePolicy: FailurePolicy{},
-	}.normalize()
+	}.Normalize()
 	require.NoError(t, err, "subscription should normalize")
 
 	state := newPartitionState(
@@ -960,7 +960,7 @@ func TestConsumerOnPartitionsRevokedStopsWaitingWhenCallbackContextIsCanceled(t 
 		BatchHandler:  nil,
 		AckMode:       AckModeAtLeastOnce,
 		FailurePolicy: FailurePolicy{},
-	}.normalize()
+	}.Normalize()
 	require.NoError(t, err, "subscription should normalize")
 
 	state := newPartitionState(
@@ -1045,7 +1045,7 @@ func TestConsumerShutdownRunUsesFinalCommitTimeoutAfterDrain(t *testing.T) {
 		BatchHandler:  nil,
 		AckMode:       AckModeAtLeastOnce,
 		FailurePolicy: FailurePolicy{},
-	}.normalize()
+	}.Normalize()
 	require.NoError(t, err, "subscription should normalize")
 
 	state := newPartitionState(
@@ -1186,7 +1186,7 @@ func TestConsumerRunCallerCancellationDuringBlockedDispatchStillDrainsAndFlushes
 		BatchHandler:  nil,
 		AckMode:       AckModeAtLeastOnce,
 		FailurePolicy: FailurePolicy{},
-	}.normalize()
+	}.Normalize()
 	require.NoError(t, err, "subscription should normalize")
 	require.NoError(t, consumer.registerSubscription(subscription, false), "topic should register")
 
@@ -1355,7 +1355,7 @@ func TestConsumerDispatchRecordsDoesNotBlockOtherPartitions(t *testing.T) {
 		BatchHandler:  nil,
 		AckMode:       AckModeAtLeastOnce,
 		FailurePolicy: FailurePolicy{},
-	}.normalize()
+	}.Normalize()
 	require.NoError(t, err, "slow topic subscription should normalize")
 	require.NoError(t, consumer.registerSubscription(slowSubscription, false), "slow topic should register")
 
@@ -1368,7 +1368,7 @@ func TestConsumerDispatchRecordsDoesNotBlockOtherPartitions(t *testing.T) {
 		BatchHandler:  nil,
 		AckMode:       AckModeAtLeastOnce,
 		FailurePolicy: FailurePolicy{},
-	}.normalize()
+	}.Normalize()
 	require.NoError(t, err, "other topic subscription should normalize")
 	require.NoError(t, consumer.registerSubscription(otherSubscription, false), "other topic should register")
 
@@ -1486,7 +1486,7 @@ func testSubscription(topic string) Subscription {
 		BatchHandler:  nil,
 		AckMode:       AckModeAtLeastOnce,
 		FailurePolicy: FailurePolicy{},
-	}.normalize()
+	}.Normalize()
 	if err != nil {
 		panic(err)
 	}
