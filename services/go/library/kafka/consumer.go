@@ -34,28 +34,28 @@ type BatchResult = ktype.BatchResult
 // Consumer wraps the shared Kafka client with topic routing, per-partition state
 // management, and package-managed manual offset commits.
 type Consumer struct {
-	runCtx            context.Context
-	runErr            error
-	subscriptionState gsync.Value[map[string]Subscription]
-	pausedTopicsState gsync.Value[map[string]pausedTopic]
+	runCtx            context.Context                      // owned by RunState
+	runErr            error                                // owned by RunState
+	subscriptionState gsync.Value[map[string]Subscription] // owned by Router
+	pausedTopicsState gsync.Value[map[string]pausedTopic]  // owned by PauseRegistry
 	client            *Client
 	cfg               *config
 	log               *slog.Logger
-	runCancel         context.CancelFunc
-	processSem        chan struct{}
-	commitSignal      chan struct{}
-	dispatchSignal    chan struct{}
-	commitMu          chan struct{}
-	subscriptions     map[string]Subscription
-	pausedTopics      map[string]pausedTopic
-	partitionStates   map[recordKey]*partitionState
-	dirtyStates       map[recordKey]*partitionState
-	runWG             sync.WaitGroup
-	runMu             sync.RWMutex
-	workersMu         sync.RWMutex
-	subscriptionMu    sync.Mutex
-	pausedTopicsMu    sync.Mutex
-	runErrOnce        sync.Once
+	runCancel         context.CancelFunc            // owned by RunState
+	processSem        chan struct{}                 // owned by Dispatcher
+	commitSignal      chan struct{}                 // owned by Committer
+	dispatchSignal    chan struct{}                 // owned by Dispatcher
+	commitMu          chan struct{}                 // owned by Committer
+	subscriptions     map[string]Subscription       // owned by Router
+	pausedTopics      map[string]pausedTopic        // owned by PauseRegistry
+	partitionStates   map[recordKey]*partitionState // owned by PartitionRegistry
+	dirtyStates       map[recordKey]*partitionState // owned by PartitionRegistry
+	runWG             sync.WaitGroup                // owned by RunState
+	runMu             sync.RWMutex                  // owned by RunState
+	workersMu         sync.RWMutex                  // owned by PartitionRegistry
+	subscriptionMu    sync.Mutex                    // owned by Router
+	pausedTopicsMu    sync.Mutex                    // owned by PauseRegistry
+	runErrOnce        sync.Once                     // owned by RunState
 }
 
 type recordKey struct {

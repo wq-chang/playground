@@ -9,16 +9,16 @@ import (
 )
 
 type partitionState struct {
-	ctx                context.Context
-	queue              chan []*kgo.Record
-	cancel             context.CancelFunc
-	done               chan struct{}
+	ctx                context.Context    // external lifecycle
+	queue              chan []*kgo.Record // owned by PartitionState
+	cancel             context.CancelFunc // owned by PartitionState
+	done               chan struct{}      // owned by PartitionState
 	key                recordKey
 	subscription       Subscription
 	nextCommitOffset   kgo.EpochOffset
 	committedOffset    kgo.EpochOffset
-	queueCloseOnce     sync.Once
-	mu                 sync.Mutex
+	queueCloseOnce     sync.Once  // owned by PartitionState
+	mu                 sync.Mutex // owned by PartitionState
 	maxBufferedRecords int32
 	bufferedRecords    int32
 	accepting          bool
