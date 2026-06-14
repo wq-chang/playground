@@ -29,3 +29,13 @@ type PauseInfo = ktype.PauseInfo
 
 // BatchResult is an alias for ktype.BatchResult.
 type BatchResult = ktype.BatchResult
+
+// Constants aliased from ktype for convenience within the consumer package.
+const (
+	AckModeAtLeastOnce = ktype.AckModeAtLeastOnce
+	AckModeAtMostOnce  = ktype.AckModeAtMostOnce
+
+	ExhaustedActionStop          = ktype.ExhaustedActionStop
+	ExhaustedActionCommit        = ktype.ExhaustedActionCommit
+	ExhaustedActionDLQThenCommit = ktype.ExhaustedActionDLQThenCommit
+)
