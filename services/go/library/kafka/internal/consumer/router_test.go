@@ -7,12 +7,12 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/twmb/franz-go/pkg/kgo"
+
 	"go-services/library/assert"
 	"go-services/library/kafka/internal/consumer"
 	"go-services/library/kafka/ktype"
 	"go-services/library/require"
-
-	"github.com/twmb/franz-go/pkg/kgo"
 )
 
 // stubRegisterClient implements consumer.RegisterClient for testing.

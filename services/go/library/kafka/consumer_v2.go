@@ -16,9 +16,9 @@ import (
 	"log/slog"
 	"time"
 
-	"go-services/library/kafka/internal/consumer"
-
 	"github.com/twmb/franz-go/pkg/kgo"
+
+	"go-services/library/kafka/internal/consumer"
 )
 
 // consumerV2 is the temporary v2 consumer façade.

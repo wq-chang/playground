@@ -8,10 +8,10 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/twmb/franz-go/pkg/kgo"
+
 	"go-services/library/assert"
 	"go-services/library/require"
-
-	"github.com/twmb/franz-go/pkg/kgo"
 )
 
 // newTestClientV2 creates a minimal Client for v2 unit testing.

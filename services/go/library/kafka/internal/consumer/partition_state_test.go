@@ -5,10 +5,10 @@ import (
 	"context"
 	"testing"
 
+	"github.com/twmb/franz-go/pkg/kgo"
+
 	"go-services/library/assert"
 	"go-services/library/kafka/internal/consumer"
-
-	"github.com/twmb/franz-go/pkg/kgo"
 )
 
 // testSubscription returns a minimal subscription for tests.
