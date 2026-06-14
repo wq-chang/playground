@@ -21,16 +21,14 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
-// errV2NotImplemented is returned by stub runtime methods on consumerV2.
-var errV2NotImplemented = fmt.Errorf("consumerV2: not yet implemented")
-
 // consumerV2 is the temporary v2 consumer façade.
 type consumerV2 struct {
-	cfg    *config
-	client *Client
-	log    *slog.Logger
-	router *consumer.Router
-	pauses *consumer.PauseRegistry
+	cfg      *config
+	client   *Client
+	log      *slog.Logger
+	router   *consumer.Router
+	pauses   *consumer.PauseRegistry
+	runState *consumer.RunState
 }
 
 // v2RegisterClient adapts consumerV2's Client to consumer.RegisterClient.
@@ -51,15 +49,17 @@ func (a v2RegisterClient) AddConsumeTopics(topics ...string) {
 // newConsumerV2 creates a v2 consumer from the shared config and client.
 func newConsumerV2(cfg *config, client *Client) (*consumerV2, error) {
 	v2 := &consumerV2{
-		cfg:    cfg,
-		client: client,
-		log:    cfg.logger,
-		router: nil,
-		pauses: nil,
+		cfg:      cfg,
+		client:   client,
+		log:      cfg.logger,
+		router:   nil,
+		pauses:   nil,
+		runState: nil,
 	}
 	regClient := v2RegisterClient{v2: v2}
 	v2.router = consumer.NewRouter(regClient)
 	v2.pauses = consumer.NewPauseRegistry(time.Now)
+	v2.runState = consumer.NewRunState()
 
 	// Register startup subscriptions from config.
 	// Subscriptions are already normalized by WithSubscription/WithTopic.
@@ -99,10 +99,31 @@ func (v2 *consumerV2) AddBatchTopic(topic string, handler BatchHandler) error {
 	return v2.AddSubscription(newDefaultBatchSubscription(topic, handler, v2.cfg.defaultAckMode))
 }
 
-// Run starts the consumer loop. STUB — not yet implemented.
+// Run starts the consumer loop.
 func (v2 *consumerV2) Run(ctx context.Context) error {
-	v2.log.InfoContext(ctx, "consumerV2.Run called (stub)")
-	return errV2NotImplemented
+	runCtx, err := v2.runState.Begin()
+	if err != nil {
+		return err
+	}
+
+	pollCtx, stopPolling := mergeRunContexts(ctx, runCtx)
+	defer stopPolling()
+
+	// TODO: dispatch loop goes here in Steps 7+.
+	// For now, block until either context cancels.
+	<-pollCtx.Done()
+
+	// Graceful drain sequence.
+	v2.runState.Stop()
+	v2.runState.Wait()
+
+	err = v2.runState.Err()
+	v2.runState.Reset()
+
+	if err != nil {
+		return err
+	}
+	return ctx.Err()
 }
 
 // onPartitionsRevoked handles partition revocation. STUB — no-op.

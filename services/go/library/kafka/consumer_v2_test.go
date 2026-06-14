@@ -160,14 +160,43 @@ func TestConsumerV2_AddBatchTopic(t *testing.T) {
 	assert.NotNil(t, got.BatchHandler, "batch handler should be set")
 }
 
-func TestConsumerV2_Run_Stub(t *testing.T) {
+func TestConsumerV2_Run_CancelsOnContext(t *testing.T) {
 	client := newTestClientV2(t)
 	cfg := newConfig([]string{"localhost:9092"}, "test-group")
 	v2, err := newConsumerV2(cfg, client)
 	require.NoError(t, err, "newConsumerV2 should succeed")
 
-	err = v2.Run(context.Background())
-	assert.ErrorIs(t, err, errV2NotImplemented, "Run should return errV2NotImplemented")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately.
+
+	err = v2.Run(ctx)
+	assert.ErrorIs(t, err, context.Canceled, "Run should return context.Canceled")
+}
+
+func TestConsumerV2_Run_RejectsConcurrentRun(t *testing.T) {
+	client := newTestClientV2(t)
+	cfg := newConfig([]string{"localhost:9092"}, "test-group")
+	v2, err := newConsumerV2(cfg, client)
+	require.NoError(t, err, "newConsumerV2 should succeed")
+
+	// Start the first run's lifecycle so runState is active, without
+	// calling Run() itself (which would block on dispatch).
+	_, beginErr := v2.runState.Begin()
+	require.NoError(t, beginErr, "first Begin should succeed")
+
+	ch := make(chan struct{})
+	go func() {
+		<-v2.runState.Context().Done()
+		close(ch)
+	}()
+
+	// Second Run should be rejected immediately.
+	ctx2 := context.Background()
+	err = v2.Run(ctx2)
+	assert.ErrorContains(t, err, "run is already active", "concurrent Run should error")
+
+	v2.runState.Stop()
+	<-ch
 }
 
 func TestConsumerV2_NormalizesOnRegister(t *testing.T) {
