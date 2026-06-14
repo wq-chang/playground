@@ -18,10 +18,10 @@ type serviceEntry struct {
 // test package. Services are cached by service kind so repeated setup calls can
 // reuse the same initialized dependency.
 //
-//nolint:govet // Keeping packageName and the shared service cache on TestEnv keeps setup orchestration straightforward.
+// Keeping packageName and the shared service cache on TestEnv keeps setup orchestration straightforward.
 type TestEnv struct {
-	packageName string
 	services    map[string]*serviceEntry
+	packageName string
 	mu          sync.Mutex
 }
 

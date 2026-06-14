@@ -15,7 +15,6 @@ import (
 )
 
 // newTestClientV2 creates a minimal Client for v2 unit testing.
-// It creates a real kgo.Client so AddConsumeTopics doesn't panic.
 func newTestClientV2(t *testing.T) *Client {
 	t.Helper()
 
@@ -61,7 +60,9 @@ func TestConsumerV2_New_WithStartupSubscriptions(t *testing.T) {
 
 	v2, err := newConsumerV2(cfg, client)
 	require.NoError(t, err, "newConsumerV2 should succeed with startup subscriptions")
-	assert.Equal(t, len(v2.subscriptions), 2, "should have 2 subscriptions")
+
+	snap := v2.router.Snapshot()
+	assert.Equal(t, len(snap), 2, "should have 2 subscriptions")
 }
 
 func TestConsumerV2_AddSubscription(t *testing.T) {
@@ -81,8 +82,12 @@ func TestConsumerV2_AddSubscription(t *testing.T) {
 	err = v2.AddSubscription(sub)
 	require.NoError(t, err, "AddSubscription should succeed")
 
-	assert.Equal(t, len(v2.subscriptions), 1, "should have 1 subscription")
-	assert.Equal(t, v2.subscriptions["my-topic"].Topic, "my-topic", "topic should match")
+	snap := v2.router.Snapshot()
+	assert.Equal(t, len(snap), 1, "should have 1 subscription")
+
+	got, ok := v2.router.Lookup("my-topic")
+	assert.True(t, ok, "topic should be found")
+	assert.Equal(t, got.Topic, "my-topic", "topic should match")
 }
 
 func TestConsumerV2_AddSubscription_Duplicate(t *testing.T) {
@@ -133,9 +138,10 @@ func TestConsumerV2_AddTopic(t *testing.T) {
 	err = v2.AddTopic("topic-a", handler)
 	require.NoError(t, err, "AddTopic should succeed")
 
-	assert.Equal(t, len(v2.subscriptions), 1, "should have 1 subscription")
-	assert.Equal(t, v2.subscriptions["topic-a"].Topic, "topic-a", "topic should match")
-	assert.NotNil(t, v2.subscriptions["topic-a"].Handler, "handler should be set")
+	got, ok := v2.router.Lookup("topic-a")
+	assert.True(t, ok, "topic should be found")
+	assert.Equal(t, got.Topic, "topic-a", "topic should match")
+	assert.NotNil(t, got.Handler, "handler should be set")
 }
 
 func TestConsumerV2_AddBatchTopic(t *testing.T) {
@@ -148,9 +154,10 @@ func TestConsumerV2_AddBatchTopic(t *testing.T) {
 	err = v2.AddBatchTopic("topic-b", handler)
 	require.NoError(t, err, "AddBatchTopic should succeed")
 
-	assert.Equal(t, len(v2.subscriptions), 1, "should have 1 subscription")
-	assert.Equal(t, v2.subscriptions["topic-b"].Topic, "topic-b", "topic should match")
-	assert.NotNil(t, v2.subscriptions["topic-b"].BatchHandler, "batch handler should be set")
+	got, ok := v2.router.Lookup("topic-b")
+	assert.True(t, ok, "topic should be found")
+	assert.Equal(t, got.Topic, "topic-b", "topic should match")
+	assert.NotNil(t, got.BatchHandler, "batch handler should be set")
 }
 
 func TestConsumerV2_Run_Stub(t *testing.T) {
@@ -163,7 +170,7 @@ func TestConsumerV2_Run_Stub(t *testing.T) {
 	assert.ErrorIs(t, err, errV2NotImplemented, "Run should return errV2NotImplemented")
 }
 
-func TestConsumerV2_SubscriptionSnapshot_IsImmutable(t *testing.T) {
+func TestConsumerV2_NormalizesOnRegister(t *testing.T) {
 	client := newTestClientV2(t)
 	cfg := newConfig([]string{"localhost:9092"}, "test-group")
 	v2, err := newConsumerV2(cfg, client)
@@ -178,5 +185,7 @@ func TestConsumerV2_SubscriptionSnapshot_IsImmutable(t *testing.T) {
 	})
 	require.NoError(t, err, "AddSubscription should succeed")
 
-	assert.Equal(t, v2.subscriptions["t"].FailurePolicy.MaxAttempts, 1, "should normalize max attempts")
+	got, ok := v2.router.Lookup("t")
+	require.True(t, ok, "topic should be found")
+	assert.Equal(t, got.FailurePolicy.MaxAttempts, 1, "should normalize max attempts")
 }

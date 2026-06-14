@@ -14,8 +14,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"maps"
-	"sync"
+	"time"
+
+	"go-services/library/kafka/internal/consumer"
 
 	"github.com/twmb/franz-go/pkg/kgo"
 )
@@ -25,30 +26,54 @@ var errV2NotImplemented = fmt.Errorf("consumerV2: not yet implemented")
 
 // consumerV2 is the temporary v2 consumer façade.
 type consumerV2 struct {
-	cfg           *config
-	client        *Client
-	log           *slog.Logger
-	subscriptions map[string]Subscription
-	subMu         sync.Mutex
+	cfg    *config
+	client *Client
+	log    *slog.Logger
+	router *consumer.Router
+	pauses *consumer.PauseRegistry
+}
+
+// v2RegisterClient adapts consumerV2's Client to consumer.RegisterClient.
+type v2RegisterClient struct {
+	v2 *consumerV2
+}
+
+func (a v2RegisterClient) IsClosed() bool {
+	return a.v2.client != nil && a.v2.client.isClosed()
+}
+
+func (a v2RegisterClient) AddConsumeTopics(topics ...string) {
+	if a.v2.client != nil && a.v2.client.kgoClient != nil {
+		a.v2.client.kgoClient.AddConsumeTopics(topics...)
+	}
 }
 
 // newConsumerV2 creates a v2 consumer from the shared config and client.
 func newConsumerV2(cfg *config, client *Client) (*consumerV2, error) {
 	v2 := &consumerV2{
-		cfg:           cfg,
-		client:        client,
-		log:           cfg.logger,
-		subscriptions: make(map[string]Subscription, len(cfg.subscriptions)),
-		subMu:         sync.Mutex{},
+		cfg:    cfg,
+		client: client,
+		log:    cfg.logger,
+		router: nil,
+		pauses: nil,
 	}
+	regClient := v2RegisterClient{v2: v2}
+	v2.router = consumer.NewRouter(regClient)
+	v2.pauses = consumer.NewPauseRegistry(time.Now)
 
-	// Convert startup subscriptions from config.
+	// Register startup subscriptions from config.
+	// Subscriptions are already normalized by WithSubscription/WithTopic.
+	// The Kafka client is already subscribed via kgo.ConsumeTopics during
+	// New(), so use RegisterQuietBatch to avoid redundant AddConsumeTopics
+	// and clone the map once instead of per-topic.
+	subs := make([]Subscription, 0, len(cfg.subscriptions))
 	for _, sub := range cfg.subscriptions {
-		normalized, err := sub.Normalize()
-		if err != nil {
+		subs = append(subs, sub)
+	}
+	if len(subs) > 0 {
+		if err := v2.router.RegisterQuietBatch(subs); err != nil {
 			return nil, fmt.Errorf("v2 init: %w", err)
 		}
-		v2.subscriptions[normalized.Topic] = normalized
 	}
 
 	return v2, nil
@@ -61,22 +86,7 @@ func (v2 *consumerV2) AddSubscription(subscription Subscription) error {
 		return err
 	}
 
-	v2.subMu.Lock()
-	defer v2.subMu.Unlock()
-
-	if v2.client != nil && v2.client.isClosed() {
-		return fmt.Errorf("consumer is closed")
-	}
-	if _, ok := v2.subscriptions[normalized.Topic]; ok {
-		return fmt.Errorf("topic handler already registered for %q", normalized.Topic)
-	}
-
-	v2.subscriptions[normalized.Topic] = normalized
-	if v2.client != nil && v2.client.kgoClient != nil {
-		v2.client.kgoClient.AddConsumeTopics(normalized.Topic)
-	}
-
-	return nil
+	return v2.router.Register(normalized)
 }
 
 // AddTopic registers a single-record handler using the default ack mode.
@@ -112,13 +122,4 @@ func (v2 *consumerV2) onPartitionsLost(
 	ctx context.Context,
 	partitions map[string][]int32,
 ) {
-}
-
-// subscriptionSnapshot returns an immutable snapshot of the current subscriptions.
-//
-//nolint:unused
-func (v2 *consumerV2) subscriptionSnapshot() map[string]Subscription {
-	v2.subMu.Lock()
-	defer v2.subMu.Unlock()
-	return maps.Clone(v2.subscriptions)
 }
