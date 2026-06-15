@@ -35,6 +35,7 @@ type PartitionState struct {
 	committedOffset    kgo.EpochOffset
 	lifecycle          partitionLifecycle
 	queueCloseOnce     sync.Once
+	closeDoneOnce      sync.Once
 	mu                 sync.Mutex
 	bufferedRecords    int32
 	maxBufferedRecords int32
@@ -62,6 +63,7 @@ func NewPartitionState(
 		nextCommitOffset:   kgo.EpochOffset{Epoch: -1, Offset: -1},
 		committedOffset:    kgo.EpochOffset{Epoch: -1, Offset: -1},
 		queueCloseOnce:     sync.Once{},
+		closeDoneOnce:      sync.Once{},
 		mu:                 sync.Mutex{},
 		maxBufferedRecords: int32(queueCapacity),
 		bufferedRecords:    0,
@@ -237,14 +239,18 @@ func (s *PartitionState) Abort() (kgo.EpochOffset, bool) {
 	return offset, ok
 }
 
-// MarkStopped marks the state as fully stopped.
+// MarkStopped marks the state as fully stopped and closes the done channel
+// to signal observers (such as Finalize) that the partition has drained.
 func (s *PartitionState) MarkStopped() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	s.lifecycle = partitionLifecycleStopped
 	s.accepting = false
 	s.backpressurePaused = false
+	s.mu.Unlock()
+
+	s.closeDoneOnce.Do(func() {
+		close(s.done)
+	})
 }
 
 // IsRunning reports whether the state is still in running mode.
