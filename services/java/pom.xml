@@ -16,7 +16,7 @@
     <assertj.version>3.27.7</assertj.version>
     <java.version>25</java.version>
     <junit.version>6.0.3</junit.version>
-    <kafka.version>4.2.0</kafka.version>
+    <kafka.version>4.3.0</kafka.version>
     <keycloak.version>26.6.1</keycloak.version>
     <mockito.version>5.23.0</mockito.version>
     <plugin.compiler.version>3.15.0</plugin.compiler.version>
