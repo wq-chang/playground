@@ -2,6 +2,7 @@
 package consumer_test
 
 import (
+	"go-services/library/testlogger"
 	"context"
 	"testing"
 
@@ -23,18 +24,18 @@ func testSub(topic string) consumer.Subscription {
 }
 
 func TestPartitionRegistry_New(t *testing.T) {
-	r := consumer.NewPartitionRegistry()
+	r := consumer.NewPartitionRegistry(testlogger.NewLogger())
 	assert.NotNil(t, r, "NewPartitionRegistry should not return nil")
 }
 
 func TestPartitionRegistry_Get_Missing(t *testing.T) {
-	r := consumer.NewPartitionRegistry()
+	r := consumer.NewPartitionRegistry(testlogger.NewLogger())
 	_, ok := r.Get(consumer.Key{Topic: "t", Partition: 0})
 	assert.False(t, ok, "Get for missing key should return false")
 }
 
 func TestPartitionRegistry_GetOrCreate_Creates(t *testing.T) {
-	r := consumer.NewPartitionRegistry()
+	r := consumer.NewPartitionRegistry(testlogger.NewLogger())
 	key := consumer.Key{Topic: "t", Partition: 1}
 
 	ps, created, err := r.GetOrCreate(key, testSub("t"), context.Background(), 10)
@@ -44,7 +45,7 @@ func TestPartitionRegistry_GetOrCreate_Creates(t *testing.T) {
 }
 
 func TestPartitionRegistry_GetOrCreate_ReturnsExisting(t *testing.T) {
-	r := consumer.NewPartitionRegistry()
+	r := consumer.NewPartitionRegistry(testlogger.NewLogger())
 	key := consumer.Key{Topic: "t", Partition: 1}
 
 	ps1, created1, err := r.GetOrCreate(key, testSub("t"), context.Background(), 10)
@@ -58,7 +59,7 @@ func TestPartitionRegistry_GetOrCreate_ReturnsExisting(t *testing.T) {
 }
 
 func TestPartitionRegistry_Get_AfterCreate(t *testing.T) {
-	r := consumer.NewPartitionRegistry()
+	r := consumer.NewPartitionRegistry(testlogger.NewLogger())
 	key := consumer.Key{Topic: "t", Partition: 1}
 
 	_, _, err := r.GetOrCreate(key, testSub("t"), context.Background(), 10)
@@ -69,7 +70,7 @@ func TestPartitionRegistry_Get_AfterCreate(t *testing.T) {
 }
 
 func TestPartitionRegistry_MarkDirty(t *testing.T) {
-	r := consumer.NewPartitionRegistry()
+	r := consumer.NewPartitionRegistry(testlogger.NewLogger())
 	key := consumer.Key{Topic: "t", Partition: 1}
 	ps, _, err := r.GetOrCreate(key, testSub("t"), context.Background(), 10)
 	require.NoError(t, err, "GetOrCreate should succeed")
@@ -79,11 +80,11 @@ func TestPartitionRegistry_MarkDirty(t *testing.T) {
 }
 
 func TestPartitionRegistry_MarkDirty_WrongState(t *testing.T) {
-	r := consumer.NewPartitionRegistry()
+	r := consumer.NewPartitionRegistry(testlogger.NewLogger())
 	_, _, errGC := r.GetOrCreate(consumer.Key{Topic: "t", Partition: 0}, testSub("t"), context.Background(), 10)
 	require.NoError(t, errGC, "GetOrCreate should succeed")
 
-	orphan := consumer.NewPartitionState(context.Background(), consumer.Key{Topic: "x", Partition: 9}, testSub("x"), 10)
+	orphan := consumer.NewPartitionState(context.Background(), testlogger.NewLogger(), consumer.Key{Topic: "x", Partition: 9}, testSub("x"), 10)
 	dirty := r.MarkDirty(orphan)
 	assert.False(t, dirty, "MarkDirty for unknown state should return false")
 
@@ -92,7 +93,7 @@ func TestPartitionRegistry_MarkDirty_WrongState(t *testing.T) {
 }
 
 func TestPartitionRegistry_ClearDirty(t *testing.T) {
-	r := consumer.NewPartitionRegistry()
+	r := consumer.NewPartitionRegistry(testlogger.NewLogger())
 	key := consumer.Key{Topic: "t", Partition: 1}
 	ps, _, errGC := r.GetOrCreate(key, testSub("t"), context.Background(), 10)
 	require.NoError(t, errGC, "GetOrCreate should succeed")
@@ -105,7 +106,7 @@ func TestPartitionRegistry_ClearDirty(t *testing.T) {
 }
 
 func TestPartitionRegistry_SnapshotDirtyStates(t *testing.T) {
-	r := consumer.NewPartitionRegistry()
+	r := consumer.NewPartitionRegistry(testlogger.NewLogger())
 	ps1, _, err := r.GetOrCreate(consumer.Key{Topic: "a", Partition: 0}, testSub("a"), context.Background(), 10)
 	require.NoError(t, err, "GetOrCreate should succeed")
 	ps2, _, err := r.GetOrCreate(consumer.Key{Topic: "b", Partition: 0}, testSub("b"), context.Background(), 10)
@@ -119,7 +120,7 @@ func TestPartitionRegistry_SnapshotDirtyStates(t *testing.T) {
 }
 
 func TestPartitionRegistry_BeginClosing_Selected(t *testing.T) {
-	r := consumer.NewPartitionRegistry()
+	r := consumer.NewPartitionRegistry(testlogger.NewLogger())
 	ps1, _, errGC := r.GetOrCreate(consumer.Key{Topic: "t", Partition: 0}, testSub("t"), context.Background(), 10)
 	require.NoError(t, errGC, "GetOrCreate should succeed")
 	ps2, _, errGC := r.GetOrCreate(consumer.Key{Topic: "t", Partition: 1}, testSub("t"), context.Background(), 10)
@@ -134,7 +135,7 @@ func TestPartitionRegistry_BeginClosing_Selected(t *testing.T) {
 }
 
 func TestPartitionRegistry_BeginClosingAll(t *testing.T) {
-	r := consumer.NewPartitionRegistry()
+	r := consumer.NewPartitionRegistry(testlogger.NewLogger())
 	_, _, errGC := r.GetOrCreate(consumer.Key{Topic: "a", Partition: 0}, testSub("a"), context.Background(), 10)
 	require.NoError(t, errGC, "GetOrCreate should succeed")
 	_, _, errGC = r.GetOrCreate(consumer.Key{Topic: "b", Partition: 0}, testSub("b"), context.Background(), 10)
@@ -145,7 +146,7 @@ func TestPartitionRegistry_BeginClosingAll(t *testing.T) {
 }
 
 func TestPartitionRegistry_DropLost(t *testing.T) {
-	r := consumer.NewPartitionRegistry()
+	r := consumer.NewPartitionRegistry(testlogger.NewLogger())
 	key := consumer.Key{Topic: "t", Partition: 0}
 	ps, _, errGC := r.GetOrCreate(key, testSub("t"), context.Background(), 10)
 	require.NoError(t, errGC, "GetOrCreate should succeed")
@@ -158,7 +159,7 @@ func TestPartitionRegistry_DropLost(t *testing.T) {
 }
 
 func TestPartitionRegistry_SnapshotOffsets(t *testing.T) {
-	r := consumer.NewPartitionRegistry()
+	r := consumer.NewPartitionRegistry(testlogger.NewLogger())
 	ps, _, err := r.GetOrCreate(consumer.Key{Topic: "t", Partition: 0}, testSub("t"), context.Background(), 10)
 	require.NoError(t, err, "GetOrCreate should succeed")
 
@@ -170,7 +171,7 @@ func TestPartitionRegistry_SnapshotOffsets(t *testing.T) {
 }
 
 func TestPartitionRegistry_Cleanup_RemovesStopped(t *testing.T) {
-	r := consumer.NewPartitionRegistry()
+	r := consumer.NewPartitionRegistry(testlogger.NewLogger())
 	key := consumer.Key{Topic: "t", Partition: 0}
 	ps, _, err := r.GetOrCreate(key, testSub("t"), context.Background(), 10)
 	require.NoError(t, err, "GetOrCreate should succeed")
@@ -185,7 +186,7 @@ func TestPartitionRegistry_Cleanup_RemovesStopped(t *testing.T) {
 }
 
 func TestPartitionRegistry_Cleanup_IgnoresStalePointer(t *testing.T) {
-	r := consumer.NewPartitionRegistry()
+	r := consumer.NewPartitionRegistry(testlogger.NewLogger())
 	key := consumer.Key{Topic: "t", Partition: 0}
 
 	oldPs, _, errGC := r.GetOrCreate(key, testSub("t"), context.Background(), 10)
@@ -203,6 +204,6 @@ func TestPartitionRegistry_Cleanup_IgnoresStalePointer(t *testing.T) {
 }
 
 func TestPartitionRegistry_Cleanup_NilEntry(t *testing.T) {
-	r := consumer.NewPartitionRegistry()
+	r := consumer.NewPartitionRegistry(testlogger.NewLogger())
 	r.Cleanup([]*consumer.PartitionState{nil})
 }

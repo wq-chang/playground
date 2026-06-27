@@ -26,19 +26,16 @@ type WorkerRunner struct {
 // notifyCapacity is called when a batch is dequeued (wired to Dispatcher.NotifyCapacity).
 // dlqWriter publishes enriched records to the DLQ topic.
 func NewWorkerRunner(
+	logger *slog.Logger,
 	run *RunState,
 	committer *Committer,
 	executor *RecordExecutor,
 	registry *PartitionRegistry,
 	pauses *PauseRegistry,
-	logger *slog.Logger,
 	maxConcurrent int,
 	notifyCapacity func(),
 	dlqWriter func(ctx context.Context, record *kgo.Record) error,
 ) *WorkerRunner {
-	if logger == nil {
-		logger = slog.Default()
-	}
 	if maxConcurrent < 1 {
 		maxConcurrent = 1
 	}

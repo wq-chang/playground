@@ -2,6 +2,7 @@
 package consumer_test
 
 import (
+	"go-services/library/testlogger"
 	"context"
 	"testing"
 	"time"
@@ -15,7 +16,7 @@ import (
 func TestDispatcher_New(t *testing.T) {
 	router := consumer.NewRouter(nil)
 	pauses := consumer.NewPauseRegistry(time.Now)
-	registry := consumer.NewPartitionRegistry()
+	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
 	d := consumer.NewDispatcher(router, pauses, registry, nil)
 	assert.NotNil(t, d, "NewDispatcher should not return nil")
 }
@@ -23,7 +24,7 @@ func TestDispatcher_New(t *testing.T) {
 func TestDispatcher_NotifyCapacity_WaitForCapacity(t *testing.T) {
 	router := consumer.NewRouter(nil)
 	pauses := consumer.NewPauseRegistry(nil)
-	registry := consumer.NewPartitionRegistry()
+	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
 	d := consumer.NewDispatcher(router, pauses, registry, nil)
 
 	done := make(chan struct{})
@@ -40,7 +41,7 @@ func TestDispatcher_NotifyCapacity_WaitForCapacity(t *testing.T) {
 func TestDispatcher_SkipsPausedTopics(t *testing.T) {
 	router := consumer.NewRouter(nil)
 	pauses := consumer.NewPauseRegistry(time.Now)
-	registry := consumer.NewPartitionRegistry()
+	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
 
 	sub := consumer.Subscription{
 		Topic:         "t",

@@ -121,11 +121,11 @@ func newConsumerV2(cfg *config, client *Client) (*consumerV2, error) {
 	v2.pauses = consumer.NewPauseRegistry(time.Now)
 	v2.runState = consumer.NewRunState()
 
-	v2.registry = consumer.NewPartitionRegistry()
+	v2.registry = consumer.NewPartitionRegistry(v2.log)
 	v2.committer = consumer.NewCommitter(
+		v2.log,
 		v2.registry,
 		v2.pauses,
-		v2.log,
 		v2.workerClient,
 		consumer.CommitConfig{},
 	)
@@ -148,12 +148,12 @@ func newConsumerV2(cfg *config, client *Client) (*consumerV2, error) {
 
 	// Create worker runner with placeholder notify capacity.
 	v2.workerRunner = consumer.NewWorkerRunner(
+		v2.log,
 		v2.runState,
 		v2.committer,
 		executor,
 		v2.registry,
 		v2.pauses,
-		v2.log,
 		v2.cfg.workers,
 		func() {},
 		dlqWriter,

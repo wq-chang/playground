@@ -2,6 +2,7 @@
 package consumer_test
 
 import (
+	"go-services/library/testlogger"
 	"context"
 	"errors"
 	"sync"
@@ -78,9 +79,9 @@ func subBatch() consumer.Subscription {
 }
 
 func setupWorker(run *consumer.RunState, reg *consumer.PartitionRegistry, pauses *consumer.PauseRegistry, client *stubWorkerClient, notify func()) *consumer.WorkerRunner {
-	committer := consumer.NewCommitter(reg, pauses, nil, client, consumer.CommitConfig{})
-	executor := consumer.NewRecordExecutor(nil)
-	return consumer.NewWorkerRunner(run, committer, executor, reg, pauses, nil, 4, notify, nil)
+	committer := consumer.NewCommitter(testlogger.NewLogger(), reg, pauses, client, consumer.CommitConfig{})
+	executor := consumer.NewRecordExecutor(testlogger.NewLogger())
+	return consumer.NewWorkerRunner(testlogger.NewLogger(), run, committer, executor, reg, pauses, 4, notify, nil)
 }
 
 func startWorker(t *testing.T) (*consumer.RunState, context.Context, *consumer.PartitionRegistry, *consumer.PauseRegistry, *stubWorkerClient) {
@@ -88,7 +89,7 @@ func startWorker(t *testing.T) (*consumer.RunState, context.Context, *consumer.P
 	run := consumer.NewRunState()
 	runCtx, err := run.Begin()
 	require.NoError(t, err, "Begin should succeed")
-	reg := consumer.NewPartitionRegistry()
+	reg := consumer.NewPartitionRegistry(testlogger.NewLogger())
 	pauses := consumer.NewPauseRegistry(time.Now)
 	client := &stubWorkerClient{}
 	return run, runCtx, reg, pauses, client
@@ -224,9 +225,9 @@ func TestWorkerRunner_ProcessSemaphore_BoundsConcurrency(t *testing.T) {
 	run, runCtx, reg, pauses, client := startWorker(t)
 	defer stopWorker(run)
 
-	committer := consumer.NewCommitter(reg, pauses, nil, client, consumer.CommitConfig{})
-	executor := consumer.NewRecordExecutor(nil)
-	wr := consumer.NewWorkerRunner(run, committer, executor, reg, pauses, nil, 1, func() {}, nil)
+	committer := consumer.NewCommitter(testlogger.NewLogger(), reg, pauses, client, consumer.CommitConfig{})
+	executor := consumer.NewRecordExecutor(testlogger.NewLogger())
+	wr := consumer.NewWorkerRunner(testlogger.NewLogger(), run, committer, executor, reg, pauses, 1, func() {}, nil)
 
 	ps := getPS(t, reg, subAck(consumer.AckModeAtLeastOnce), runCtx)
 	wr.Start(ps, client)

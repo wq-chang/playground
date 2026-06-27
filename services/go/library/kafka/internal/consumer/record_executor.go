@@ -28,9 +28,6 @@ type RecordExecutor struct {
 
 // NewRecordExecutor creates a record executor with the given logger.
 func NewRecordExecutor(logger *slog.Logger) *RecordExecutor {
-	if logger == nil {
-		logger = slog.Default()
-	}
 	return &RecordExecutor{logger: logger}
 }
 

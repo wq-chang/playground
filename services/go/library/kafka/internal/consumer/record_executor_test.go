@@ -2,6 +2,7 @@
 package consumer_test
 
 import (
+	"go-services/library/testlogger"
 	"context"
 	"errors"
 	"sync/atomic"
@@ -60,7 +61,7 @@ func fpUnsupported() ktype.FailurePolicy {
 }
 
 func TestRecordExecutor_Success(t *testing.T) {
-	exec := consumer.NewRecordExecutor(nil)
+	exec := consumer.NewRecordExecutor(testlogger.NewLogger())
 	var called atomic.Int32
 
 	sub := testSubRecord(
@@ -74,7 +75,7 @@ func TestRecordExecutor_Success(t *testing.T) {
 }
 
 func TestRecordExecutor_RetryThenSuccess(t *testing.T) {
-	exec := consumer.NewRecordExecutor(nil)
+	exec := consumer.NewRecordExecutor(testlogger.NewLogger())
 	var attempts atomic.Int32
 
 	sub := testSubRecord(
@@ -94,7 +95,7 @@ func TestRecordExecutor_RetryThenSuccess(t *testing.T) {
 }
 
 func TestRecordExecutor_ExhaustedStop_PausesTopic(t *testing.T) {
-	exec := consumer.NewRecordExecutor(nil)
+	exec := consumer.NewRecordExecutor(testlogger.NewLogger())
 	sub := testSubRecord(
 		func(ctx context.Context, record *kgo.Record) error { return errors.New("always fail") },
 		ktype.AckModeAtLeastOnce,
@@ -106,7 +107,7 @@ func TestRecordExecutor_ExhaustedStop_PausesTopic(t *testing.T) {
 }
 
 func TestRecordExecutor_ExhaustedCommit_Resolves(t *testing.T) {
-	exec := consumer.NewRecordExecutor(nil)
+	exec := consumer.NewRecordExecutor(testlogger.NewLogger())
 	sub := testSubRecord(
 		func(ctx context.Context, record *kgo.Record) error { return errors.New("always fail") },
 		ktype.AckModeAtLeastOnce,
@@ -118,7 +119,7 @@ func TestRecordExecutor_ExhaustedCommit_Resolves(t *testing.T) {
 }
 
 func TestRecordExecutor_ExhaustedDLQ_CallsWriter(t *testing.T) {
-	exec := consumer.NewRecordExecutor(nil)
+	exec := consumer.NewRecordExecutor(testlogger.NewLogger())
 	var dlqCalled atomic.Int32
 
 	dlqWriter := func(ctx context.Context, enriched *kgo.Record) error {
@@ -146,7 +147,7 @@ func TestRecordExecutor_ExhaustedDLQ_CallsWriter(t *testing.T) {
 }
 
 func TestRecordExecutor_HandlerPanic(t *testing.T) {
-	exec := consumer.NewRecordExecutor(nil)
+	exec := consumer.NewRecordExecutor(testlogger.NewLogger())
 	sub := testSubRecord(
 		func(ctx context.Context, record *kgo.Record) error { panic("handler panic") },
 		ktype.AckModeAtLeastOnce,
@@ -158,7 +159,7 @@ func TestRecordExecutor_HandlerPanic(t *testing.T) {
 }
 
 func TestRecordExecutor_Batch_Success(t *testing.T) {
-	exec := consumer.NewRecordExecutor(nil)
+	exec := consumer.NewRecordExecutor(testlogger.NewLogger())
 	sub := testSubBatch(
 		func(ctx context.Context, records []*kgo.Record) ktype.BatchResult { return ktype.BatchResult{} },
 		ktype.AckModeAtLeastOnce,
@@ -173,7 +174,7 @@ func TestRecordExecutor_Batch_Success(t *testing.T) {
 }
 
 func TestRecordExecutor_Batch_PartialFailure(t *testing.T) {
-	exec := consumer.NewRecordExecutor(nil)
+	exec := consumer.NewRecordExecutor(testlogger.NewLogger())
 	sub := testSubBatch(
 		func(ctx context.Context, records []*kgo.Record) ktype.BatchResult {
 			return ktype.BatchResult{Err: errors.New("batch failed"), FailedAt: 1}
@@ -190,7 +191,7 @@ func TestRecordExecutor_Batch_PartialFailure(t *testing.T) {
 }
 
 func TestRecordExecutor_Batch_DLQ(t *testing.T) {
-	exec := consumer.NewRecordExecutor(nil)
+	exec := consumer.NewRecordExecutor(testlogger.NewLogger())
 	var dlqCalled atomic.Int32
 
 	dlqWriter := func(ctx context.Context, enriched *kgo.Record) error {
@@ -215,7 +216,7 @@ func TestRecordExecutor_Batch_DLQ(t *testing.T) {
 }
 
 func TestRecordExecutor_Batch_HandlerPanic(t *testing.T) {
-	exec := consumer.NewRecordExecutor(nil)
+	exec := consumer.NewRecordExecutor(testlogger.NewLogger())
 	sub := testSubBatch(
 		func(ctx context.Context, records []*kgo.Record) ktype.BatchResult { panic("batch panic") },
 		ktype.AckModeAtLeastOnce,
@@ -230,7 +231,7 @@ func TestRecordExecutor_Batch_HandlerPanic(t *testing.T) {
 }
 
 func TestRecordExecutor_ContextCancelled(t *testing.T) {
-	exec := consumer.NewRecordExecutor(nil)
+	exec := consumer.NewRecordExecutor(testlogger.NewLogger())
 	sub := testSubRecord(
 		func(ctx context.Context, record *kgo.Record) error { return errors.New("fail") },
 		ktype.AckModeAtLeastOnce,
@@ -243,7 +244,7 @@ func TestRecordExecutor_ContextCancelled(t *testing.T) {
 }
 
 func TestRecordExecutor_ExhaustedDLQ_WriterFails(t *testing.T) {
-	exec := consumer.NewRecordExecutor(nil)
+	exec := consumer.NewRecordExecutor(testlogger.NewLogger())
 	dlqWriter := func(ctx context.Context, enriched *kgo.Record) error {
 		return errors.New("dlq write failed")
 	}
@@ -258,7 +259,7 @@ func TestRecordExecutor_ExhaustedDLQ_WriterFails(t *testing.T) {
 }
 
 func TestRecordExecutor_UnsupportedExhaustedAction(t *testing.T) {
-	exec := consumer.NewRecordExecutor(nil)
+	exec := consumer.NewRecordExecutor(testlogger.NewLogger())
 	sub := testSubRecord(
 		func(ctx context.Context, record *kgo.Record) error { return errors.New("fail") },
 		ktype.AckModeAtLeastOnce,

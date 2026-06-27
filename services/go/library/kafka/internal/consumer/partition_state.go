@@ -3,6 +3,7 @@ package consumer
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -26,6 +27,7 @@ const (
 // responsibility of the worker runner (Step 7).
 type PartitionState struct {
 	ctx                context.Context
+	log                *slog.Logger
 	queue              chan []*kgo.Record
 	cancel             context.CancelFunc
 	done               chan struct{}
@@ -48,6 +50,7 @@ type PartitionState struct {
 // cancel function, done channel, and commit-progress state.
 func NewPartitionState(
 	parent context.Context,
+	logger *slog.Logger,
 	key Key,
 	subscription ktype.Subscription,
 	queueCapacity int,
@@ -65,6 +68,7 @@ func NewPartitionState(
 		queueCloseOnce:     sync.Once{},
 		closeDoneOnce:      sync.Once{},
 		mu:                 sync.Mutex{},
+		log:                logger,
 		maxBufferedRecords: int32(queueCapacity),
 		bufferedRecords:    0,
 		accepting:          true,
@@ -125,6 +129,9 @@ func (s *PartitionState) OnDequeue(records []*kgo.Record) int {
 
 	s.bufferedRecords -= int32(len(records))
 	if s.bufferedRecords < 0 {
+		s.log.WarnContext(s.ctx, "partition bufferedRecords went negative on dequeue — accounting bug",
+			"topic", s.key.Topic, "partition", s.key.Partition,
+			"dequeued", len(records), "buffered", s.bufferedRecords)
 		s.bufferedRecords = 0
 	}
 	return int(s.bufferedRecords)

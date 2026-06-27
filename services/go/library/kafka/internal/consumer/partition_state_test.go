@@ -2,6 +2,7 @@
 package consumer_test
 
 import (
+	"go-services/library/testlogger"
 	"context"
 	"testing"
 
@@ -25,6 +26,7 @@ func testSubscription() consumer.Subscription {
 func TestPartitionState_New(t *testing.T) {
 	ps := consumer.NewPartitionState(
 		context.Background(),
+		testlogger.NewLogger(),
 		consumer.Key{Topic: "t", Partition: 1},
 		testSubscription(),
 		64,
@@ -35,12 +37,12 @@ func TestPartitionState_New(t *testing.T) {
 
 func TestPartitionState_Key(t *testing.T) {
 	key := consumer.Key{Topic: "t", Partition: 2}
-	ps := consumer.NewPartitionState(context.Background(), key, testSubscription(), 64)
+	ps := consumer.NewPartitionState(context.Background(), testlogger.NewLogger(), key, testSubscription(), 64)
 	assert.Equal(t, key, ps.Key(), "Key() should return the constructor key")
 }
 
 func TestPartitionState_Done_NotClosedInitially(t *testing.T) {
-	ps := consumer.NewPartitionState(context.Background(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 64)
+	ps := consumer.NewPartitionState(context.Background(), testlogger.NewLogger(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 64)
 	select {
 	case <-ps.Done():
 		t.Fatal("Done channel should not be closed initially")
@@ -49,7 +51,7 @@ func TestPartitionState_Done_NotClosedInitially(t *testing.T) {
 }
 
 func TestPartitionState_TryEnqueue_Success(t *testing.T) {
-	ps := consumer.NewPartitionState(context.Background(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)
+	ps := consumer.NewPartitionState(context.Background(), testlogger.NewLogger(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)
 
 	records := make([]*kgo.Record, 3)
 	for i := range records {
@@ -62,7 +64,7 @@ func TestPartitionState_TryEnqueue_Success(t *testing.T) {
 }
 
 func TestPartitionState_TryEnqueue_ExceedsCapacity(t *testing.T) {
-	ps := consumer.NewPartitionState(context.Background(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 2)
+	ps := consumer.NewPartitionState(context.Background(), testlogger.NewLogger(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 2)
 
 	records := make([]*kgo.Record, 5)
 	for i := range records {
@@ -75,7 +77,7 @@ func TestPartitionState_TryEnqueue_ExceedsCapacity(t *testing.T) {
 }
 
 func TestPartitionState_OnDequeue_DecRemovesRecords(t *testing.T) {
-	ps := consumer.NewPartitionState(context.Background(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)
+	ps := consumer.NewPartitionState(context.Background(), testlogger.NewLogger(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)
 
 	records := make([]*kgo.Record, 5)
 	for i := range records {
@@ -88,10 +90,10 @@ func TestPartitionState_OnDequeue_DecRemovesRecords(t *testing.T) {
 }
 
 func TestPartitionState_TryPauseBackpressure_QueueFull(t *testing.T) {
-	ps := consumer.NewPartitionState(context.Background(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)
+	ps := consumer.NewPartitionState(context.Background(), testlogger.NewLogger(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)
 
 	// Enqueue 9 batches (high watermark for capacity 10 is 9).
-	for i := 0; i < 9; i++ {
+	for i := range 9 {
 		n, _ := ps.TryEnqueue([]*kgo.Record{{Topic: "t", Offset: int64(i)}})
 		assert.Equal(t, 1, n, "should enqueue record %d", i)
 	}
@@ -101,10 +103,10 @@ func TestPartitionState_TryPauseBackpressure_QueueFull(t *testing.T) {
 }
 
 func TestPartitionState_TryPauseBackpressure_NotFullEnough(t *testing.T) {
-	ps := consumer.NewPartitionState(context.Background(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)
+	ps := consumer.NewPartitionState(context.Background(), testlogger.NewLogger(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)
 
 	// Enqueue only 8 batches (below high watermark of 9).
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		n, _ := ps.TryEnqueue([]*kgo.Record{{Topic: "t", Offset: int64(i)}})
 		assert.Equal(t, 1, n, "should enqueue record %d", i)
 	}
@@ -114,10 +116,10 @@ func TestPartitionState_TryPauseBackpressure_NotFullEnough(t *testing.T) {
 }
 
 func TestPartitionState_TryPauseBackpressure_Idempotent(t *testing.T) {
-	ps := consumer.NewPartitionState(context.Background(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)
+	ps := consumer.NewPartitionState(context.Background(), testlogger.NewLogger(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)
 
 	// Fill to high watermark.
-	for i := 0; i < 9; i++ {
+	for i := range 9 {
 		ps.TryEnqueue([]*kgo.Record{{Topic: "t", Offset: int64(i)}})
 	}
 
@@ -127,11 +129,11 @@ func TestPartitionState_TryPauseBackpressure_Idempotent(t *testing.T) {
 }
 
 func TestPartitionState_TryPauseBackpressure_NotAccepting(t *testing.T) {
-	ps := consumer.NewPartitionState(context.Background(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)
+	ps := consumer.NewPartitionState(context.Background(), testlogger.NewLogger(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)
 	ps.BeginClosing()
 
 	// Fill to high watermark.
-	for i := 0; i < 9; i++ {
+	for i := range 9 {
 		ps.TryEnqueue([]*kgo.Record{{Topic: "t", Offset: int64(i)}})
 	}
 
@@ -140,16 +142,16 @@ func TestPartitionState_TryPauseBackpressure_NotAccepting(t *testing.T) {
 }
 
 func TestPartitionState_TryResumeBackpressure_DrainsLow(t *testing.T) {
-	ps := consumer.NewPartitionState(context.Background(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)
+	ps := consumer.NewPartitionState(context.Background(), testlogger.NewLogger(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)
 
 	// Fill to high watermark and pause.
-	for i := 0; i < 9; i++ {
+	for i := range 9 {
 		ps.TryEnqueue([]*kgo.Record{{Topic: "t", Offset: int64(i)}})
 	}
 	ps.TryPauseBackpressure()
 
 	// Dequeue 5 batches: remaining = 4, which is <= capacity/2 = 5.
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		_ = ps.OnDequeue([]*kgo.Record{{}})
 	}
 
@@ -158,16 +160,16 @@ func TestPartitionState_TryResumeBackpressure_DrainsLow(t *testing.T) {
 }
 
 func TestPartitionState_TryResumeBackpressure_NotLowEnough(t *testing.T) {
-	ps := consumer.NewPartitionState(context.Background(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)
+	ps := consumer.NewPartitionState(context.Background(), testlogger.NewLogger(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)
 
 	// Fill to high watermark and pause.
-	for i := 0; i < 9; i++ {
+	for i := range 9 {
 		ps.TryEnqueue([]*kgo.Record{{Topic: "t", Offset: int64(i)}})
 	}
 	ps.TryPauseBackpressure()
 
 	// Dequeue only 2 batches: remaining = 7, which is above capacity/2 = 5.
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		_ = ps.OnDequeue([]*kgo.Record{{}})
 	}
 
@@ -176,14 +178,14 @@ func TestPartitionState_TryResumeBackpressure_NotLowEnough(t *testing.T) {
 }
 
 func TestPartitionState_TryResumeBackpressure_NotPaused(t *testing.T) {
-	ps := consumer.NewPartitionState(context.Background(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)
+	ps := consumer.NewPartitionState(context.Background(), testlogger.NewLogger(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)
 
 	resumed := ps.TryResumeBackpressure()
 	assert.False(t, resumed, "resume without pause should return false")
 }
 
 func TestPartitionState_AdvanceCommitOffset(t *testing.T) {
-	ps := consumer.NewPartitionState(context.Background(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)
+	ps := consumer.NewPartitionState(context.Background(), testlogger.NewLogger(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)
 
 	record := &kgo.Record{Topic: "t", Partition: 1, Offset: 5, LeaderEpoch: 1}
 	advanced := ps.AdvanceCommitOffset(record)
@@ -191,7 +193,7 @@ func TestPartitionState_AdvanceCommitOffset(t *testing.T) {
 }
 
 func TestPartitionState_SnapshotDirtyOffset_AfterAdvance(t *testing.T) {
-	ps := consumer.NewPartitionState(context.Background(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)
+	ps := consumer.NewPartitionState(context.Background(), testlogger.NewLogger(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)
 
 	record := &kgo.Record{Topic: "t", Partition: 1, Offset: 5, LeaderEpoch: 1}
 	ps.AdvanceCommitOffset(record)
@@ -203,7 +205,7 @@ func TestPartitionState_SnapshotDirtyOffset_AfterAdvance(t *testing.T) {
 }
 
 func TestPartitionState_MarkCommitted_ClearsDirty(t *testing.T) {
-	ps := consumer.NewPartitionState(context.Background(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)
+	ps := consumer.NewPartitionState(context.Background(), testlogger.NewLogger(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)
 
 	record := &kgo.Record{Topic: "t", Partition: 1, Offset: 5, LeaderEpoch: 1}
 	ps.AdvanceCommitOffset(record)
@@ -217,10 +219,10 @@ func TestPartitionState_MarkCommitted_ClearsDirty(t *testing.T) {
 }
 
 func TestPartitionState_BeginClosing_StopsAccepting(t *testing.T) {
-	ps := consumer.NewPartitionState(context.Background(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)
+	ps := consumer.NewPartitionState(context.Background(), testlogger.NewLogger(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)
 
 	// Fill to high watermark first.
-	for i := 0; i < 9; i++ {
+	for i := range 9 {
 		ps.TryEnqueue([]*kgo.Record{{Topic: "t", Offset: int64(i)}})
 	}
 
@@ -231,7 +233,7 @@ func TestPartitionState_BeginClosing_StopsAccepting(t *testing.T) {
 }
 
 func TestPartitionState_Abort_ReturnsOffset(t *testing.T) {
-	ps := consumer.NewPartitionState(context.Background(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)
+	ps := consumer.NewPartitionState(context.Background(), testlogger.NewLogger(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)
 
 	record := &kgo.Record{Topic: "t", Partition: 1, Offset: 5, LeaderEpoch: 1}
 	ps.AdvanceCommitOffset(record)
@@ -246,7 +248,7 @@ func TestPartitionState_Abort_ReturnsOffset(t *testing.T) {
 }
 
 func TestPartitionState_MarkStopped(t *testing.T) {
-	ps := consumer.NewPartitionState(context.Background(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)
+	ps := consumer.NewPartitionState(context.Background(), testlogger.NewLogger(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)
 
 	ps.BeginClosing()
 	ps.MarkStopped()
@@ -255,7 +257,7 @@ func TestPartitionState_MarkStopped(t *testing.T) {
 }
 
 func TestPartitionState_Enqueue_AfterClosing_Fails(t *testing.T) {
-	ps := consumer.NewPartitionState(context.Background(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)
+	ps := consumer.NewPartitionState(context.Background(), testlogger.NewLogger(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)
 
 	ps.BeginClosing()
 

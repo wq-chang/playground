@@ -3,6 +3,7 @@ package consumer
 
 import (
 	"context"
+	"log/slog"
 	"maps"
 	"sync"
 
@@ -18,14 +19,16 @@ import (
 type PartitionRegistry struct {
 	partitions map[Key]*PartitionState
 	dirty      map[Key]*PartitionState
+	log        *slog.Logger
 	mu         sync.Mutex
 }
 
 // NewPartitionRegistry creates an empty partition registry.
-func NewPartitionRegistry() *PartitionRegistry {
+func NewPartitionRegistry(logger *slog.Logger) *PartitionRegistry {
 	return &PartitionRegistry{
 		partitions: make(map[Key]*PartitionState),
 		dirty:      make(map[Key]*PartitionState),
+		log:        logger,
 		mu:         sync.Mutex{},
 	}
 }
@@ -55,7 +58,7 @@ func (r *PartitionRegistry) GetOrCreate(
 		return existing, false, nil
 	}
 
-	ps := NewPartitionState(parent, key, subscription, queueCapacity)
+	ps := NewPartitionState(parent, r.log, key, subscription, queueCapacity)
 	r.partitions[key] = ps
 	return ps, true, nil
 }

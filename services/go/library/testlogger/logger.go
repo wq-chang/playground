@@ -73,6 +73,9 @@ func (h *spyHandler) WithGroup(name string) slog.Handler {
 // New initializes a new *slog.Logger and a corresponding *LogCapture.
 // The logger is configured with a Debug level and a TextHandler backend
 // that writes to the capture's internal buffer.
+//
+// Use when you need log assertions via the returned LogCapture. For tests
+// that only need a non-nil logger, use NewLogger.
 func New() (*slog.Logger, *LogCapture) {
 	buf := &bytes.Buffer{}
 	capture := &LogCapture{Buf: buf, Entries: []LogEntry{}, mu: sync.Mutex{}}
@@ -87,4 +90,12 @@ func New() (*slog.Logger, *LogCapture) {
 
 	handler := &spyHandler{Handler: baseHandler, capture: capture, groupPath: "", preFields: []slog.Attr{}}
 	return slog.New(handler), capture
+}
+
+// NewLogger returns a *slog.Logger backed by the test capture handler,
+// discarding the LogCapture. Use when tests need a real structured logger
+// but don't need log assertions.
+func NewLogger() *slog.Logger {
+	logger, _ := New()
+	return logger
 }
