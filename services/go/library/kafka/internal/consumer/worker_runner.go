@@ -121,7 +121,6 @@ func (wr *WorkerRunner) processRecords(
 		}
 
 		if err := wr.acquireProcessSlot(ctx); err != nil {
-			wr.run.Fail(err)
 			return
 		}
 		result := wr.executor.ExecuteRecord(ctx, state.subscription, record, wr.dlqWriter)
@@ -171,7 +170,6 @@ func (wr *WorkerRunner) processBatch(
 	}
 
 	if err := wr.acquireProcessSlot(ctx); err != nil {
-		wr.run.Fail(err)
 		return
 	}
 	resolvedCount, cause, pauseTopic := wr.executor.ExecuteBatch(ctx, state.subscription, records, wr.dlqWriter)
