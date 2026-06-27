@@ -2,7 +2,6 @@
 package consumer_test
 
 import (
-	"go-services/library/testlogger"
 	"context"
 	"errors"
 	"sync/atomic"
@@ -14,6 +13,7 @@ import (
 	"go-services/library/assert"
 	"go-services/library/kafka/internal/consumer"
 	"go-services/library/kafka/ktype"
+	"go-services/library/testlogger"
 )
 
 func testSubRecord(

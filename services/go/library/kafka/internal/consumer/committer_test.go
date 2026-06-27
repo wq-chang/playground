@@ -2,18 +2,18 @@
 package consumer_test
 
 import (
-	"go-services/library/testlogger"
 	"context"
 	"errors"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/twmb/franz-go/pkg/kgo"
+
 	"go-services/library/assert"
 	"go-services/library/kafka/internal/consumer"
 	"go-services/library/require"
-
-	"github.com/twmb/franz-go/pkg/kgo"
+	"go-services/library/testlogger"
 )
 
 // stubOffsetClient implements consumer.OffsetClient for testing.

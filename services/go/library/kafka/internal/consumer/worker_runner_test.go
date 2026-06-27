@@ -2,19 +2,20 @@
 package consumer_test
 
 import (
-	"go-services/library/testlogger"
 	"context"
 	"errors"
+	"maps"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/twmb/franz-go/pkg/kgo"
+
 	"go-services/library/assert"
 	"go-services/library/kafka/internal/consumer"
 	"go-services/library/require"
-
-	"github.com/twmb/franz-go/pkg/kgo"
+	"go-services/library/testlogger"
 )
 
 type stubWorkerClient struct {
@@ -43,9 +44,7 @@ func (s *stubWorkerClient) ResumeFetchPartitions(partitions map[string][]int32) 
 	if s.resumedPartitions == nil {
 		s.resumedPartitions = make(map[string][]int32)
 	}
-	for k, v := range partitions {
-		s.resumedPartitions[k] = v
-	}
+	maps.Copy(s.resumedPartitions, partitions)
 }
 
 func subAck(mode consumer.AckMode) consumer.Subscription {
@@ -233,7 +232,7 @@ func TestWorkerRunner_ProcessSemaphore_BoundsConcurrency(t *testing.T) {
 	wr.Start(ps, client)
 
 	time.Sleep(10 * time.Millisecond)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		ps.TryEnqueue([]*kgo.Record{{Topic: "t", Partition: 0, Offset: int64(i)}})
 	}
 	time.Sleep(200 * time.Millisecond)

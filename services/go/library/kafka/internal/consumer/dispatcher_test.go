@@ -2,15 +2,15 @@
 package consumer_test
 
 import (
-	"go-services/library/testlogger"
 	"context"
 	"testing"
 	"time"
 
+	"github.com/twmb/franz-go/pkg/kgo"
+
 	"go-services/library/assert"
 	"go-services/library/kafka/internal/consumer"
-
-	"github.com/twmb/franz-go/pkg/kgo"
+	"go-services/library/testlogger"
 )
 
 func TestDispatcher_New(t *testing.T) {

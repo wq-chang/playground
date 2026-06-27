@@ -78,11 +78,6 @@ func NewPartitionState(
 	}
 }
 
-// Capacity returns the maximum number of buffered batches for this partition.
-func (s *PartitionState) Capacity() int {
-	return int(s.maxBufferedRecords)
-}
-
 // Key returns the topic-partition key for this state.
 func (s *PartitionState) Key() Key {
 	return s.key
