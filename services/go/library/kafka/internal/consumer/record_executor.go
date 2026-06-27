@@ -63,7 +63,8 @@ func (e *RecordExecutor) ExecuteRecord(
 			"offset", record.Offset,
 			"attempt", attempt,
 			"maxAttempts", attempts,
-			"err", err)
+			"err", err,
+		)
 
 		if attempt < attempts {
 			if err := waitForRetry(ctx, sub.FailurePolicy.RetryBackoff); err != nil {

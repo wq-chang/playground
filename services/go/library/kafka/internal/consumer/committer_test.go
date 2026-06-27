@@ -16,11 +16,9 @@ import (
 )
 
 // stubOffsetClient implements consumer.OffsetClient for testing.
-//
-//nolint:govet
 type stubOffsetClient struct {
-	mu      sync.Mutex
 	commits []map[string]map[int32]kgo.EpochOffset
+	mu      sync.Mutex
 	fail    bool
 }
 
@@ -60,7 +58,8 @@ func TestCommitter_RequestFlush_TriggersFlush(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		_ = cm.Run(ctx) //nolint:errcheck // expected to exit when ctx is cancelled
+		err := cm.Run(ctx) // expected to exit when ctx is cancelled
+		require.NoError(t, err, "Run should exit without error")
 		close(done)
 	}()
 

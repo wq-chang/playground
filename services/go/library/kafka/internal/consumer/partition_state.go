@@ -74,6 +74,11 @@ func NewPartitionState(
 	}
 }
 
+// Capacity returns the maximum number of buffered batches for this partition.
+func (s *PartitionState) Capacity() int {
+	return int(s.maxBufferedRecords)
+}
+
 // Key returns the topic-partition key for this state.
 func (s *PartitionState) Key() Key {
 	return s.key
@@ -125,13 +130,18 @@ func (s *PartitionState) OnDequeue(records []*kgo.Record) int {
 	return int(s.bufferedRecords)
 }
 
-// MarkBackpressurePaused marks the partition as paused-by-backpressure if it
-// was still accepting work. Returns true if this call applied the pause.
-func (s *PartitionState) MarkBackpressurePaused() bool {
+// TryPauseBackpressure marks the partition as pause-by-backpressure if the
+// queue is at the high watermark (capacity - 1 slots filled) and it was still
+// accepting work. Returns true if this call applied the pause, indicating
+// the caller should pause Kafka fetches for this partition.
+func (s *PartitionState) TryPauseBackpressure() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if !s.accepting || s.backpressurePaused {
+		return false
+	}
+	if int(s.bufferedRecords) < int(s.maxBufferedRecords)-1 {
 		return false
 	}
 
@@ -139,13 +149,18 @@ func (s *PartitionState) MarkBackpressurePaused() bool {
 	return true
 }
 
-// ClearBackpressurePaused clears the backpressure pause flag when the buffered
-// count drains low enough. Returns true if the flag was cleared.
-func (s *PartitionState) ClearBackpressurePaused() bool {
+// TryResumeBackpressure clears the backpressure pause flag if the queue has
+// drained to the low watermark (capacity / 2 remaining) and was currently
+// paused by backpressure. Returns true if the flag was cleared, indicating
+// the caller should resume Kafka fetches for this partition.
+func (s *PartitionState) TryResumeBackpressure() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if !s.accepting || !s.backpressurePaused {
+		return false
+	}
+	if int(s.bufferedRecords) > int(s.maxBufferedRecords)/2 {
 		return false
 	}
 

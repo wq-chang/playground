@@ -87,36 +87,99 @@ func TestPartitionState_OnDequeue_DecRemovesRecords(t *testing.T) {
 	assert.Equal(t, 0, buffered, "buffered should be 0 after dequeue")
 }
 
-func TestPartitionState_MarkBackpressurePaused_Success(t *testing.T) {
+func TestPartitionState_TryPauseBackpressure_QueueFull(t *testing.T) {
 	ps := consumer.NewPartitionState(context.Background(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)
 
-	paused := ps.MarkBackpressurePaused()
-	assert.True(t, paused, "first pause should succeed")
+	// Enqueue 9 batches (high watermark for capacity 10 is 9).
+	for i := 0; i < 9; i++ {
+		n, _ := ps.TryEnqueue([]*kgo.Record{{Topic: "t", Offset: int64(i)}})
+		assert.Equal(t, 1, n, "should enqueue record %d", i)
+	}
+
+	paused := ps.TryPauseBackpressure()
+	assert.True(t, paused, "should pause when queue is at high watermark (9 of 10)")
 }
 
-func TestPartitionState_MarkBackpressurePaused_Idempotent(t *testing.T) {
+func TestPartitionState_TryPauseBackpressure_NotFullEnough(t *testing.T) {
 	ps := consumer.NewPartitionState(context.Background(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)
 
-	ps.MarkBackpressurePaused()
-	paused := ps.MarkBackpressurePaused()
+	// Enqueue only 8 batches (below high watermark of 9).
+	for i := 0; i < 8; i++ {
+		n, _ := ps.TryEnqueue([]*kgo.Record{{Topic: "t", Offset: int64(i)}})
+		assert.Equal(t, 1, n, "should enqueue record %d", i)
+	}
+
+	paused := ps.TryPauseBackpressure()
+	assert.False(t, paused, "should not pause below high watermark (8 of 10)")
+}
+
+func TestPartitionState_TryPauseBackpressure_Idempotent(t *testing.T) {
+	ps := consumer.NewPartitionState(context.Background(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)
+
+	// Fill to high watermark.
+	for i := 0; i < 9; i++ {
+		ps.TryEnqueue([]*kgo.Record{{Topic: "t", Offset: int64(i)}})
+	}
+
+	ps.TryPauseBackpressure()
+	paused := ps.TryPauseBackpressure()
 	assert.False(t, paused, "second pause should return false")
 }
 
-func TestPartitionState_ClearBackpressurePaused(t *testing.T) {
+func TestPartitionState_TryPauseBackpressure_NotAccepting(t *testing.T) {
 	ps := consumer.NewPartitionState(context.Background(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)
+	ps.BeginClosing()
 
-	ps.MarkBackpressurePaused()
-	cleared := ps.ClearBackpressurePaused()
-	assert.True(t, cleared, "clear should succeed after pause")
+	// Fill to high watermark.
+	for i := 0; i < 9; i++ {
+		ps.TryEnqueue([]*kgo.Record{{Topic: "t", Offset: int64(i)}})
+	}
 
-	assert.False(t, ps.ClearBackpressurePaused(), "second clear should return false")
+	paused := ps.TryPauseBackpressure()
+	assert.False(t, paused, "should not pause when not accepting")
 }
 
-func TestPartitionState_ClearBackpressurePaused_WithoutPause(t *testing.T) {
+func TestPartitionState_TryResumeBackpressure_DrainsLow(t *testing.T) {
 	ps := consumer.NewPartitionState(context.Background(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)
 
-	cleared := ps.ClearBackpressurePaused()
-	assert.False(t, cleared, "clear without pause should return false")
+	// Fill to high watermark and pause.
+	for i := 0; i < 9; i++ {
+		ps.TryEnqueue([]*kgo.Record{{Topic: "t", Offset: int64(i)}})
+	}
+	ps.TryPauseBackpressure()
+
+	// Dequeue 5 batches: remaining = 4, which is <= capacity/2 = 5.
+	for i := 0; i < 5; i++ {
+		_ = ps.OnDequeue([]*kgo.Record{{}})
+	}
+
+	resumed := ps.TryResumeBackpressure()
+	assert.True(t, resumed, "should resume when queue drains to low watermark (4 of 10)")
+}
+
+func TestPartitionState_TryResumeBackpressure_NotLowEnough(t *testing.T) {
+	ps := consumer.NewPartitionState(context.Background(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)
+
+	// Fill to high watermark and pause.
+	for i := 0; i < 9; i++ {
+		ps.TryEnqueue([]*kgo.Record{{Topic: "t", Offset: int64(i)}})
+	}
+	ps.TryPauseBackpressure()
+
+	// Dequeue only 2 batches: remaining = 7, which is above capacity/2 = 5.
+	for i := 0; i < 2; i++ {
+		_ = ps.OnDequeue([]*kgo.Record{{}})
+	}
+
+	resumed := ps.TryResumeBackpressure()
+	assert.False(t, resumed, "should not resume when above low watermark (7 of 10)")
+}
+
+func TestPartitionState_TryResumeBackpressure_NotPaused(t *testing.T) {
+	ps := consumer.NewPartitionState(context.Background(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)
+
+	resumed := ps.TryResumeBackpressure()
+	assert.False(t, resumed, "resume without pause should return false")
 }
 
 func TestPartitionState_AdvanceCommitOffset(t *testing.T) {
@@ -156,10 +219,15 @@ func TestPartitionState_MarkCommitted_ClearsDirty(t *testing.T) {
 func TestPartitionState_BeginClosing_StopsAccepting(t *testing.T) {
 	ps := consumer.NewPartitionState(context.Background(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)
 
+	// Fill to high watermark first.
+	for i := 0; i < 9; i++ {
+		ps.TryEnqueue([]*kgo.Record{{Topic: "t", Offset: int64(i)}})
+	}
+
 	ps.BeginClosing()
 
 	assert.False(t, ps.IsRunning(), "should not be running after closing")
-	assert.False(t, ps.MarkBackpressurePaused(), "backpressure pause should fail when not accepting")
+	assert.False(t, ps.TryPauseBackpressure(), "backpressure pause should fail when not accepting")
 }
 
 func TestPartitionState_Abort_ReturnsOffset(t *testing.T) {
