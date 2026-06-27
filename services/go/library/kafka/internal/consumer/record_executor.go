@@ -134,7 +134,20 @@ func (e *RecordExecutor) resolveExhausted(
 	}
 }
 
-// ExecuteBatch runs the batch handler with exhaustion resolution.
+// ExecuteBatch runs the batch handler with retry and exhaustion resolution.
+//
+// The batch handler is retried up to MaxAttempts times with RetryBackoff delay
+// between attempts. On each attempt the handler receives the remaining
+// un-resolved records starting from the first unresolved position. Records
+// that succeed before the first failure (FailedAt) are accumulated into
+// resolvedCount.
+//
+// When retries are exhausted, the failure policy determines the outcome:
+//   - Stop: returns resolvedCount with pauseTopic=true (does NOT commit past
+//     the failed record).
+//   - Commit: drops the failed record and continues with remaining records.
+//   - DLQThenCommit: publishes to DLQ, then continues. If DLQ write fails,
+//     returns the error without pausing (caller should fail).
 func (e *RecordExecutor) ExecuteBatch(
 	ctx context.Context,
 	sub Subscription,
@@ -145,45 +158,78 @@ func (e *RecordExecutor) ExecuteBatch(
 		return 0, nil, false
 	}
 
-	result, err := invokeBatchHandler(ctx, sub.BatchHandler, records)
-	if err != nil {
-		// Panic recovered — treat as batch failure at index 0 so
-		// the configured OnExhausted action (Stop/Commit/DLQ) is applied.
-		result = BatchResult{Err: err, FailedAt: 0}
-	}
+	resolvedCount := 0
+	attempts := 0
+	lastFailedAt := -1
 
-	if result.Err == nil {
-		return len(records), nil, false
-	}
-
-	failedAt := result.FailedAt
-	if failedAt < 0 || failedAt >= len(records) {
-		failedAt = 0
-	}
-
-	failedRecord := records[failedAt]
-
-	switch sub.FailurePolicy.OnExhausted {
-	case ExhaustedActionStop:
-		return failedAt, fmt.Errorf("batch handler failed for topic %q at index %d: %w",
-			failedRecord.Topic, failedAt, result.Err), true
-	case ExhaustedActionCommit:
-		e.logger.WarnContext(ctx, "Kafka batch partially dropped after handler error",
-			"topic", failedRecord.Topic, "partition", failedRecord.Partition,
-			"failedAt", failedAt, "err", result.Err)
-		return failedAt, nil, false
-	case ExhaustedActionDLQThenCommit:
-		enriched := enrichDLQRecord(failedRecord, result.Err, 1, sub.FailurePolicy.DLQ.Topic)
-		if err := dlqWriter(ctx, enriched); err != nil {
-			return failedAt, fmt.Errorf("failed to publish batch record to dlq: %w", err), false
+	for resolvedCount < len(records) {
+		if err := ctx.Err(); err != nil {
+			return resolvedCount, err, false
 		}
-		e.logger.WarnContext(ctx, "Kafka batch record sent to DLQ after handler error",
-			"topic", failedRecord.Topic, "partition", failedRecord.Partition,
-			"failedAt", failedAt, "dlqTopic", sub.FailurePolicy.DLQ.Topic)
-		return failedAt, nil, false
-	default:
-		return 0, fmt.Errorf("unsupported exhausted action: %d", sub.FailurePolicy.OnExhausted), false
+
+		remaining := records[resolvedCount:]
+		result, panicErr := invokeBatchHandler(ctx, sub.BatchHandler, remaining)
+		if panicErr != nil {
+			// Panic recovered — treat as batch failure at index 0.
+			result = BatchResult{Err: panicErr, FailedAt: 0}
+		}
+
+		if result.Err == nil {
+			return len(records), nil, false
+		}
+
+		// Clamp FailedAt into range.
+		failedAt := result.FailedAt
+		if failedAt < 0 || failedAt >= len(remaining) {
+			return resolvedCount,
+				fmt.Errorf("batch handler returned failed index %d for remaining batch size %d",
+					failedAt, len(remaining)), false
+		}
+
+		resolvedCount += failedAt
+		failedRecord := records[resolvedCount]
+
+		if resolvedCount != lastFailedAt {
+			attempts = 1
+			lastFailedAt = resolvedCount
+		} else {
+			attempts++
+		}
+
+		e.logger.ErrorContext(
+			ctx,
+			"Kafka batch handler error",
+			"topic", failedRecord.Topic,
+			"partition", failedRecord.Partition,
+			"offset", failedRecord.Offset,
+			"failedAt", failedAt,
+			"attempt", attempts,
+			"maxAttempts", sub.FailurePolicy.MaxAttempts,
+			"err", result.Err,
+		)
+
+		if attempts < sub.FailurePolicy.MaxAttempts {
+			if err := waitForRetry(ctx, sub.FailurePolicy.RetryBackoff); err != nil {
+				return resolvedCount, err, false
+			}
+			continue
+		}
+
+		exhausted := e.resolveExhausted(ctx, sub, failedRecord, result.Err, attempts, dlqWriter)
+		if exhausted.PauseTopic {
+			return resolvedCount, exhausted.Cause, true
+		}
+		if !exhausted.Resolved {
+			return resolvedCount, exhausted.Cause, false
+		}
+
+		// Record resolved (skipped via Commit or DLQ) — advance past it.
+		resolvedCount++
+		attempts = 0
+		lastFailedAt = -1
 	}
+
+	return resolvedCount, nil, false
 }
 
 func invokeHandler(

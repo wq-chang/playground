@@ -208,7 +208,7 @@ func TestRecordExecutor_Batch_DLQ(t *testing.T) {
 
 	records := []*kgo.Record{{Topic: "t", Offset: 0}}
 	resolvedCount, cause, pauseTopic := exec.ExecuteBatch(context.Background(), sub, records, dlqWriter)
-	assert.Equal(t, 0, resolvedCount, "first record at failedAt should not be resolved")
+	assert.Equal(t, 1, resolvedCount, "record resolved via DLQ should count as resolved")
 	assert.Nil(t, cause, "no error on DLQ commit")
 	assert.False(t, pauseTopic, "should not pause on DLQ commit")
 	assert.Equal(t, int32(1), dlqCalled.Load(), "DLQ writer should be called")

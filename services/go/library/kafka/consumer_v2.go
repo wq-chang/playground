@@ -69,17 +69,18 @@ type v2WorkerClient struct {
 }
 
 func (a v2WorkerClient) CommitOffsetsSync(ctx context.Context, offsets map[string]map[int32]kgo.EpochOffset) error {
-	var commitErr error
-	if a.v2.client != nil && a.v2.client.kgoClient != nil {
-		a.v2.client.kgoClient.CommitOffsetsSync(ctx, offsets, func(
-			_ *kgo.Client,
-			_ *kmsg.OffsetCommitRequest,
-			_ *kmsg.OffsetCommitResponse,
-			err error,
-		) {
-			commitErr = err
-		})
+	if a.v2.client == nil || a.v2.client.kgoClient == nil {
+		return fmt.Errorf("kafka client is not initialized")
 	}
+	var commitErr error
+	a.v2.client.kgoClient.CommitOffsetsSync(ctx, offsets, func(
+		_ *kgo.Client,
+		_ *kmsg.OffsetCommitRequest,
+		_ *kmsg.OffsetCommitResponse,
+		err error,
+	) {
+		commitErr = err
+	})
 	return commitErr
 }
 

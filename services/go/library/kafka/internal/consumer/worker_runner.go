@@ -39,6 +39,9 @@ func NewWorkerRunner(
 	if logger == nil {
 		logger = slog.Default()
 	}
+	if maxConcurrent < 1 {
+		maxConcurrent = 1
+	}
 	return &WorkerRunner{
 		run:        run,
 		committer:  committer,
@@ -135,6 +138,11 @@ func (wr *WorkerRunner) processRecords(
 			continue
 		}
 
+		if result.Cause != nil {
+			wr.run.Fail(result.Cause)
+			return
+		}
+
 		if state.subscription.AckMode == AckModeAtLeastOnce && result.Resolved {
 			if state.AdvanceCommitOffset(record) && wr.registry.MarkDirty(state) {
 				wr.committer.RequestFlush()
@@ -177,6 +185,11 @@ func (wr *WorkerRunner) processBatch(
 			"topic", records[0].Topic, "err", cause)
 		wr.pauses.Pause(records[0].Topic, cause)
 		client.PauseFetchTopics(records[0].Topic)
+		return
+	}
+
+	if cause != nil {
+		wr.run.Fail(cause)
 		return
 	}
 
