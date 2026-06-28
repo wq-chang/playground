@@ -76,8 +76,8 @@ func (s *stubFetchClient) CommitOffsetsSync(ctx context.Context, offsets map[str
 	return err
 }
 
-// newTestConsumerV2 creates a consumerV2 with stubbed collaborators for rebalance tests.
-func newTestConsumerV2(t *testing.T, stub *stubFetchClient) *consumerV2 {
+// newTestConsumer creates a Consumer with stubbed collaborators for rebalance tests.
+func newTestConsumer(t *testing.T, stub *stubFetchClient) *Consumer {
 	t.Helper()
 
 	router := consumer.NewRouter(nil)
@@ -95,7 +95,7 @@ func newTestConsumerV2(t *testing.T, stub *stubFetchClient) *consumerV2 {
 		},
 	)
 
-	return &consumerV2{
+	return &Consumer{
 		router:       router,
 		pauses:       pauses,
 		runState:     run,
@@ -109,7 +109,7 @@ func newTestConsumerV2(t *testing.T, stub *stubFetchClient) *consumerV2 {
 }
 
 // addTestPartition creates a partition state with dirty offset and registers it.
-func addTestPartition(t *testing.T, v2 *consumerV2, topic string, partition int32, offset int64, epoch int32, dirty bool) {
+func addTestPartition(t *testing.T, v2 *Consumer, topic string, partition int32, offset int64, epoch int32, dirty bool) {
 	t.Helper()
 
 	key := consumer.Key{Topic: topic, Partition: partition}
@@ -139,9 +139,9 @@ func addTestPartition(t *testing.T, v2 *consumerV2, topic string, partition int3
 	}
 }
 
-func TestConsumerV2_OnPartitionsRevoked_CommitsSelectedOffsets(t *testing.T) {
+func TestConsumer_OnPartitionsRevoked_CommitsSelectedOffsets(t *testing.T) {
 	stub := &stubFetchClient{}
-	v2 := newTestConsumerV2(t, stub)
+	v2 := newTestConsumer(t, stub)
 
 	addTestPartition(t, v2, "topic-a", 1, 5, 4, true)
 	addTestPartition(t, v2, "topic-b", 0, 1, 7, true)
@@ -164,9 +164,9 @@ func TestConsumerV2_OnPartitionsRevoked_CommitsSelectedOffsets(t *testing.T) {
 	assert.NoError(t, v2.runState.Err(), "successful revoke should not fail run")
 }
 
-func TestConsumerV2_OnPartitionsRevoked_FailsRunOnCommitError(t *testing.T) {
+func TestConsumer_OnPartitionsRevoked_FailsRunOnCommitError(t *testing.T) {
 	stub := &stubFetchClient{commitErr: errors.New("commit failed")}
-	v2 := newTestConsumerV2(t, stub)
+	v2 := newTestConsumer(t, stub)
 
 	addTestPartition(t, v2, "topic-a", 1, 5, 4, true)
 
@@ -177,9 +177,9 @@ func TestConsumerV2_OnPartitionsRevoked_FailsRunOnCommitError(t *testing.T) {
 	assert.ErrorIs(t, v2.runState.Err(), stub.commitErr, "run should fail on commit error")
 }
 
-func TestConsumerV2_OnPartitionsRevoked_WaitsForDrainBeforeCommit(t *testing.T) {
+func TestConsumer_OnPartitionsRevoked_WaitsForDrainBeforeCommit(t *testing.T) {
 	stub := &stubFetchClient{}
-	v2 := newTestConsumerV2(t, stub)
+	v2 := newTestConsumer(t, stub)
 
 	key := consumer.Key{Topic: "t", Partition: 0}
 	sub := consumer.Subscription{
@@ -208,9 +208,9 @@ func TestConsumerV2_OnPartitionsRevoked_WaitsForDrainBeforeCommit(t *testing.T) 
 	stub.mu.Unlock()
 }
 
-func TestConsumerV2_OnPartitionsLost_DropsSelectedOffsets(t *testing.T) {
+func TestConsumer_OnPartitionsLost_DropsSelectedOffsets(t *testing.T) {
 	stub := &stubFetchClient{}
-	v2 := newTestConsumerV2(t, stub)
+	v2 := newTestConsumer(t, stub)
 
 	addTestPartition(t, v2, "topic-a", 1, 5, 4, true)
 	addTestPartition(t, v2, "topic-b", 0, 1, 7, true)
@@ -231,9 +231,9 @@ func TestConsumerV2_OnPartitionsLost_DropsSelectedOffsets(t *testing.T) {
 	assert.True(t, topicBExists, "unlost partition should remain")
 }
 
-func TestConsumerV2_OnPartitionsRevoked_UsesCallbackContextForFinalCommit(t *testing.T) {
+func TestConsumer_OnPartitionsRevoked_UsesCallbackContextForFinalCommit(t *testing.T) {
 	stub := &stubFetchClient{}
-	v2 := newTestConsumerV2(t, stub)
+	v2 := newTestConsumer(t, stub)
 
 	addTestPartition(t, v2, "t", 0, 5, 4, true)
 
@@ -250,9 +250,9 @@ func TestConsumerV2_OnPartitionsRevoked_UsesCallbackContextForFinalCommit(t *tes
 	assert.ErrorIs(t, err, context.Canceled, "error should be context.Canceled")
 }
 
-func TestConsumerV2_OnPartitionsRevoked_StopsWaitingWhenContextCancelled(t *testing.T) {
+func TestConsumer_OnPartitionsRevoked_StopsWaitingWhenContextCancelled(t *testing.T) {
 	stub := &stubFetchClient{}
-	v2 := newTestConsumerV2(t, stub)
+	v2 := newTestConsumer(t, stub)
 
 	// Create a partition state that blocks on drain (not stopped, not closed).
 	key := consumer.Key{Topic: "t", Partition: 0}

@@ -35,16 +35,16 @@ func newTestClientV2(t *testing.T) *Client {
 	}
 }
 
-func TestConsumerV2_New_ValidConfig(t *testing.T) {
+func TestConsumer_New_ValidConfig(t *testing.T) {
 	client := newTestClientV2(t)
 	cfg := newConfig([]string{"localhost:9092"}, "test-group")
 
-	v2, err := newConsumerV2(cfg, client)
-	require.NoError(t, err, "newConsumerV2 should succeed")
-	require.NotNil(t, v2, "consumerV2 should not be nil")
+	v2, err := newConsumer(cfg, client)
+	require.NoError(t, err, "newConsumer should succeed")
+	require.NotNil(t, v2, "Consumer should not be nil")
 }
 
-func TestConsumerV2_New_WithStartupSubscriptions(t *testing.T) {
+func TestConsumer_New_WithStartupSubscriptions(t *testing.T) {
 	client := newTestClientV2(t)
 	cfg := newConfig([]string{"localhost:9092"}, "test-group")
 	cfg.subscriptions["topic-a"] = newDefaultSubscription(
@@ -58,18 +58,18 @@ func TestConsumerV2_New_WithStartupSubscriptions(t *testing.T) {
 		AckModeAtMostOnce,
 	)
 
-	v2, err := newConsumerV2(cfg, client)
-	require.NoError(t, err, "newConsumerV2 should succeed with startup subscriptions")
+	v2, err := newConsumer(cfg, client)
+	require.NoError(t, err, "newConsumer should succeed with startup subscriptions")
 
 	snap := v2.router.Snapshot()
 	assert.Equal(t, len(snap), 2, "should have 2 subscriptions")
 }
 
-func TestConsumerV2_AddSubscription(t *testing.T) {
+func TestConsumer_AddSubscription(t *testing.T) {
 	client := newTestClientV2(t)
 	cfg := newConfig([]string{"localhost:9092"}, "test-group")
-	v2, err := newConsumerV2(cfg, client)
-	require.NoError(t, err, "newConsumerV2 should succeed")
+	v2, err := newConsumer(cfg, client)
+	require.NoError(t, err, "newConsumer should succeed")
 
 	sub := Subscription{
 		Topic:         "my-topic",
@@ -90,11 +90,11 @@ func TestConsumerV2_AddSubscription(t *testing.T) {
 	assert.Equal(t, got.Topic, "my-topic", "topic should match")
 }
 
-func TestConsumerV2_AddSubscription_Duplicate(t *testing.T) {
+func TestConsumer_AddSubscription_Duplicate(t *testing.T) {
 	client := newTestClientV2(t)
 	cfg := newConfig([]string{"localhost:9092"}, "test-group")
-	v2, err := newConsumerV2(cfg, client)
-	require.NoError(t, err, "newConsumerV2 should succeed")
+	v2, err := newConsumer(cfg, client)
+	require.NoError(t, err, "newConsumer should succeed")
 
 	sub := Subscription{
 		Topic:         "my-topic",
@@ -111,11 +111,11 @@ func TestConsumerV2_AddSubscription_Duplicate(t *testing.T) {
 	assert.ErrorContains(t, err, "topic handler already registered", "duplicate should error")
 }
 
-func TestConsumerV2_AddSubscription_Invalid(t *testing.T) {
+func TestConsumer_AddSubscription_Invalid(t *testing.T) {
 	client := newTestClientV2(t)
 	cfg := newConfig([]string{"localhost:9092"}, "test-group")
-	v2, err := newConsumerV2(cfg, client)
-	require.NoError(t, err, "newConsumerV2 should succeed")
+	v2, err := newConsumer(cfg, client)
+	require.NoError(t, err, "newConsumer should succeed")
 
 	sub := Subscription{
 		Topic:         "",
@@ -128,11 +128,11 @@ func TestConsumerV2_AddSubscription_Invalid(t *testing.T) {
 	assert.ErrorContains(t, err, "topic must not be empty", "empty topic should error")
 }
 
-func TestConsumerV2_AddTopic(t *testing.T) {
+func TestConsumer_AddTopic(t *testing.T) {
 	client := newTestClientV2(t)
 	cfg := newConfig([]string{"localhost:9092"}, "test-group")
-	v2, err := newConsumerV2(cfg, client)
-	require.NoError(t, err, "newConsumerV2 should succeed")
+	v2, err := newConsumer(cfg, client)
+	require.NoError(t, err, "newConsumer should succeed")
 
 	handler := func(context.Context, *kgo.Record) error { return nil }
 	err = v2.AddTopic("topic-a", handler)
@@ -144,11 +144,11 @@ func TestConsumerV2_AddTopic(t *testing.T) {
 	assert.NotNil(t, got.Handler, "handler should be set")
 }
 
-func TestConsumerV2_AddBatchTopic(t *testing.T) {
+func TestConsumer_AddBatchTopic(t *testing.T) {
 	client := newTestClientV2(t)
 	cfg := newConfig([]string{"localhost:9092"}, "test-group")
-	v2, err := newConsumerV2(cfg, client)
-	require.NoError(t, err, "newConsumerV2 should succeed")
+	v2, err := newConsumer(cfg, client)
+	require.NoError(t, err, "newConsumer should succeed")
 
 	handler := func(context.Context, []*kgo.Record) BatchResult { return BatchResult{} }
 	err = v2.AddBatchTopic("topic-b", handler)
@@ -160,11 +160,11 @@ func TestConsumerV2_AddBatchTopic(t *testing.T) {
 	assert.NotNil(t, got.BatchHandler, "batch handler should be set")
 }
 
-func TestConsumerV2_Run_CancelsOnContext(t *testing.T) {
+func TestConsumer_Run_CancelsOnContext(t *testing.T) {
 	client := newTestClientV2(t)
 	cfg := newConfig([]string{"localhost:9092"}, "test-group")
-	v2, err := newConsumerV2(cfg, client)
-	require.NoError(t, err, "newConsumerV2 should succeed")
+	v2, err := newConsumer(cfg, client)
+	require.NoError(t, err, "newConsumer should succeed")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately.
@@ -173,11 +173,11 @@ func TestConsumerV2_Run_CancelsOnContext(t *testing.T) {
 	assert.ErrorIs(t, err, context.Canceled, "Run should return context.Canceled")
 }
 
-func TestConsumerV2_Run_RejectsConcurrentRun(t *testing.T) {
+func TestConsumer_Run_RejectsConcurrentRun(t *testing.T) {
 	client := newTestClientV2(t)
 	cfg := newConfig([]string{"localhost:9092"}, "test-group")
-	v2, err := newConsumerV2(cfg, client)
-	require.NoError(t, err, "newConsumerV2 should succeed")
+	v2, err := newConsumer(cfg, client)
+	require.NoError(t, err, "newConsumer should succeed")
 
 	// Start the first run's lifecycle so runState is active, without
 	// calling Run() itself (which would block on dispatch).
@@ -199,11 +199,11 @@ func TestConsumerV2_Run_RejectsConcurrentRun(t *testing.T) {
 	<-ch
 }
 
-func TestConsumerV2_NormalizesOnRegister(t *testing.T) {
+func TestConsumer_NormalizesOnRegister(t *testing.T) {
 	client := newTestClientV2(t)
 	cfg := newConfig([]string{"localhost:9092"}, "test-group")
-	v2, err := newConsumerV2(cfg, client)
-	require.NoError(t, err, "newConsumerV2 should succeed")
+	v2, err := newConsumer(cfg, client)
+	require.NoError(t, err, "newConsumer should succeed")
 
 	err = v2.AddSubscription(Subscription{
 		Topic:         "t",

@@ -1,25 +1,18 @@
+// services/go/library/kafka/consumer.go
 package kafka
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
-	"maps"
-	"sync"
 	"time"
 
-	"go-services/library/gsync"
+	"go-services/library/kafka/internal/consumer"
 	"go-services/library/kafka/ktype"
 
 	"github.com/twmb/franz-go/pkg/kgo"
-)
-
-const (
-	defaultPartitionQueueCapacity = 64
-	commitDebounceInterval        = 100 * time.Millisecond
-	commitFlushInterval           = 500 * time.Millisecond
-	finalCommitTimeout            = 30 * time.Second
-	partitionDrainTimeout         = 30 * time.Second
+	"github.com/twmb/franz-go/pkg/kmsg"
 )
 
 // Handler processes a single Kafka record.
@@ -31,213 +24,307 @@ type BatchHandler = ktype.BatchHandler
 // BatchResult reports the outcome of a BatchHandler invocation.
 type BatchResult = ktype.BatchResult
 
-// Consumer wraps the shared Kafka client with topic routing, per-partition state
-// management, and package-managed manual offset commits.
+// Consumer is the topic subscription and consumption API.
 type Consumer struct {
-	runCtx            context.Context                      // owned by RunState
-	runErr            error                                // owned by RunState
-	subscriptionState gsync.Value[map[string]Subscription] // owned by Router
-	pausedTopicsState gsync.Value[map[string]pausedTopic]  // owned by PauseRegistry
-	client            *Client
-	cfg               *config
-	log               *slog.Logger
-	runCancel         context.CancelFunc            // owned by RunState
-	processSem        chan struct{}                 // owned by Dispatcher
-	commitSignal      chan struct{}                 // owned by Committer
-	dispatchSignal    chan struct{}                 // owned by Dispatcher
-	commitMu          chan struct{}                 // owned by Committer
-	subscriptions     map[string]Subscription       // owned by Router
-	pausedTopics      map[string]pausedTopic        // owned by PauseRegistry
-	partitionStates   map[recordKey]*partitionState // owned by PartitionRegistry
-	dirtyStates       map[recordKey]*partitionState // owned by PartitionRegistry
-	runWG             sync.WaitGroup                // owned by RunState
-	runMu             sync.RWMutex                  // owned by RunState
-	workersMu         sync.RWMutex                  // owned by PartitionRegistry
-	subscriptionMu    sync.Mutex                    // owned by Router
-	pausedTopicsMu    sync.Mutex                    // owned by PauseRegistry
-	runErrOnce        sync.Once                     // owned by RunState
+	cfg          *config
+	client       *Client
+	log          *slog.Logger
+	router       *consumer.Router
+	pauses       *consumer.PauseRegistry
+	runState     *consumer.RunState
+	registry     *consumer.PartitionRegistry
+	committer    *consumer.Committer
+	dispatcher   *consumer.Dispatcher
+	workerRunner *consumer.WorkerRunner
+	fetchClient  consumer.FetchControlClient
+	workerClient consumer.WorkerClient
+	drainTimeout time.Duration
 }
 
-type recordKey struct {
-	topic     string
-	partition int32
+// v2RegisterClient adapts Consumer's Client to consumer.RegisterClient.
+type v2RegisterClient struct {
+	v2 *Consumer
 }
 
-type pausedTopic struct {
-	cause    error
-	pausedAt time.Time
+func (a v2RegisterClient) IsClosed() bool {
+	return a.v2.client != nil && a.v2.client.isClosed()
 }
 
-type partitionRecordBatch struct {
-	key          recordKey
-	records      []*kgo.Record
-	subscription Subscription
+func (a v2RegisterClient) AddConsumeTopics(topics ...string) {
+	if a.v2.client != nil && a.v2.client.kgoClient != nil {
+		a.v2.client.kgoClient.AddConsumeTopics(topics...)
+	}
 }
 
-type recordResult struct {
-	cause      error
-	resolved   bool
-	pauseTopic bool
+// v2FetchControlClient adapts Consumer's Client to consumer.FetchControlClient.
+type v2FetchControlClient struct {
+	v2 *Consumer
 }
 
-// newConsumer creates a new Kafka consumer.
-//
-// Subscriptions already present in cfg.subscriptions came from
-// WithSubscription / WithTopic / WithBatchTopic during startup configuration.
-// Those topics are already included in the client's initial kgo.ConsumeTopics
-// subscription, so they are copied into the in-memory router with subscribe=false
-// to avoid re-adding the same Kafka subscription a second time.
+func (a v2FetchControlClient) PauseFetchPartitions(partitions map[string][]int32) {
+	if a.v2.client != nil && a.v2.client.kgoClient != nil {
+		a.v2.client.kgoClient.PauseFetchPartitions(partitions)
+	}
+}
+
+func (a v2FetchControlClient) ResumeFetchPartitions(partitions map[string][]int32) {
+	if a.v2.client != nil && a.v2.client.kgoClient != nil {
+		a.v2.client.kgoClient.ResumeFetchPartitions(partitions)
+	}
+}
+
+// v2WorkerClient adapts Consumer's Client to consumer.WorkerClient.
+type v2WorkerClient struct {
+	v2 *Consumer
+}
+
+func (a v2WorkerClient) CommitOffsetsSync(ctx context.Context, offsets map[string]map[int32]kgo.EpochOffset) error {
+	if a.v2.client == nil || a.v2.client.kgoClient == nil {
+		return fmt.Errorf("kafka client is not initialized")
+	}
+	var commitErr error
+	a.v2.client.kgoClient.CommitOffsetsSync(ctx, offsets, func(
+		_ *kgo.Client,
+		_ *kmsg.OffsetCommitRequest,
+		_ *kmsg.OffsetCommitResponse,
+		err error,
+	) {
+		commitErr = err
+	})
+	return commitErr
+}
+
+func (a v2WorkerClient) PauseFetchTopics(topics ...string) {
+	if a.v2.client != nil && a.v2.client.kgoClient != nil {
+		a.v2.client.kgoClient.PauseFetchTopics(topics...)
+	}
+}
+
+func (a v2WorkerClient) ResumeFetchPartitions(partitions map[string][]int32) {
+	if a.v2.client != nil && a.v2.client.kgoClient != nil {
+		a.v2.client.kgoClient.ResumeFetchPartitions(partitions)
+	}
+}
+
+// newConsumer creates a Consumer from the shared config and client.
 func newConsumer(cfg *config, client *Client) (*Consumer, error) {
-	consumer := &Consumer{
-		client:            client,
-		cfg:               cfg,
-		log:               cfg.logger,
-		runCtx:            nil,
-		runCancel:         nil,
-		runErr:            nil,
-		processSem:        nil,
-		commitSignal:      nil,
-		dispatchSignal:    nil,
-		subscriptionState: gsync.Value[map[string]Subscription]{},
-		pausedTopicsState: gsync.Value[map[string]pausedTopic]{},
-		subscriptions:     make(map[string]Subscription, len(cfg.subscriptions)),
-		pausedTopics:      make(map[string]pausedTopic),
-		partitionStates:   make(map[recordKey]*partitionState),
-		dirtyStates:       make(map[recordKey]*partitionState),
-		commitMu:          newCommitCoordinator(),
-		runMu:             sync.RWMutex{},
-		workersMu:         sync.RWMutex{},
-		subscriptionMu:    sync.Mutex{},
-		pausedTopicsMu:    sync.Mutex{},
-		runErrOnce:        sync.Once{},
-		runWG:             sync.WaitGroup{},
+	v2 := &Consumer{
+		cfg:          cfg,
+		client:       client,
+		log:          cfg.logger,
+		router:       nil,
+		pauses:       nil,
+		runState:     nil,
+		registry:     nil,
+		committer:    nil,
+		dispatcher:   nil,
+		workerRunner: nil,
+		fetchClient:  nil,
+		workerClient: nil,
+		drainTimeout: 30 * time.Second,
 	}
-	consumer.subscriptionState.Store(map[string]Subscription{})
-	consumer.pausedTopicsState.Store(map[string]pausedTopic{})
+	v2.fetchClient = v2FetchControlClient{v2: v2}
+	v2.workerClient = v2WorkerClient{v2: v2}
 
-	for _, subscription := range cfg.subscriptions {
-		if err := consumer.registerSubscription(subscription, false); err != nil {
-			return nil, err
+	regClient := v2RegisterClient{v2: v2}
+	v2.router = consumer.NewRouter(regClient)
+	v2.pauses = consumer.NewPauseRegistry(time.Now)
+	v2.runState = consumer.NewRunState()
+
+	v2.registry = consumer.NewPartitionRegistry(v2.log)
+	v2.committer = consumer.NewCommitter(
+		v2.log,
+		v2.registry,
+		v2.pauses,
+		v2.workerClient,
+		consumer.CommitConfig{},
+	)
+
+	executor := consumer.NewRecordExecutor(v2.log)
+
+	dlqWriter := func(ctx context.Context, record *kgo.Record) error {
+		if v2.client == nil || v2.client.kgoClient == nil {
+			return fmt.Errorf("kafka client is not initialized")
 		}
-	}
-
-	return consumer, nil
-}
-
-func newCommitCoordinator() chan struct{} {
-	ch := make(chan struct{}, 1)
-	ch <- struct{}{}
-	return ch
-}
-
-func (c *Consumer) partitionBatches(records []*kgo.Record) ([]partitionRecordBatch, error) {
-	subscriptions := c.subscriptionSnapshot()
-	pausedTopics := c.pausedTopicSnapshot()
-	indexByKey := make(map[recordKey]int)
-	batches := make([]partitionRecordBatch, 0)
-
-	for _, record := range records {
-		if _, paused := pausedTopics[record.Topic]; paused {
-			continue
+		if v2.client.Producer != nil {
+			return v2.client.Producer.ProduceSync(ctx, record)
 		}
-
-		subscription, ok := subscriptions[record.Topic]
-		if !ok {
-			return nil, fmt.Errorf("failed to map topic to subscription: %s", record.Topic)
-		}
-
-		key := recordKey{
-			topic:     record.Topic,
-			partition: record.Partition,
-		}
-		index, ok := indexByKey[key]
-		if !ok {
-			index = len(batches)
-			indexByKey[key] = index
-			batches = append(batches, partitionRecordBatch{
-				key:          key,
-				subscription: subscription,
-				records:      make([]*kgo.Record, 0, 1),
-			})
-		}
-		batches[index].records = append(batches[index].records, record)
+		return fmt.Errorf("dlq publishing requires a producer-enabled client")
 	}
 
-	return batches, nil
+	v2.workerRunner = consumer.NewWorkerRunner(
+		v2.log,
+		v2.runState,
+		v2.committer,
+		executor,
+		v2.registry,
+		v2.pauses,
+		v2.cfg.workers,
+		func() {},
+		dlqWriter,
+	)
+
+	v2.dispatcher = consumer.NewDispatcher(v2.router, v2.pauses, v2.registry, v2.workerRunner)
+	v2.workerRunner.SetNotifyCapacity(v2.dispatcher.NotifyCapacity)
+
+	subs := make([]Subscription, 0, len(cfg.subscriptions))
+	for _, sub := range cfg.subscriptions {
+		subs = append(subs, sub)
+	}
+	if len(subs) > 0 {
+		if err := v2.router.RegisterQuietBatch(subs); err != nil {
+			return nil, fmt.Errorf("v2 init: %w", err)
+		}
+	}
+
+	return v2, nil
 }
 
-// AddSubscription registers a new topic subscription and updates the underlying
-// client to start consuming the topic immediately.
-//
-// It returns an error if the subscription is invalid, the topic is already
-// registered, or the client has been closed.
-func (c *Consumer) AddSubscription(subscription Subscription) error {
-	return c.registerSubscription(subscription, true)
-}
-
-// AddTopic registers a new single-record topic handler using the consumer's
-// default acknowledgment mode.
-//
-// It is a shorthand for AddSubscription with a default Subscription.
-func (c *Consumer) AddTopic(topic string, handler Handler) error {
-	return c.AddSubscription(newDefaultSubscription(topic, handler, c.cfg.defaultAckMode))
-}
-
-// AddBatchTopic registers a new batch topic handler using the consumer's
-// default acknowledgment mode.
-//
-// It is a shorthand for AddSubscription with a default Subscription.
-func (c *Consumer) AddBatchTopic(topic string, handler BatchHandler) error {
-	return c.AddSubscription(newDefaultBatchSubscription(topic, handler, c.cfg.defaultAckMode))
-}
-
-// registerSubscription stores a topic subscription in the consumer router.
-//
-// When subscribe is true, the topic is also added to the underlying franz-go client at
-// runtime. When subscribe is false, only the subscription router is updated because the
-// client is already subscribed from initial construction.
-func (c *Consumer) registerSubscription(subscription Subscription, subscribe bool) error {
+// AddSubscription registers a new topic subscription.
+func (v2 *Consumer) AddSubscription(subscription Subscription) error {
 	normalized, err := subscription.Normalize()
 	if err != nil {
 		return err
 	}
-
-	c.subscriptionMu.Lock()
-	defer c.subscriptionMu.Unlock()
-
-	if c.client != nil && c.client.isClosed() {
-		return fmt.Errorf("consumer is closed")
-	}
-	if _, ok := c.subscriptions[normalized.Topic]; ok {
-		return fmt.Errorf("topic handler already registered for %q", normalized.Topic)
-	}
-
-	c.subscriptions[normalized.Topic] = normalized
-	c.subscriptionState.Store(maps.Clone(c.subscriptions))
-	if subscribe && c.client != nil && c.client.kgoClient != nil {
-		c.client.kgoClient.AddConsumeTopics(normalized.Topic)
-	}
-
-	return nil
+	return v2.router.Register(normalized)
 }
 
-func (c *Consumer) subscriptionForTopic(topic string) (Subscription, bool) {
-	subscription, ok := c.subscriptionSnapshot()[topic]
-	return subscription, ok
+// AddTopic registers a single-record handler using the default ack mode.
+func (v2 *Consumer) AddTopic(topic string, handler Handler) error {
+	return v2.AddSubscription(newDefaultSubscription(topic, handler, v2.cfg.defaultAckMode))
 }
 
-func (c *Consumer) subscriptionSnapshot() map[string]Subscription {
-	snapshot := c.subscriptionState.Load()
-	if snapshot == nil {
-		return map[string]Subscription{}
-	}
-	return snapshot
+// AddBatchTopic registers a batch handler using the default ack mode.
+func (v2 *Consumer) AddBatchTopic(topic string, handler BatchHandler) error {
+	return v2.AddSubscription(newDefaultBatchSubscription(topic, handler, v2.cfg.defaultAckMode))
 }
 
-func (c *Consumer) pausedTopicSnapshot() map[string]pausedTopic {
-	snapshot := c.pausedTopicsState.Load()
-	if snapshot == nil {
-		return map[string]pausedTopic{}
+// Run starts the consumer loop.
+func (v2 *Consumer) Run(ctx context.Context) error {
+	runCtx, err := v2.runState.Begin()
+	if err != nil {
+		return err
 	}
-	return snapshot
+
+	pollCtx, stopPolling := mergeRunContexts(ctx, runCtx)
+	defer stopPolling()
+
+	if v2.client == nil || v2.client.kgoClient == nil {
+		return fmt.Errorf("consumer client is not initialized")
+	}
+
+	// Start commit loop.
+	v2.runState.Go(func() {
+		if commitErr := v2.committer.Run(runCtx); commitErr != nil {
+			v2.runState.Fail(commitErr)
+		}
+	})
+
+	// Dispatch loop.
+	err = v2.runDispatch(pollCtx)
+
+	// Graceful shutdown (only if no fatal error).
+	if runErr := v2.runState.Err(); runErr == nil {
+		states := v2.registry.BeginClosingAll()
+		drainCtx, drainCancel := context.WithTimeout(context.Background(), v2.drainTimeout)
+		defer drainCancel()
+		if shutdownErr := v2.committer.Finalize(drainCtx, nil, states, "failed to commit processed offsets on shutdown"); shutdownErr != nil {
+			if err == nil {
+				err = shutdownErr
+			}
+		}
+	}
+
+	v2.runState.Stop()
+	v2.runState.Wait()
+
+	fatalErr := v2.runState.Err()
+	v2.runState.Reset()
+
+	// Error priority.
+	switch {
+	case fatalErr != nil:
+		return fatalErr
+	case err == nil || errors.Is(err, context.Canceled):
+		return ctx.Err()
+	default:
+		return err
+	}
+}
+
+func (v2 *Consumer) runDispatch(ctx context.Context) error {
+	cl := v2.client.kgoClient
+	for {
+		fetches := cl.PollRecords(ctx, -1)
+		if fetches.IsClientClosed() {
+			return nil
+		}
+		if err := fetches.Err(); err != nil {
+			cl.AllowRebalance()
+			if ctx.Err() != nil {
+				return nil
+			}
+			v2.log.WarnContext(ctx, "kafka poll error", "err", err)
+			continue
+		}
+		records := fetches.Records()
+		if len(records) > 0 {
+			if err := v2.dispatcher.Dispatch(
+				ctx,
+				records,
+				v2.fetchClient,
+				v2.workerClient,
+			); err != nil {
+				return err
+			}
+		}
+		cl.AllowRebalance()
+	}
+}
+
+// onPartitionsRevoked handles partition revocation.
+func (v2 *Consumer) onPartitionsRevoked(
+	ctx context.Context,
+	_ *kgo.Client,
+	partitions map[string][]int32,
+) {
+	if len(partitions) == 0 {
+		return
+	}
+
+	if v2.fetchClient != nil {
+		v2.fetchClient.PauseFetchPartitions(partitions)
+	}
+
+	states := v2.registry.BeginClosing(partitions)
+	if err := v2.committer.Finalize(ctx, ctx, states,
+		"failed to commit processed offsets on revoke"); err != nil {
+		v2.log.ErrorContext(ctx, "failed to commit processed offsets on revoke", "err", err)
+		v2.runState.Fail(err)
+	}
+}
+
+// onPartitionsLost handles lost partitions by dropping in-memory commit progress.
+func (v2 *Consumer) onPartitionsLost(
+	ctx context.Context,
+	partitions map[string][]int32,
+) {
+	v2.log.WarnContext(ctx, "partitions lost; dropping in-memory commit progress", "partitions", partitions)
+	v2.registry.DropLost(partitions)
+}
+
+// mergeRunContexts combines the parent context with the run context so that
+// cancellation of either stops the poll loop.
+func mergeRunContexts(parent, run context.Context) (context.Context, context.CancelFunc) {
+	mergedCtx, mergedCancel := context.WithCancel(context.Background())
+	go func() {
+		select {
+		case <-parent.Done():
+			mergedCancel()
+		case <-run.Done():
+			mergedCancel()
+		case <-mergedCtx.Done():
+		}
+	}()
+	return mergedCtx, mergedCancel
 }
