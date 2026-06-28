@@ -7,12 +7,15 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
-	"testing"
 
 	gocmp "github.com/google/go-cmp/cmp"
 
 	"go-services/library/pretty"
 )
+
+type TB interface {
+	Helper()
+}
 
 const labelWidth = 9 // Adjusted to 9 to comfortably fit "mismatch:" or "index:"
 var stringerTransformer = gocmp.Transformer("Stringer", func(s fmt.Stringer) string {
@@ -20,7 +23,7 @@ var stringerTransformer = gocmp.Transformer("Stringer", func(s fmt.Stringer) str
 })
 
 // Error asserts that got is not nil.
-func Error(t *testing.T, got error, msg string, msgArgs ...any) (string, bool) {
+func Error(t TB, got error, msg string, msgArgs ...any) (string, bool) {
 	t.Helper()
 	if got != nil {
 		return "", true
@@ -33,7 +36,7 @@ func Error(t *testing.T, got error, msg string, msgArgs ...any) (string, bool) {
 }
 
 // NoError asserts that got is nil.
-func NoError(t *testing.T, got error, msg string, msgArgs ...any) (string, bool) {
+func NoError(t TB, got error, msg string, msgArgs ...any) (string, bool) {
 	t.Helper()
 	if got == nil {
 		return "", true
@@ -46,7 +49,7 @@ func NoError(t *testing.T, got error, msg string, msgArgs ...any) (string, bool)
 }
 
 // ErrorContains asserts that got is not nil and its message contains the substring want.
-func ErrorContains(t *testing.T, got error, want, msg string, msgArgs ...any) (string, bool) {
+func ErrorContains(t TB, got error, want, msg string, msgArgs ...any) (string, bool) {
 	t.Helper()
 	if failMsg, ok := Error(t, got, msg, msgArgs...); !ok {
 		return failMsg, false
@@ -64,7 +67,7 @@ func ErrorContains(t *testing.T, got error, want, msg string, msgArgs ...any) (s
 }
 
 // ErrorIs asserts that got wraps want (using errors.Is).
-func ErrorIs(t *testing.T, got, want error, msg string, msgArgs ...any) (string, bool) {
+func ErrorIs(t TB, got, want error, msg string, msgArgs ...any) (string, bool) {
 	t.Helper()
 
 	if errors.Is(got, want) {
@@ -78,7 +81,7 @@ func ErrorIs(t *testing.T, got, want error, msg string, msgArgs ...any) (string,
 }
 
 // ErrorAs asserts that got can be assigned to want (using errors.As).
-func ErrorAs(t *testing.T, got error, want any, msg string, msgArgs ...any) (string, bool) {
+func ErrorAs(t TB, got error, want any, msg string, msgArgs ...any) (string, bool) {
 	t.Helper()
 
 	if errors.As(got, want) {
@@ -93,7 +96,7 @@ func ErrorAs(t *testing.T, got error, want any, msg string, msgArgs ...any) (str
 }
 
 // Panics asserts that the function f panics.
-func Panics(t *testing.T, f func(), msg string, msgArgs ...any) (m string, ok bool) {
+func Panics(t TB, f func(), msg string, msgArgs ...any) (m string, ok bool) {
 	t.Helper()
 
 	ok = true
@@ -117,7 +120,7 @@ func Panics(t *testing.T, f func(), msg string, msgArgs ...any) (m string, ok bo
 }
 
 // Zero asserts that got is the zero value for its type.
-func Zero[T comparable](t *testing.T, got T, msg string, msgArgs ...any) (string, bool) {
+func Zero[T comparable](t TB, got T, msg string, msgArgs ...any) (string, bool) {
 	t.Helper()
 	var zero T
 	if got == zero {
@@ -131,7 +134,7 @@ func Zero[T comparable](t *testing.T, got T, msg string, msgArgs ...any) (string
 }
 
 // NotZero asserts that got is not the zero value for its type.
-func NotZero[T comparable](t *testing.T, got T, msg string, msgArgs ...any) (string, bool) {
+func NotZero[T comparable](t TB, got T, msg string, msgArgs ...any) (string, bool) {
 	t.Helper()
 	var zero T
 	if got != zero {
@@ -147,7 +150,7 @@ func NotZero[T comparable](t *testing.T, got T, msg string, msgArgs ...any) (str
 // EqualOpt asserts that got and want are equal.
 // It accepts a slice of cmp.Options to customize the comparison logic
 // (e.g., cmpopts.IgnoreFields).
-func EqualOpt[T any](t *testing.T, got, want T, cmpOpts []gocmp.Option, msg string, msgArgs ...any) (string, bool) {
+func EqualOpt[T any](t TB, got, want T, cmpOpts []gocmp.Option, msg string, msgArgs ...any) (string, bool) {
 	t.Helper()
 
 	if gocmp.Equal(got, want, cmpOpts...) {
@@ -158,14 +161,14 @@ func EqualOpt[T any](t *testing.T, got, want T, cmpOpts []gocmp.Option, msg stri
 }
 
 // Equal asserts that got and want are equal.
-func Equal[T any](t *testing.T, got, want T, msg string, msgArgs ...any) (string, bool) {
+func Equal[T any](t TB, got, want T, msg string, msgArgs ...any) (string, bool) {
 	t.Helper()
 
 	return EqualOpt(t, got, want, nil, msg, msgArgs...)
 }
 
 // Greater asserts that got is greater than want.
-func Greater[T cmp.Ordered](t *testing.T, got, want T, msg string, msgArgs ...any) (string, bool) {
+func Greater[T cmp.Ordered](t TB, got, want T, msg string, msgArgs ...any) (string, bool) {
 	t.Helper()
 	if got > want {
 		return "", true
@@ -178,7 +181,7 @@ func Greater[T cmp.Ordered](t *testing.T, got, want T, msg string, msgArgs ...an
 }
 
 // GreaterOrEqual asserts that got is greater than or equal to want.
-func GreaterOrEqual[T cmp.Ordered](t *testing.T, got, want T, msg string, msgArgs ...any) (string, bool) {
+func GreaterOrEqual[T cmp.Ordered](t TB, got, want T, msg string, msgArgs ...any) (string, bool) {
 	t.Helper()
 	if got >= want {
 		return "", true
@@ -191,7 +194,7 @@ func GreaterOrEqual[T cmp.Ordered](t *testing.T, got, want T, msg string, msgArg
 }
 
 // Less asserts that got is less than want.
-func Less[T cmp.Ordered](t *testing.T, got, want T, msg string, msgArgs ...any) (string, bool) {
+func Less[T cmp.Ordered](t TB, got, want T, msg string, msgArgs ...any) (string, bool) {
 	t.Helper()
 	if got < want {
 		return "", true
@@ -204,7 +207,7 @@ func Less[T cmp.Ordered](t *testing.T, got, want T, msg string, msgArgs ...any) 
 }
 
 // LessOrEqual asserts that got is less than or equal to want.
-func LessOrEqual[T cmp.Ordered](t *testing.T, got, want T, msg string, msgArgs ...any) (string, bool) {
+func LessOrEqual[T cmp.Ordered](t TB, got, want T, msg string, msgArgs ...any) (string, bool) {
 	t.Helper()
 	if got <= want {
 		return "", true
@@ -217,7 +220,7 @@ func LessOrEqual[T cmp.Ordered](t *testing.T, got, want T, msg string, msgArgs .
 }
 
 // True asserts that got is false.
-func True(t *testing.T, got bool, msg string, msgArgs ...any) (string, bool) {
+func True(t TB, got bool, msg string, msgArgs ...any) (string, bool) {
 	t.Helper()
 	if got {
 		return "", true
@@ -230,7 +233,7 @@ func True(t *testing.T, got bool, msg string, msgArgs ...any) (string, bool) {
 }
 
 // False asserts that got is true.
-func False(t *testing.T, got bool, msg string, msgArgs ...any) (string, bool) {
+func False(t TB, got bool, msg string, msgArgs ...any) (string, bool) {
 	t.Helper()
 	if !got {
 		return "", true
@@ -243,7 +246,7 @@ func False(t *testing.T, got bool, msg string, msgArgs ...any) (string, bool) {
 }
 
 // Nil asserts that got is nil.
-func Nil(t *testing.T, got any, msg string, msgArgs ...any) (string, bool) {
+func Nil(t TB, got any, msg string, msgArgs ...any) (string, bool) {
 	t.Helper()
 	if isNil(got) {
 		return "", true
@@ -256,7 +259,7 @@ func Nil(t *testing.T, got any, msg string, msgArgs ...any) (string, bool) {
 }
 
 // NotNil asserts that got is not nil.
-func NotNil(t *testing.T, got any, msg string, msgArgs ...any) (string, bool) {
+func NotNil(t TB, got any, msg string, msgArgs ...any) (string, bool) {
 	t.Helper()
 	if !isNil(got) {
 		return "", true
@@ -272,7 +275,7 @@ func NotNil(t *testing.T, got any, msg string, msgArgs ...any) (string, bool) {
 // It accepts a slice of cmp.Options to customize the comparison logic
 // (e.g., cmpopts.IgnoreFields).
 func SliceContainsOpt[T any](
-	t *testing.T,
+	t TB,
 	got []T,
 	want T,
 	cmpOpts []gocmp.Option,
@@ -293,7 +296,7 @@ func SliceContainsOpt[T any](
 }
 
 // SliceContains asserts that the slice got contains the value want.
-func SliceContains[T any](t *testing.T, got []T, want T, msg string, msgArgs ...any) (string, bool) {
+func SliceContains[T any](t TB, got []T, want T, msg string, msgArgs ...any) (string, bool) {
 	t.Helper()
 
 	return SliceContainsOpt(t, got, want, nil, msg, msgArgs...)
@@ -303,7 +306,7 @@ func SliceContains[T any](t *testing.T, got []T, want T, msg string, msgArgs ...
 // It accepts a slice of cmp.Options to customize the comparison logic
 // (e.g., cmpopts.IgnoreFields).
 func SliceNotContainsOpt[T any](
-	t *testing.T,
+	t TB,
 	got []T,
 	want T,
 	cmpOpts []gocmp.Option,
@@ -324,14 +327,14 @@ func SliceNotContainsOpt[T any](
 }
 
 // SliceNotContains asserts that the slice got does not contain the value want.
-func SliceNotContains[T any](t *testing.T, got []T, want T, msg string, msgArgs ...any) (string, bool) {
+func SliceNotContains[T any](t TB, got []T, want T, msg string, msgArgs ...any) (string, bool) {
 	t.Helper()
 
 	return SliceNotContainsOpt(t, got, want, nil, msg, msgArgs...)
 }
 
 // SliceLen asserts that the length of the slice got is equal to want.
-func SliceLen[T any](t *testing.T, got []T, want int, msg string, msgArgs ...any) (string, bool) {
+func SliceLen[T any](t TB, got []T, want int, msg string, msgArgs ...any) (string, bool) {
 	t.Helper()
 	sliceLength := len(got)
 	if sliceLength == want {
@@ -345,7 +348,7 @@ func SliceLen[T any](t *testing.T, got []T, want int, msg string, msgArgs ...any
 }
 
 // SliceIndex asserts that the slice got contains the specified index want.
-func SliceIndex[T any](t *testing.T, got []T, want int, msg string, msgArgs ...any) (string, bool) {
+func SliceIndex[T any](t TB, got []T, want int, msg string, msgArgs ...any) (string, bool) {
 	t.Helper()
 	if want >= 0 && want < len(got) {
 		return "", true
@@ -361,7 +364,7 @@ func SliceIndex[T any](t *testing.T, got []T, want int, msg string, msgArgs ...a
 // It accepts a slice of cmp.Options to customize the comparison logic
 // (e.g., cmpopts.IgnoreFields).
 func SliceAtOpt[T any](
-	t *testing.T,
+	t TB,
 	got []T,
 	index int,
 	want T,
@@ -387,14 +390,14 @@ func SliceAtOpt[T any](
 }
 
 // SliceAt asserts that the element at the specified index in the slice got is equal to want.
-func SliceAt[T any](t *testing.T, got []T, index int, want T, msg string, msgArgs ...any) (string, bool) {
+func SliceAt[T any](t TB, got []T, index int, want T, msg string, msgArgs ...any) (string, bool) {
 	t.Helper()
 
 	return SliceAtOpt(t, got, index, want, nil, msg, msgArgs...)
 }
 
 // SliceEmpty asserts that the slice got is empty (length is 0).
-func SliceEmpty[T any](t *testing.T, got []T, msg string, msgArgs ...any) (string, bool) {
+func SliceEmpty[T any](t TB, got []T, msg string, msgArgs ...any) (string, bool) {
 	t.Helper()
 	if len(got) == 0 {
 		return "", true
@@ -407,7 +410,7 @@ func SliceEmpty[T any](t *testing.T, got []T, msg string, msgArgs ...any) (strin
 }
 
 // SliceNotEmpty asserts that the slice got is not empty (length is greater than 0).
-func SliceNotEmpty[T any](t *testing.T, got []T, msg string, msgArgs ...any) (string, bool) {
+func SliceNotEmpty[T any](t TB, got []T, msg string, msgArgs ...any) (string, bool) {
 	t.Helper()
 	if len(got) != 0 {
 		return "", true
@@ -420,7 +423,7 @@ func SliceNotEmpty[T any](t *testing.T, got []T, msg string, msgArgs ...any) (st
 }
 
 // StringContains asserts that the string got contains the substring want.
-func StringContains(t *testing.T, got, want, msg string, msgArgs ...any) (string, bool) {
+func StringContains(t TB, got, want, msg string, msgArgs ...any) (string, bool) {
 	t.Helper()
 	if strings.Contains(got, want) {
 		return "", true
@@ -433,7 +436,7 @@ func StringContains(t *testing.T, got, want, msg string, msgArgs ...any) (string
 }
 
 // StringNotContains asserts that the string got does not contain the substring want.
-func StringNotContains(t *testing.T, got, want, msg string, msgArgs ...any) (string, bool) {
+func StringNotContains(t TB, got, want, msg string, msgArgs ...any) (string, bool) {
 	t.Helper()
 	if !strings.Contains(got, want) {
 		return "", true
@@ -447,7 +450,7 @@ func StringNotContains(t *testing.T, got, want, msg string, msgArgs ...any) (str
 
 // MapContainsKey asserts that the map got contains the specified key want.
 func MapContainsKey[K comparable, V any](
-	t *testing.T,
+	t TB,
 	got map[K]V,
 	want K,
 	msg string,
@@ -466,7 +469,7 @@ func MapContainsKey[K comparable, V any](
 
 // MapNotContainsKey asserts that the map got does not contain the specified key want.
 func MapNotContainsKey[K comparable, V any](
-	t *testing.T,
+	t TB,
 	got map[K]V,
 	want K,
 	msg string,
@@ -484,7 +487,7 @@ func MapNotContainsKey[K comparable, V any](
 }
 
 // MapLen asserts that the length of the map got is equal to want.
-func MapLen[K comparable, V any](t *testing.T, got map[K]V, want int, msg string, msgArgs ...any) (string, bool) {
+func MapLen[K comparable, V any](t TB, got map[K]V, want int, msg string, msgArgs ...any) (string, bool) {
 	t.Helper()
 	mapLength := len(got)
 	if mapLength == want {
@@ -501,7 +504,7 @@ func MapLen[K comparable, V any](t *testing.T, got map[K]V, want int, msg string
 // It accepts a slice of cmp.Options to customize the comparison logic
 // (e.g., cmpopts.IgnoreFields).
 func MapAtOpt[K comparable, V any](
-	t *testing.T,
+	t TB,
 	got map[K]V,
 	key K,
 	want V,
@@ -526,14 +529,14 @@ func MapAtOpt[K comparable, V any](
 }
 
 // MapAt asserts that the value at the specified key in the map got is equal to want.
-func MapAt[K comparable, V any](t *testing.T, got map[K]V, key K, want V, msg string, msgArgs ...any) (string, bool) {
+func MapAt[K comparable, V any](t TB, got map[K]V, key K, want V, msg string, msgArgs ...any) (string, bool) {
 	t.Helper()
 
 	return MapAtOpt(t, got, key, want, nil, msg, msgArgs...)
 }
 
 // MapEmpty asserts that the map got is empty (length is 0).
-func MapEmpty[K comparable, V any](t *testing.T, got map[K]V, msg string, msgArgs ...any) (string, bool) {
+func MapEmpty[K comparable, V any](t TB, got map[K]V, msg string, msgArgs ...any) (string, bool) {
 	t.Helper()
 	if len(got) == 0 {
 		return "", true
@@ -546,7 +549,7 @@ func MapEmpty[K comparable, V any](t *testing.T, got map[K]V, msg string, msgArg
 }
 
 // MapNotEmpty asserts that the map got is not empty (length is greater than 0).
-func MapNotEmpty[K comparable, V any](t *testing.T, got map[K]V, msg string, msgArgs ...any) (string, bool) {
+func MapNotEmpty[K comparable, V any](t TB, got map[K]V, msg string, msgArgs ...any) (string, bool) {
 	t.Helper()
 	if len(got) != 0 {
 		return "", true
@@ -568,7 +571,7 @@ func fail(header, msg string, args []any, rows ...string) (string, bool) {
 // reportMismatch performs a comparison between got and want. It uses deep comparison
 // for maps, slices, structs, and pointers, and direct comparison (==) for other types.
 // If they do not match, it returns a formatted failure string.
-func reportMismatch(t *testing.T, got, want any, header string, cmpOpts ...gocmp.Option) string {
+func reportMismatch(t TB, got, want any, header string, cmpOpts ...gocmp.Option) string {
 	t.Helper()
 
 	var detail string
