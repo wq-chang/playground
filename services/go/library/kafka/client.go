@@ -17,7 +17,7 @@ import (
 // capability wrappers that operate on it.
 type Client struct {
 	// Consumer exposes the package's topic subscription and consumption APIs.
-	Consumer *Consumer
+	Consumer *consumerV2
 	// Producer exposes the package's record publishing APIs.
 	Producer  *Producer
 	kgoClient *kgo.Client
@@ -110,7 +110,7 @@ func New(brokers []string, groupId string, opts ...Option) (*Client, error) {
 
 	kgoOpts = append(kgoOpts, cfg.kgoOpts...)
 
-	var consumer *Consumer
+	var consumer *consumerV2
 	kgoOpts = append(kgoOpts,
 		kgo.DisableAutoCommit(),
 		kgo.BlockRebalanceOnPoll(),
@@ -142,7 +142,7 @@ func New(brokers []string, groupId string, opts ...Option) (*Client, error) {
 		mu:        sync.RWMutex{},
 	}
 
-	consumer, err = newConsumer(cfg, client)
+	consumer, err = newConsumerV2(cfg, client)
 	if err != nil {
 		client.Close()
 		return nil, fmt.Errorf("failed to initialize consumer: %w", err)

@@ -269,3 +269,33 @@ func TestRecordExecutor_UnsupportedExhaustedAction(t *testing.T) {
 	assert.False(t, result.Resolved, "should not resolve with unknown exhausted action")
 	assert.NotNil(t, result.Cause, "should return unsupported exhausted action error")
 }
+
+func TestRecordExecutor_Batch_RejectsInvalidFailedIndex(t *testing.T) {
+	exec := consumer.NewRecordExecutor(nil)
+	sub := testSubBatch(
+		func(_ context.Context, _ []*kgo.Record) ktype.BatchResult {
+			return ktype.BatchResult{Err: errors.New("fail"), FailedAt: -1}
+		},
+		ktype.AckModeAtLeastOnce,
+		fp1(ktype.ExhaustedActionStop),
+	)
+	records := []*kgo.Record{{Topic: "t", Offset: 0}, {Topic: "t", Offset: 1}}
+	resolved, cause, _ := exec.ExecuteBatch(context.Background(), sub, records, nil)
+	assert.Equal(t, 0, resolved, "should resolve 0 with invalid FailedAt")
+	assert.NotNil(t, cause, "should return error for negative FailedAt")
+}
+
+func TestRecordExecutor_Batch_RejectsFailedIndexOutOfBounds(t *testing.T) {
+	exec := consumer.NewRecordExecutor(nil)
+	sub := testSubBatch(
+		func(_ context.Context, _ []*kgo.Record) ktype.BatchResult {
+			return ktype.BatchResult{Err: errors.New("fail"), FailedAt: 99}
+		},
+		ktype.AckModeAtLeastOnce,
+		fp1(ktype.ExhaustedActionStop),
+	)
+	records := []*kgo.Record{{Topic: "t", Offset: 0}, {Topic: "t", Offset: 1}}
+	resolved, cause, _ := exec.ExecuteBatch(context.Background(), sub, records, nil)
+	assert.Equal(t, 0, resolved, "should resolve 0 with out-of-bounds FailedAt")
+	assert.NotNil(t, cause, "should return error for out-of-bounds FailedAt")
+}

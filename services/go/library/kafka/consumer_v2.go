@@ -281,21 +281,33 @@ func (v2 *consumerV2) runDispatch(ctx context.Context) error {
 	}
 }
 
-// onPartitionsRevoked handles partition revocation. STUB — no-op.
-//
-//nolint:unused
+// onPartitionsRevoked handles partition revocation.
 func (v2 *consumerV2) onPartitionsRevoked(
 	ctx context.Context,
-	cl *kgo.Client,
+	_ *kgo.Client,
 	partitions map[string][]int32,
 ) {
+	if len(partitions) == 0 {
+		return
+	}
+
+	if v2.fetchClient != nil {
+		v2.fetchClient.PauseFetchPartitions(partitions)
+	}
+
+	states := v2.registry.BeginClosing(partitions)
+	if err := v2.committer.Finalize(ctx, ctx, states,
+		"failed to commit processed offsets on revoke"); err != nil {
+		v2.log.ErrorContext(ctx, "failed to commit processed offsets on revoke", "err", err)
+		v2.runState.Fail(err)
+	}
 }
 
-// onPartitionsLost handles lost partitions. STUB — no-op.
-//
-//nolint:unused
+// onPartitionsLost handles lost partitions by dropping in-memory commit progress.
 func (v2 *consumerV2) onPartitionsLost(
 	ctx context.Context,
 	partitions map[string][]int32,
 ) {
+	v2.log.WarnContext(ctx, "partitions lost; dropping in-memory commit progress", "partitions", partitions)
+	v2.registry.DropLost(partitions)
 }

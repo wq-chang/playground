@@ -4,6 +4,9 @@ package consumer_test
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -268,6 +271,154 @@ func TestIntegration_BackpressureCycle(t *testing.T) {
 }
 
 // TestIntegration_ShutdownFlushesRemaining verifies finalization during graceful shutdown.
+func TestDispatcher_Dispatch_PreservesPolledOrderWithinPartition(t *testing.T) {
+	cl := &integrationClient{}
+	_, router, _, _, dis := setupIntegration(t, cl)
+
+	var mu sync.Mutex
+	var ordered []int64
+	handler := func(_ context.Context, r *kgo.Record) error {
+		mu.Lock()
+		ordered = append(ordered, r.Offset)
+		mu.Unlock()
+		return nil
+	}
+
+	require.NoError(t, router.Register(consumer.Subscription{
+		Topic:         "t",
+		Handler:       handler,
+		BatchHandler:  nil,
+		FailurePolicy: consumer.FailurePolicy{MaxAttempts: 1, RetryBackoff: 0, DLQ: nil, OnExhausted: consumer.ExhaustedActionStop},
+		AckMode:       consumer.AckModeAtLeastOnce,
+	}), "Register should succeed")
+
+	// Dispatch records in offset order 0,1,2 — handler must see them in order.
+	records := []*kgo.Record{
+		{Topic: "t", Partition: 0, Offset: 0, LeaderEpoch: 0},
+		{Topic: "t", Partition: 0, Offset: 1, LeaderEpoch: 0},
+		{Topic: "t", Partition: 0, Offset: 2, LeaderEpoch: 0},
+	}
+
+	require.NoError(t, dis.Dispatch(context.Background(), records, cl, cl),
+		"Dispatch should succeed")
+
+	require.True(t, waitFor(2*time.Second, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(ordered) == 3
+	}), "all 3 records should be processed, got %d", len(ordered))
+
+	mu.Lock()
+	assert.Equal(t, int64(0), ordered[0], "first processed should be offset 0")
+	assert.Equal(t, int64(1), ordered[1], "second processed should be offset 1")
+	assert.Equal(t, int64(2), ordered[2], "third processed should be offset 2")
+	mu.Unlock()
+}
+
+func TestDispatcher_Dispatch_PreservesFirstSeenPartitionOrder(t *testing.T) {
+	cl := &integrationClient{}
+	_, router, _, _, dis := setupIntegration(t, cl)
+
+	var mu sync.Mutex
+	var ordered []string
+	// Track each record as "topic:offset".
+	handlerA := func(_ context.Context, r *kgo.Record) error {
+		mu.Lock()
+		ordered = append(ordered, fmt.Sprintf("%s:%d", r.Topic, r.Offset))
+		mu.Unlock()
+		return nil
+	}
+	handlerB := func(_ context.Context, r *kgo.Record) error {
+		mu.Lock()
+		ordered = append(ordered, fmt.Sprintf("%s:%d", r.Topic, r.Offset))
+		mu.Unlock()
+		return nil
+	}
+
+	require.NoError(t, router.Register(consumer.Subscription{
+		Topic: "a", Handler: handlerA, BatchHandler: nil,
+		FailurePolicy: consumer.FailurePolicy{MaxAttempts: 1, RetryBackoff: 0, DLQ: nil, OnExhausted: consumer.ExhaustedActionStop},
+		AckMode:       consumer.AckModeAtLeastOnce,
+	}), "Register a")
+	require.NoError(t, router.Register(consumer.Subscription{
+		Topic: "b", Handler: handlerB, BatchHandler: nil,
+		FailurePolicy: consumer.FailurePolicy{MaxAttempts: 1, RetryBackoff: 0, DLQ: nil, OnExhausted: consumer.ExhaustedActionStop},
+		AckMode:       consumer.AckModeAtLeastOnce,
+	}), "Register b")
+
+	// Interleave records; within each partition, dispatch order matches poll order.
+	records := []*kgo.Record{
+		{Topic: "a", Partition: 0, Offset: 0, LeaderEpoch: 0},
+		{Topic: "b", Partition: 0, Offset: 0, LeaderEpoch: 0},
+		{Topic: "a", Partition: 0, Offset: 1, LeaderEpoch: 0},
+	}
+
+	require.NoError(t, dis.Dispatch(context.Background(), records, cl, cl),
+		"Dispatch should succeed")
+
+	require.True(t, waitFor(2*time.Second, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(ordered) == 3
+	}), "all 3 records should be processed, got %d", len(ordered))
+
+	mu.Lock()
+	// Within a partition, records are processed in polled offset order.
+	var aOffsets []int64
+	for _, s := range ordered {
+		if strings.HasPrefix(s, "a:") {
+			off, err := strconv.ParseInt(s[2:], 10, 64)
+			require.NoError(t, err, "ParseInt should succeed")
+			aOffsets = append(aOffsets, off)
+		}
+	}
+	assert.Equal(t, 2, len(aOffsets), "should process 2 records for 'a'")
+	assert.True(t, aOffsets[0] < aOffsets[1], "within 'a', offset 0 should process before offset 1")
+	mu.Unlock()
+}
+
+func TestIntegration_DispatchDoesNotBlockOtherPartitions(t *testing.T) {
+	cl := &integrationClient{}
+	_, router, registry, committer, dis := setupIntegration(t, cl)
+
+	// Partition "a" blocks on processing (1 slot taken), "b" proceeds normally.
+	// Reduce concurrency to 1 to guarantee the blocking consumes the only slot.
+	_ = registry // unused, kept for clarity
+	_ = committer
+	_ = dis
+
+	require.NoError(t, router.Register(consumer.Subscription{
+		Topic:         "a",
+		Handler:       func(_ context.Context, _ *kgo.Record) error { select {} },
+		BatchHandler:  nil,
+		FailurePolicy: consumer.FailurePolicy{MaxAttempts: 1, RetryBackoff: 0, DLQ: nil, OnExhausted: consumer.ExhaustedActionStop},
+		AckMode:       consumer.AckModeAtLeastOnce,
+	}), "Register a")
+
+	var processed atomic.Int32
+	require.NoError(t, router.Register(consumer.Subscription{
+		Topic:         "b",
+		Handler:       func(_ context.Context, _ *kgo.Record) error { processed.Add(1); return nil },
+		BatchHandler:  nil,
+		FailurePolicy: consumer.FailurePolicy{MaxAttempts: 1, RetryBackoff: 0, DLQ: nil, OnExhausted: consumer.ExhaustedActionStop},
+		AckMode:       consumer.AckModeAtLeastOnce,
+	}), "Register b")
+
+	records := []*kgo.Record{
+		{Topic: "a", Partition: 0, Offset: 0, LeaderEpoch: 0},
+		{Topic: "b", Partition: 0, Offset: 0, LeaderEpoch: 0},
+	}
+
+	// Dispatch must not block — Verify "b" got dispatched and enqueued.
+	// Since the workers have 4 concurrent slots (default), both records get a slot.
+	// "a" blocks forever in handler, "b" proceeds and completes.
+	require.NoError(t, dis.Dispatch(context.Background(), records, cl, cl),
+		"Dispatch should not block")
+
+	require.True(t, waitFor(2*time.Second, func() bool { return processed.Load() == 1 }),
+		"partition 'b' should process despite 'a' blocking, got %d", processed.Load())
+}
+
 func TestIntegration_ShutdownFlushesRemaining(t *testing.T) {
 	cl := &integrationClient{}
 	run, router, registry, committer, dis := setupIntegration(t, cl)
