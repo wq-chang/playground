@@ -245,3 +245,98 @@ func TestWorkerRunner_ProcessSemaphore_BoundsConcurrency(t *testing.T) {
 		assert.Equal(t, int64(5), off.Offset, "should reflect last offset+1")
 	}
 }
+
+func TestWorkerRunner_FlushResolvedBeforeFatalError(t *testing.T) {
+	run, runCtx, reg, pauses, client := startWorker(t)
+	defer stopWorker(run)
+
+	// Handler fails → DLQ exhaustion → DLQ writer also fails → result.Cause != nil.
+	var calls atomic.Int32
+	sub := consumer.Subscription{
+		Topic: "t",
+		Handler: func(_ context.Context, _ *kgo.Record) error {
+			if calls.Add(1) >= 3 {
+				return errors.New("fatal")
+			}
+			return nil
+		},
+		BatchHandler: nil,
+		FailurePolicy: consumer.FailurePolicy{
+			MaxAttempts:  1,
+			RetryBackoff: 0,
+			DLQ:          &consumer.DLQConfig{Topic: "dlq"},
+			OnExhausted:  consumer.ExhaustedActionDLQThenCommit,
+		},
+		AckMode: consumer.AckModeAtLeastOnce,
+	}
+
+	ps, _, err := reg.GetOrCreate(consumer.Key{Topic: "t", Partition: 0}, sub, runCtx, 10)
+	require.NoError(t, err, "GetOrCreate should succeed")
+
+	committer := consumer.NewCommitter(nil, reg, pauses, client, consumer.CommitConfig{})
+	executor := consumer.NewRecordExecutor(testlogger.NewLogger())
+	failingDLQ := func(_ context.Context, _ *kgo.Record) error { return errors.New("dlq down") }
+	wr := consumer.NewWorkerRunner(testlogger.NewLogger(), run, committer, executor, reg, pauses, 4, func() {}, failingDLQ)
+
+	wr.Start(ps, client)
+	time.Sleep(10 * time.Millisecond)
+
+	ps.TryEnqueue([]*kgo.Record{
+		{Topic: "t", Partition: 0, Offset: 0, LeaderEpoch: 0},
+		{Topic: "t", Partition: 0, Offset: 1, LeaderEpoch: 0},
+		{Topic: "t", Partition: 0, Offset: 2, LeaderEpoch: 0},
+	})
+	time.Sleep(200 * time.Millisecond)
+
+	// Records 0,1 must be flushed before the error return.
+	snap := reg.SnapshotDirtyStates()
+	ps2, ok := snap[consumer.Key{Topic: "t", Partition: 0}]
+	require.True(t, ok, "partition must be marked dirty after flushing resolved records")
+	off, hasOff := ps2.SnapshotDirtyOffset()
+	assert.True(t, hasOff, "should have dirty offset")
+	assert.Equal(t, int64(2), off.Offset, "should commit up to offset 2")
+}
+
+func TestWorkerRunner_FlushResolvedBeforeContextCancel(t *testing.T) {
+	run, runCtx, reg, pauses, client := startWorker(t)
+	defer stopWorker(run)
+
+	record0Started := make(chan struct{})
+	record0Done := make(chan struct{})
+
+	sub := consumer.Subscription{
+		Topic: "t",
+		Handler: func(_ context.Context, _ *kgo.Record) error {
+			close(record0Started)
+			<-record0Done
+			return nil
+		},
+		BatchHandler:  nil,
+		FailurePolicy: consumer.FailurePolicy{MaxAttempts: 1, RetryBackoff: 0, DLQ: nil, OnExhausted: consumer.ExhaustedActionStop},
+		AckMode:       consumer.AckModeAtLeastOnce,
+	}
+
+	ps, _, err := reg.GetOrCreate(consumer.Key{Topic: "t", Partition: 0}, sub, runCtx, 10)
+	require.NoError(t, err, "GetOrCreate should succeed")
+
+	committer := consumer.NewCommitter(nil, reg, pauses, client, consumer.CommitConfig{})
+	executor := consumer.NewRecordExecutor(testlogger.NewLogger())
+	wr := consumer.NewWorkerRunner(testlogger.NewLogger(), run, committer, executor, reg, pauses, 1, func() {}, nil)
+	wr.Start(ps, client)
+	time.Sleep(10 * time.Millisecond)
+
+	ps.TryEnqueue([]*kgo.Record{
+		{Topic: "t", Partition: 0, Offset: 0, LeaderEpoch: 0},
+		{Topic: "t", Partition: 0, Offset: 1, LeaderEpoch: 0},
+	})
+
+	<-record0Started
+	ps.Abort()
+	close(record0Done)
+
+	time.Sleep(200 * time.Millisecond)
+
+	off, hasOff := ps.SnapshotDirtyOffset()
+	require.True(t, hasOff, "record 0 must be flushed on context cancel")
+	assert.Equal(t, int64(1), off.Offset, "should advance to offset 1")
+}

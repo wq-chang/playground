@@ -107,6 +107,8 @@ func (wr *WorkerRunner) processRecords(
 	records []*kgo.Record,
 	client WorkerClient,
 ) {
+	var lastResolved *kgo.Record
+
 	for _, record := range records {
 		if wr.pauses.IsPaused(state.Key().Topic) {
 			continue
@@ -121,6 +123,9 @@ func (wr *WorkerRunner) processRecords(
 		}
 
 		if err := wr.acquireProcessSlot(ctx); err != nil {
+			if lastResolved != nil && state.AdvanceCommitOffset(lastResolved) && wr.registry.MarkDirty(state) {
+				wr.committer.RequestFlush()
+			}
 			return
 		}
 		result := wr.executor.ExecuteRecord(ctx, state.subscription, record, wr.dlqWriter)
@@ -135,15 +140,20 @@ func (wr *WorkerRunner) processRecords(
 		}
 
 		if result.Cause != nil {
+			if lastResolved != nil && state.AdvanceCommitOffset(lastResolved) && wr.registry.MarkDirty(state) {
+				wr.committer.RequestFlush()
+			}
 			wr.run.Fail(result.Cause)
 			return
 		}
 
 		if state.subscription.AckMode == AckModeAtLeastOnce && result.Resolved {
-			if state.AdvanceCommitOffset(record) && wr.registry.MarkDirty(state) {
-				wr.committer.RequestFlush()
-			}
+			lastResolved = record
 		}
+	}
+
+	if lastResolved != nil && state.AdvanceCommitOffset(lastResolved) && wr.registry.MarkDirty(state) {
+		wr.committer.RequestFlush()
 	}
 }
 
