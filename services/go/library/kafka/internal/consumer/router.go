@@ -11,10 +11,8 @@ import (
 )
 
 // RegisterClient is the narrow interface Router needs to coordinate
-// with the parent consumer's client lifecycle and topic subscription.
+// with the parent consumer for runtime topic subscription.
 type RegisterClient interface {
-	// IsClosed reports whether the underlying Kafka client is closed.
-	IsClosed() bool
 	// AddConsumeTopics subscribes to one or more Kafka topics at runtime.
 	AddConsumeTopics(topics ...string)
 }
@@ -41,14 +39,11 @@ func NewRouter(client RegisterClient) *Router {
 }
 
 // Register stores a normalized subscription after validating preconditions.
-// Returns an error if the client is closed or the topic is already registered.
+// Returns an error if the topic is already registered.
 func (r *Router) Register(sub ktype.Subscription) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if r.client != nil && r.client.IsClosed() {
-		return fmt.Errorf("consumer is closed")
-	}
 	if _, ok := r.subscriptions[sub.Topic]; ok {
 		return fmt.Errorf("topic handler already registered for %q", sub.Topic)
 	}

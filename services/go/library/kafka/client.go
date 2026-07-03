@@ -43,16 +43,6 @@ func (c *Client) Close() {
 	})
 }
 
-func (c *Client) isClosed() bool {
-	if c == nil {
-		return false
-	}
-
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.closed
-}
-
 // New creates and initializes a Kafka client using a single shared
 // kgo.Client. This is the primary entry point for the kafka package.
 //

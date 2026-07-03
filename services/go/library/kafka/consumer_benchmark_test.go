@@ -30,10 +30,10 @@ func benchSetup(b *testing.B, n int) (topic string, cleanup func()) {
 	require.NoError(b, err, "create producer")
 
 	ctx := context.Background()
-	for i := 0; i < n; i++ {
+	for i := range n {
 		producer.Produce(ctx, &kgo.Record{
 			Topic: topic,
-			Value: []byte(fmt.Sprintf("msg-%d", i)),
+			Value: fmt.Appendf(nil, "msg-%d", i),
 		}, nil)
 	}
 	for producer.BufferedProduceRecords() > 0 {
@@ -66,7 +66,7 @@ func BenchmarkRawKgo(b *testing.B) {
 	topic, cleanup := benchSetup(b, nRecords)
 	defer cleanup()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		var processed atomic.Int64
 
 		client, err := kgo.NewClient(
@@ -117,7 +117,7 @@ func BenchmarkConsumer(b *testing.B) {
 	topic, cleanup := benchSetup(b, nRecords)
 	defer cleanup()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		var processed atomic.Int64
 
 		client, err := kafka.New(

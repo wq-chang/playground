@@ -23,13 +23,13 @@ func discardingLogger() *slog.Logger {
 
 // stubFetchClient records fetch control calls.
 type stubFetchClient struct {
-	mu            sync.Mutex
+	commitErr     error
+	commitBlockCh chan struct{}
 	pausedParts   []map[string][]int32
 	resumedParts  []map[string][]int32
 	pausedTopics  []string
-	commitErr     error
 	committed     []map[string]map[int32]kgo.EpochOffset
-	commitBlockCh chan struct{} // if set, CommitOffsetsSync blocks until closed
+	mu            sync.Mutex
 }
 
 func (s *stubFetchClient) PauseFetchPartitions(partitions map[string][]int32) {

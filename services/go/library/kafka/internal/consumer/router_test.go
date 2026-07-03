@@ -19,10 +19,8 @@ import (
 type stubRegisterClient struct {
 	topics []string
 	mu     sync.Mutex
-	closed bool
 }
 
-func (s *stubRegisterClient) IsClosed() bool { return s.closed }
 func (s *stubRegisterClient) AddConsumeTopics(topics ...string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -64,22 +62,6 @@ func TestRouter_Register_Duplicate(t *testing.T) {
 	require.NoError(t, r.Register(sub), "first register should succeed")
 	err := r.Register(sub)
 	assert.ErrorContains(t, err, "already registered", "duplicate should error")
-}
-
-func TestRouter_Register_ClosedClient(t *testing.T) {
-	client := &stubRegisterClient{closed: true, mu: sync.Mutex{}, topics: nil}
-	r := consumer.NewRouter(client)
-
-	sub := ktype.Subscription{
-		Topic:         "topic",
-		Handler:       func(_ context.Context, _ *kgo.Record) error { return nil },
-		BatchHandler:  nil,
-		FailurePolicy: ktype.FailurePolicy{},
-		AckMode:       ktype.AckModeAtLeastOnce,
-	}
-
-	err := r.Register(sub)
-	assert.ErrorContains(t, err, "consumer is closed", "closed client should error")
 }
 
 func TestRouter_Lookup_Missing(t *testing.T) {

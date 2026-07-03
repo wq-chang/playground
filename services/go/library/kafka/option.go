@@ -38,19 +38,23 @@ type config struct {
 	// defaultAckMode determines which acknowledgment mode is applied by the
 	// compatibility topic APIs.
 	defaultAckMode AckMode
+	// fetchMaxRecords is the max number of records returned by a single PollRecords call.
+	// Defaults to 500, matching Apache Kafka's max.poll.records default.
+	fetchMaxRecords int
 }
 
 // newConfig creates a new kafka onfig with default values.
 func newConfig(brokers []string, groupId string) *config {
 	return &config{
-		groupId:        groupId,
-		subscriptions:  make(map[string]Subscription),
-		workers:        16,
-		defaultAckMode: AckModeAtLeastOnce,
-		logger:         slog.Default(),
-		auth:           nil,
-		brokers:        brokers,
-		kgoOpts:        []kgo.Opt{},
+		groupId:         groupId,
+		subscriptions:   make(map[string]Subscription),
+		workers:         16,
+		defaultAckMode:  AckModeAtLeastOnce,
+		fetchMaxRecords: 500,
+		logger:          slog.Default(),
+		auth:            nil,
+		brokers:         brokers,
+		kgoOpts:         []kgo.Opt{},
 	}
 }
 
@@ -143,6 +147,20 @@ func WithTopic(topic string, handler Handler) Option {
 func WithBatchTopic(topic string, handler BatchHandler) Option {
 	return func(c *config) {
 		WithSubscription(newDefaultBatchSubscription(topic, handler, c.defaultAckMode))(c)
+	}
+}
+
+// --- Producer Specific Options ---
+
+// --- Consumer Specific Options (continued) ---
+
+// WithFetchMaxRecords sets the maximum number of records returned by a single
+// PollRecords call. Defaults to 500, matching Apache Kafka's max.poll.records.
+func WithFetchMaxRecords(n int) Option {
+	return func(c *config) {
+		if n > 0 {
+			c.fetchMaxRecords = n
+		}
 	}
 }
 

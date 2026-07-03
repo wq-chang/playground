@@ -43,47 +43,34 @@ type Consumer struct {
 
 // v2RegisterClient adapts Consumer's Client to consumer.RegisterClient.
 type v2RegisterClient struct {
-	v2 *Consumer
-}
-
-func (a v2RegisterClient) IsClosed() bool {
-	return a.v2.client != nil && a.v2.client.isClosed()
+	kcl *kgo.Client
 }
 
 func (a v2RegisterClient) AddConsumeTopics(topics ...string) {
-	if a.v2.client != nil && a.v2.client.kgoClient != nil {
-		a.v2.client.kgoClient.AddConsumeTopics(topics...)
-	}
+	a.kcl.AddConsumeTopics(topics...)
 }
 
 // v2FetchControlClient adapts Consumer's Client to consumer.FetchControlClient.
 type v2FetchControlClient struct {
-	v2 *Consumer
+	kcl *kgo.Client
 }
 
 func (a v2FetchControlClient) PauseFetchPartitions(partitions map[string][]int32) {
-	if a.v2.client != nil && a.v2.client.kgoClient != nil {
-		a.v2.client.kgoClient.PauseFetchPartitions(partitions)
-	}
+	a.kcl.PauseFetchPartitions(partitions)
 }
 
 func (a v2FetchControlClient) ResumeFetchPartitions(partitions map[string][]int32) {
-	if a.v2.client != nil && a.v2.client.kgoClient != nil {
-		a.v2.client.kgoClient.ResumeFetchPartitions(partitions)
-	}
+	a.kcl.ResumeFetchPartitions(partitions)
 }
 
 // v2WorkerClient adapts Consumer's Client to consumer.WorkerClient.
 type v2WorkerClient struct {
-	v2 *Consumer
+	kcl *kgo.Client
 }
 
 func (a v2WorkerClient) CommitOffsetsSync(ctx context.Context, offsets map[string]map[int32]kgo.EpochOffset) error {
-	if a.v2.client == nil || a.v2.client.kgoClient == nil {
-		return fmt.Errorf("kafka client is not initialized")
-	}
 	var commitErr error
-	a.v2.client.kgoClient.CommitOffsetsSync(ctx, offsets, func(
+	a.kcl.CommitOffsetsSync(ctx, offsets, func(
 		_ *kgo.Client,
 		_ *kmsg.OffsetCommitRequest,
 		_ *kmsg.OffsetCommitResponse,
@@ -95,15 +82,11 @@ func (a v2WorkerClient) CommitOffsetsSync(ctx context.Context, offsets map[strin
 }
 
 func (a v2WorkerClient) PauseFetchTopics(topics ...string) {
-	if a.v2.client != nil && a.v2.client.kgoClient != nil {
-		a.v2.client.kgoClient.PauseFetchTopics(topics...)
-	}
+	a.kcl.PauseFetchTopics(topics...)
 }
 
 func (a v2WorkerClient) ResumeFetchPartitions(partitions map[string][]int32) {
-	if a.v2.client != nil && a.v2.client.kgoClient != nil {
-		a.v2.client.kgoClient.ResumeFetchPartitions(partitions)
-	}
+	a.kcl.ResumeFetchPartitions(partitions)
 }
 
 // newConsumer creates a Consumer from the shared config and client.
@@ -123,10 +106,10 @@ func newConsumer(cfg *config, client *Client) (*Consumer, error) {
 		workerClient: nil,
 		drainTimeout: 30 * time.Second,
 	}
-	v2.fetchClient = v2FetchControlClient{v2: v2}
-	v2.workerClient = v2WorkerClient{v2: v2}
+	v2.fetchClient = v2FetchControlClient{kcl: client.kgoClient}
+	v2.workerClient = v2WorkerClient{kcl: client.kgoClient}
 
-	regClient := v2RegisterClient{v2: v2}
+	regClient := v2RegisterClient{kcl: client.kgoClient}
 	v2.router = consumer.NewRouter(regClient)
 	v2.pauses = consumer.NewPauseRegistry(time.Now)
 	v2.runState = consumer.NewRunState()
@@ -142,12 +125,10 @@ func newConsumer(cfg *config, client *Client) (*Consumer, error) {
 
 	executor := consumer.NewRecordExecutor(v2.log)
 
+	dlqClient := client
 	dlqWriter := func(ctx context.Context, record *kgo.Record) error {
-		if v2.client == nil || v2.client.kgoClient == nil {
-			return fmt.Errorf("kafka client is not initialized")
-		}
-		if v2.client.Producer != nil {
-			return v2.client.Producer.ProduceSync(ctx, record)
+		if dlqClient.Producer != nil {
+			return dlqClient.Producer.ProduceSync(ctx, record)
 		}
 		return fmt.Errorf("dlq publishing requires a producer-enabled client")
 	}
@@ -254,8 +235,9 @@ func (v2 *Consumer) Run(ctx context.Context) error {
 
 func (v2 *Consumer) runDispatch(ctx context.Context) error {
 	cl := v2.client.kgoClient
+	maxRecords := v2.cfg.fetchMaxRecords
 	for {
-		fetches := cl.PollRecords(ctx, -1)
+		fetches := cl.PollRecords(ctx, maxRecords)
 		if fetches.IsClientClosed() {
 			return nil
 		}
