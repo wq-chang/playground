@@ -1,4 +1,3 @@
-// services/go/library/kafka/internal/consumer/run_state.go
 package consumer
 
 import (

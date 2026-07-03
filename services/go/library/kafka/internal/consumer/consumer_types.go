@@ -1,4 +1,3 @@
-// services/go/library/kafka/internal/consumer/consumer_types.go
 package consumer
 
 import (

@@ -1,4 +1,3 @@
-// services/go/library/kafka/internal/consumer/record_executor.go
 package consumer
 
 import (

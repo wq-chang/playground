@@ -1,4 +1,3 @@
-// services/go/library/kafka/consumer.go
 package kafka
 
 import (

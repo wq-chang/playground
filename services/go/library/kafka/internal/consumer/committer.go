@@ -1,4 +1,3 @@
-// services/go/library/kafka/internal/consumer/committer.go
 package consumer
 
 import (

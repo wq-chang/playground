@@ -1,4 +1,3 @@
-// services/go/library/kafka/internal/consumer/partition_registry.go
 package consumer
 
 import (

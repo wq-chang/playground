@@ -1,4 +1,3 @@
-// services/go/library/kafka/internal/consumer/dispatcher.go
 package consumer
 
 import (
