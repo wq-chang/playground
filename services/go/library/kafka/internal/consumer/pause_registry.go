@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"go-services/library/gsync"
-	"go-services/library/kafka/ktype"
 )
 
 // PauseRegistry owns paused-topic state and provides immutable snapshots
@@ -15,8 +14,8 @@ import (
 // gsync.Value. It does not handle Kafka-level pause operations or offset
 // commits — those belong to Committer and Dispatcher in later steps.
 type PauseRegistry struct {
-	snapshot     gsync.Value[map[string]ktype.PauseInfo]
-	pausedTopics map[string]ktype.PauseInfo
+	snapshot     gsync.Value[map[string]PauseInfo]
+	pausedTopics map[string]PauseInfo
 	now          func() time.Time
 	mu           sync.Mutex
 }
@@ -24,12 +23,12 @@ type PauseRegistry struct {
 // NewPauseRegistry creates a paused-topic registry with injectable clock.
 func NewPauseRegistry(now func() time.Time) *PauseRegistry {
 	pr := &PauseRegistry{
-		pausedTopics: make(map[string]ktype.PauseInfo),
+		pausedTopics: make(map[string]PauseInfo),
 		now:          now,
 		mu:           sync.Mutex{},
-		snapshot:     gsync.Value[map[string]ktype.PauseInfo]{},
+		snapshot:     gsync.Value[map[string]PauseInfo]{},
 	}
-	pr.snapshot.Store(make(map[string]ktype.PauseInfo))
+	pr.snapshot.Store(make(map[string]PauseInfo))
 	return pr
 }
 
@@ -43,7 +42,7 @@ func (pr *PauseRegistry) Pause(topic string, cause error) bool {
 		return false
 	}
 
-	pr.pausedTopics[topic] = ktype.PauseInfo{
+	pr.pausedTopics[topic] = PauseInfo{
 		Cause:    cause,
 		PausedAt: pr.now(),
 	}
@@ -61,6 +60,6 @@ func (pr *PauseRegistry) IsPaused(topic string) bool {
 
 // Snapshot returns an immutable view of all paused topics and their info.
 // Lock-free — returns the atomic snapshot directly.
-func (pr *PauseRegistry) Snapshot() map[string]ktype.PauseInfo {
+func (pr *PauseRegistry) Snapshot() map[string]PauseInfo {
 	return pr.snapshot.Load()
 }

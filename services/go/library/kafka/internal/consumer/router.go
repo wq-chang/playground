@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	"go-services/library/gsync"
-	"go-services/library/kafka/ktype"
 )
 
 // RegisterClient is the narrow interface Router needs to coordinate
@@ -20,27 +19,27 @@ type RegisterClient interface {
 // Router owns subscription registration, lookup, and immutable snapshots.
 // Writes clone into a gsync.Value for lock-free reads.
 type Router struct {
-	snapshot      gsync.Value[map[string]ktype.Subscription]
+	snapshot      gsync.Value[map[string]Subscription]
 	client        RegisterClient
-	subscriptions map[string]ktype.Subscription
+	subscriptions map[string]Subscription
 	mu            sync.Mutex
 }
 
 // NewRouter creates an empty subscription registry with the given client adapter.
 func NewRouter(client RegisterClient) *Router {
 	r := &Router{
-		subscriptions: make(map[string]ktype.Subscription),
+		subscriptions: make(map[string]Subscription),
 		client:        client,
 		mu:            sync.Mutex{},
-		snapshot:      gsync.Value[map[string]ktype.Subscription]{},
+		snapshot:      gsync.Value[map[string]Subscription]{},
 	}
-	r.snapshot.Store(make(map[string]ktype.Subscription))
+	r.snapshot.Store(make(map[string]Subscription))
 	return r
 }
 
 // Register stores a normalized subscription after validating preconditions.
 // Returns an error if the topic is already registered.
-func (r *Router) Register(sub ktype.Subscription) error {
+func (r *Router) Register(sub Subscription) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -56,7 +55,7 @@ func (r *Router) Register(sub ktype.Subscription) error {
 
 // Lookup returns the normalized subscription for a topic, if registered.
 // Uses the atomic snapshot — lock-free, may be slightly stale.
-func (r *Router) Lookup(topic string) (ktype.Subscription, bool) {
+func (r *Router) Lookup(topic string) (Subscription, bool) {
 	snap := r.snapshot.Load()
 	sub, ok := snap[topic]
 	return sub, ok
@@ -70,7 +69,7 @@ func (r *Router) Lookup(topic string) (ktype.Subscription, bool) {
 // Two-pass validation with a seen-set prevents partial state corruption:
 // all subscriptions are checked for duplicates (against both existing entries
 // and other entries in the same batch) before any are stored.
-func (r *Router) RegisterQuietBatch(subs []ktype.Subscription) error {
+func (r *Router) RegisterQuietBatch(subs []Subscription) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -93,6 +92,6 @@ func (r *Router) RegisterQuietBatch(subs []ktype.Subscription) error {
 
 // Snapshot returns an immutable view of all registered subscriptions.
 // Atomic and lock-free — matches v1's gsync.Value pattern.
-func (r *Router) Snapshot() map[string]ktype.Subscription {
+func (r *Router) Snapshot() map[string]Subscription {
 	return r.snapshot.Load()
 }

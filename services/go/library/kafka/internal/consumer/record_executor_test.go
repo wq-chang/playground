@@ -12,16 +12,15 @@ import (
 
 	"go-services/library/assert"
 	"go-services/library/kafka/internal/consumer"
-	"go-services/library/kafka/ktype"
 	"go-services/library/testlogger"
 )
 
 func testSubRecord(
 	fn func(context.Context, *kgo.Record) error,
-	ack ktype.AckMode,
-	fp ktype.FailurePolicy,
-) ktype.Subscription {
-	return ktype.Subscription{
+	ack consumer.AckMode,
+	fp consumer.FailurePolicy,
+) consumer.Subscription {
+	return consumer.Subscription{
 		Topic:         "t",
 		Handler:       fn,
 		BatchHandler:  nil,
@@ -31,11 +30,11 @@ func testSubRecord(
 }
 
 func testSubBatch(
-	fn func(context.Context, []*kgo.Record) ktype.BatchResult,
-	ack ktype.AckMode,
-	fp ktype.FailurePolicy,
-) ktype.Subscription {
-	return ktype.Subscription{
+	fn func(context.Context, []*kgo.Record) consumer.BatchResult,
+	ack consumer.AckMode,
+	fp consumer.FailurePolicy,
+) consumer.Subscription {
+	return consumer.Subscription{
 		Topic:         "t",
 		Handler:       nil,
 		BatchHandler:  fn,
@@ -44,20 +43,20 @@ func testSubBatch(
 	}
 }
 
-func fp1(stop ktype.ExhaustedAction) ktype.FailurePolicy {
-	return ktype.FailurePolicy{MaxAttempts: 1, RetryBackoff: 0, DLQ: nil, OnExhausted: stop}
+func fp1(stop consumer.ExhaustedAction) consumer.FailurePolicy {
+	return consumer.FailurePolicy{MaxAttempts: 1, RetryBackoff: 0, DLQ: nil, OnExhausted: stop}
 }
 
-func fp3() ktype.FailurePolicy {
-	return ktype.FailurePolicy{MaxAttempts: 3, RetryBackoff: time.Millisecond, DLQ: nil, OnExhausted: ktype.ExhaustedActionStop}
+func fp3() consumer.FailurePolicy {
+	return consumer.FailurePolicy{MaxAttempts: 3, RetryBackoff: time.Millisecond, DLQ: nil, OnExhausted: consumer.ExhaustedActionStop}
 }
 
-func fpDLQ(topic string) ktype.FailurePolicy {
-	return ktype.FailurePolicy{MaxAttempts: 1, RetryBackoff: 0, DLQ: &ktype.DLQConfig{Topic: topic}, OnExhausted: ktype.ExhaustedActionDLQThenCommit}
+func fpDLQ(topic string) consumer.FailurePolicy {
+	return consumer.FailurePolicy{MaxAttempts: 1, RetryBackoff: 0, DLQ: &consumer.DLQConfig{Topic: topic}, OnExhausted: consumer.ExhaustedActionDLQThenCommit}
 }
 
-func fpUnsupported() ktype.FailurePolicy {
-	return ktype.FailurePolicy{MaxAttempts: 1, RetryBackoff: 0, DLQ: nil, OnExhausted: ktype.ExhaustedAction(99)}
+func fpUnsupported() consumer.FailurePolicy {
+	return consumer.FailurePolicy{MaxAttempts: 1, RetryBackoff: 0, DLQ: nil, OnExhausted: consumer.ExhaustedAction(99)}
 }
 
 func TestRecordExecutor_Success(t *testing.T) {
@@ -66,8 +65,8 @@ func TestRecordExecutor_Success(t *testing.T) {
 
 	sub := testSubRecord(
 		func(ctx context.Context, record *kgo.Record) error { called.Add(1); return nil },
-		ktype.AckModeAtLeastOnce,
-		fp1(ktype.ExhaustedActionStop),
+		consumer.AckModeAtLeastOnce,
+		fp1(consumer.ExhaustedActionStop),
 	)
 	result := exec.ExecuteRecord(context.Background(), sub, &kgo.Record{Topic: "t"}, nil)
 	assert.True(t, result.Resolved, "should be resolved")
@@ -86,7 +85,7 @@ func TestRecordExecutor_RetryThenSuccess(t *testing.T) {
 			}
 			return nil
 		},
-		ktype.AckModeAtLeastOnce,
+		consumer.AckModeAtLeastOnce,
 		fp3(),
 	)
 	result := exec.ExecuteRecord(context.Background(), sub, &kgo.Record{Topic: "t"}, nil)
@@ -98,8 +97,8 @@ func TestRecordExecutor_ExhaustedStop_PausesTopic(t *testing.T) {
 	exec := consumer.NewRecordExecutor(testlogger.NewLogger())
 	sub := testSubRecord(
 		func(ctx context.Context, record *kgo.Record) error { return errors.New("always fail") },
-		ktype.AckModeAtLeastOnce,
-		fp1(ktype.ExhaustedActionStop),
+		consumer.AckModeAtLeastOnce,
+		fp1(consumer.ExhaustedActionStop),
 	)
 	result := exec.ExecuteRecord(context.Background(), sub, &kgo.Record{Topic: "t", Partition: 0, Offset: 5}, nil)
 	assert.False(t, result.Resolved, "should not be resolved")
@@ -110,8 +109,8 @@ func TestRecordExecutor_ExhaustedCommit_Resolves(t *testing.T) {
 	exec := consumer.NewRecordExecutor(testlogger.NewLogger())
 	sub := testSubRecord(
 		func(ctx context.Context, record *kgo.Record) error { return errors.New("always fail") },
-		ktype.AckModeAtLeastOnce,
-		fp1(ktype.ExhaustedActionCommit),
+		consumer.AckModeAtLeastOnce,
+		fp1(consumer.ExhaustedActionCommit),
 	)
 	result := exec.ExecuteRecord(context.Background(), sub, &kgo.Record{Topic: "t"}, nil)
 	assert.True(t, result.Resolved, "should resolve on commit exhaustion")
@@ -138,7 +137,7 @@ func TestRecordExecutor_ExhaustedDLQ_CallsWriter(t *testing.T) {
 
 	sub := testSubRecord(
 		func(ctx context.Context, record *kgo.Record) error { return errors.New("fail") },
-		ktype.AckModeAtLeastOnce,
+		consumer.AckModeAtLeastOnce,
 		fpDLQ("dlq"),
 	)
 	result := exec.ExecuteRecord(context.Background(), sub, &kgo.Record{Topic: "t", Offset: 5}, dlqWriter)
@@ -150,8 +149,8 @@ func TestRecordExecutor_HandlerPanic(t *testing.T) {
 	exec := consumer.NewRecordExecutor(testlogger.NewLogger())
 	sub := testSubRecord(
 		func(ctx context.Context, record *kgo.Record) error { panic("handler panic") },
-		ktype.AckModeAtLeastOnce,
-		fp1(ktype.ExhaustedActionStop),
+		consumer.AckModeAtLeastOnce,
+		fp1(consumer.ExhaustedActionStop),
 	)
 	result := exec.ExecuteRecord(context.Background(), sub, &kgo.Record{Topic: "t"}, nil)
 	assert.False(t, result.Resolved, "should not resolve on panic")
@@ -161,9 +160,9 @@ func TestRecordExecutor_HandlerPanic(t *testing.T) {
 func TestRecordExecutor_Batch_Success(t *testing.T) {
 	exec := consumer.NewRecordExecutor(testlogger.NewLogger())
 	sub := testSubBatch(
-		func(ctx context.Context, records []*kgo.Record) ktype.BatchResult { return ktype.BatchResult{} },
-		ktype.AckModeAtLeastOnce,
-		fp1(ktype.ExhaustedActionStop),
+		func(ctx context.Context, records []*kgo.Record) consumer.BatchResult { return consumer.BatchResult{} },
+		consumer.AckModeAtLeastOnce,
+		fp1(consumer.ExhaustedActionStop),
 	)
 
 	records := []*kgo.Record{{Topic: "t", Offset: 0}, {Topic: "t", Offset: 1}}
@@ -176,11 +175,11 @@ func TestRecordExecutor_Batch_Success(t *testing.T) {
 func TestRecordExecutor_Batch_PartialFailure(t *testing.T) {
 	exec := consumer.NewRecordExecutor(testlogger.NewLogger())
 	sub := testSubBatch(
-		func(ctx context.Context, records []*kgo.Record) ktype.BatchResult {
-			return ktype.BatchResult{Err: errors.New("batch failed"), FailedAt: 1}
+		func(ctx context.Context, records []*kgo.Record) consumer.BatchResult {
+			return consumer.BatchResult{Err: errors.New("batch failed"), FailedAt: 1}
 		},
-		ktype.AckModeAtLeastOnce,
-		fp1(ktype.ExhaustedActionStop),
+		consumer.AckModeAtLeastOnce,
+		fp1(consumer.ExhaustedActionStop),
 	)
 
 	records := []*kgo.Record{{Topic: "t", Offset: 0}, {Topic: "t", Offset: 1}}
@@ -200,10 +199,10 @@ func TestRecordExecutor_Batch_DLQ(t *testing.T) {
 	}
 
 	sub := testSubBatch(
-		func(ctx context.Context, records []*kgo.Record) ktype.BatchResult {
-			return ktype.BatchResult{Err: errors.New("fail"), FailedAt: 0}
+		func(ctx context.Context, records []*kgo.Record) consumer.BatchResult {
+			return consumer.BatchResult{Err: errors.New("fail"), FailedAt: 0}
 		},
-		ktype.AckModeAtLeastOnce,
+		consumer.AckModeAtLeastOnce,
 		fpDLQ("dlq"),
 	)
 
@@ -218,9 +217,9 @@ func TestRecordExecutor_Batch_DLQ(t *testing.T) {
 func TestRecordExecutor_Batch_HandlerPanic(t *testing.T) {
 	exec := consumer.NewRecordExecutor(testlogger.NewLogger())
 	sub := testSubBatch(
-		func(ctx context.Context, records []*kgo.Record) ktype.BatchResult { panic("batch panic") },
-		ktype.AckModeAtLeastOnce,
-		fp1(ktype.ExhaustedActionStop),
+		func(ctx context.Context, records []*kgo.Record) consumer.BatchResult { panic("batch panic") },
+		consumer.AckModeAtLeastOnce,
+		fp1(consumer.ExhaustedActionStop),
 	)
 
 	records := []*kgo.Record{{Topic: "t", Offset: 0}}
@@ -234,7 +233,7 @@ func TestRecordExecutor_ContextCancelled(t *testing.T) {
 	exec := consumer.NewRecordExecutor(testlogger.NewLogger())
 	sub := testSubRecord(
 		func(ctx context.Context, record *kgo.Record) error { return errors.New("fail") },
-		ktype.AckModeAtLeastOnce,
+		consumer.AckModeAtLeastOnce,
 		fp3(),
 	)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -250,7 +249,7 @@ func TestRecordExecutor_ExhaustedDLQ_WriterFails(t *testing.T) {
 	}
 	sub := testSubRecord(
 		func(ctx context.Context, record *kgo.Record) error { return errors.New("fail") },
-		ktype.AckModeAtLeastOnce,
+		consumer.AckModeAtLeastOnce,
 		fpDLQ("dlq"),
 	)
 	result := exec.ExecuteRecord(context.Background(), sub, &kgo.Record{Topic: "t"}, dlqWriter)
@@ -262,7 +261,7 @@ func TestRecordExecutor_UnsupportedExhaustedAction(t *testing.T) {
 	exec := consumer.NewRecordExecutor(testlogger.NewLogger())
 	sub := testSubRecord(
 		func(ctx context.Context, record *kgo.Record) error { return errors.New("fail") },
-		ktype.AckModeAtLeastOnce,
+		consumer.AckModeAtLeastOnce,
 		fpUnsupported(),
 	)
 	result := exec.ExecuteRecord(context.Background(), sub, &kgo.Record{Topic: "t"}, nil)
@@ -273,11 +272,11 @@ func TestRecordExecutor_UnsupportedExhaustedAction(t *testing.T) {
 func TestRecordExecutor_Batch_RejectsInvalidFailedIndex(t *testing.T) {
 	exec := consumer.NewRecordExecutor(nil)
 	sub := testSubBatch(
-		func(_ context.Context, _ []*kgo.Record) ktype.BatchResult {
-			return ktype.BatchResult{Err: errors.New("fail"), FailedAt: -1}
+		func(_ context.Context, _ []*kgo.Record) consumer.BatchResult {
+			return consumer.BatchResult{Err: errors.New("fail"), FailedAt: -1}
 		},
-		ktype.AckModeAtLeastOnce,
-		fp1(ktype.ExhaustedActionStop),
+		consumer.AckModeAtLeastOnce,
+		fp1(consumer.ExhaustedActionStop),
 	)
 	records := []*kgo.Record{{Topic: "t", Offset: 0}, {Topic: "t", Offset: 1}}
 	resolved, cause, _ := exec.ExecuteBatch(context.Background(), sub, records, nil)
@@ -288,11 +287,11 @@ func TestRecordExecutor_Batch_RejectsInvalidFailedIndex(t *testing.T) {
 func TestRecordExecutor_Batch_RejectsFailedIndexOutOfBounds(t *testing.T) {
 	exec := consumer.NewRecordExecutor(nil)
 	sub := testSubBatch(
-		func(_ context.Context, _ []*kgo.Record) ktype.BatchResult {
-			return ktype.BatchResult{Err: errors.New("fail"), FailedAt: 99}
+		func(_ context.Context, _ []*kgo.Record) consumer.BatchResult {
+			return consumer.BatchResult{Err: errors.New("fail"), FailedAt: 99}
 		},
-		ktype.AckModeAtLeastOnce,
-		fp1(ktype.ExhaustedActionStop),
+		consumer.AckModeAtLeastOnce,
+		fp1(consumer.ExhaustedActionStop),
 	)
 	records := []*kgo.Record{{Topic: "t", Offset: 0}, {Topic: "t", Offset: 1}}
 	resolved, cause, _ := exec.ExecuteBatch(context.Background(), sub, records, nil)

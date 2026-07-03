@@ -1,31 +1,38 @@
 package kafka
 
-import (
-	"go-services/library/kafka/ktype"
-)
+import "go-services/library/kafka/internal/consumer"
 
 // Subscription configures how a topic is consumed.
-type Subscription = ktype.Subscription
+type Subscription = consumer.Subscription
 
 // FailurePolicy configures how handler errors are retried and resolved.
-type FailurePolicy = ktype.FailurePolicy
+type FailurePolicy = consumer.FailurePolicy
 
 // DLQConfig configures where failed records are published after retries are exhausted.
-type DLQConfig = ktype.DLQConfig
+type DLQConfig = consumer.DLQConfig
 
 // ExhaustedAction determines what happens after retries are exhausted.
-type ExhaustedAction = ktype.ExhaustedAction
+type ExhaustedAction = consumer.ExhaustedAction
+
+// Handler processes a single Kafka record.
+type Handler = consumer.Handler
+
+// BatchHandler processes a topic-partition batch in the polled order.
+type BatchHandler = consumer.BatchHandler
+
+// BatchResult reports the outcome of a BatchHandler invocation.
+type BatchResult = consumer.BatchResult
 
 const (
 	// ExhaustedActionUnspecified applies the package default:
 	// pause the topic when no DLQ is configured, or publish to DLQ then commit when a DLQ exists.
-	ExhaustedActionUnspecified = ktype.ExhaustedActionUnspecified
+	ExhaustedActionUnspecified = consumer.ExhaustedActionUnspecified
 	// ExhaustedActionStop pauses the topic until the process restarts and leaves the record uncommitted.
-	ExhaustedActionStop = ktype.ExhaustedActionStop
+	ExhaustedActionStop = consumer.ExhaustedActionStop
 	// ExhaustedActionCommit drops the record and commits past it.
-	ExhaustedActionCommit = ktype.ExhaustedActionCommit
+	ExhaustedActionCommit = consumer.ExhaustedActionCommit
 	// ExhaustedActionDLQThenCommit publishes the record to DLQ and commits only if that succeeds.
-	ExhaustedActionDLQThenCommit = ktype.ExhaustedActionDLQThenCommit
+	ExhaustedActionDLQThenCommit = consumer.ExhaustedActionDLQThenCommit
 )
 
 func newDefaultSubscription(topic string, handler Handler, ackMode AckMode) Subscription {

@@ -9,20 +9,21 @@ import (
 	"time"
 
 	"go-services/library/kafka/internal/consumer"
-	"go-services/library/kafka/ktype"
 
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/kmsg"
 )
 
-// Handler processes a single Kafka record.
-type Handler = ktype.Handler
+// AckMode determines how the consumer acknowledges records.
+type AckMode = consumer.AckMode
 
-// BatchHandler processes a topic-partition batch in the polled order.
-type BatchHandler = ktype.BatchHandler
+const (
+	// AckModeAtLeastOnce ensures records are processed at least once.
+	AckModeAtLeastOnce = consumer.AckModeAtLeastOnce
 
-// BatchResult reports the outcome of a BatchHandler invocation.
-type BatchResult = ktype.BatchResult
+	// AckModeAtMostOnce ensures records are processed at most once.
+	AckModeAtMostOnce = consumer.AckModeAtMostOnce
+)
 
 // Consumer is the topic subscription and consumption API.
 type Consumer struct {

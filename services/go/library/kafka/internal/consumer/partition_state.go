@@ -7,8 +7,6 @@ import (
 	"sync"
 
 	"github.com/twmb/franz-go/pkg/kgo"
-
-	"go-services/library/kafka/ktype"
 )
 
 type partitionLifecycle int
@@ -32,7 +30,7 @@ type PartitionState struct {
 	cancel             context.CancelFunc
 	done               chan struct{}
 	key                Key
-	subscription       ktype.Subscription
+	subscription       Subscription
 	nextCommitOffset   kgo.EpochOffset
 	committedOffset    kgo.EpochOffset
 	lifecycle          partitionLifecycle
@@ -52,7 +50,7 @@ func NewPartitionState(
 	parent context.Context,
 	logger *slog.Logger,
 	key Key,
-	subscription ktype.Subscription,
+	subscription Subscription,
 	queueCapacity int,
 ) *PartitionState {
 	stateCtx, cancel := context.WithCancel(parent)

@@ -11,7 +11,6 @@ import (
 
 	"go-services/library/assert"
 	"go-services/library/kafka/internal/consumer"
-	"go-services/library/kafka/ktype"
 	"go-services/library/require"
 )
 
@@ -31,12 +30,12 @@ func TestRouter_Register_Success(t *testing.T) {
 	client := &stubRegisterClient{}
 	r := consumer.NewRouter(client)
 
-	sub := ktype.Subscription{
+	sub := consumer.Subscription{
 		Topic:         "my-topic",
 		Handler:       func(_ context.Context, _ *kgo.Record) error { return nil },
 		BatchHandler:  nil,
-		FailurePolicy: ktype.FailurePolicy{},
-		AckMode:       ktype.AckModeAtLeastOnce,
+		FailurePolicy: consumer.FailurePolicy{},
+		AckMode:       consumer.AckModeAtLeastOnce,
 	}
 
 	err := r.Register(sub)
@@ -51,12 +50,12 @@ func TestRouter_Register_Duplicate(t *testing.T) {
 	client := &stubRegisterClient{}
 	r := consumer.NewRouter(client)
 
-	sub := ktype.Subscription{
+	sub := consumer.Subscription{
 		Topic:         "dup-topic",
 		Handler:       func(_ context.Context, _ *kgo.Record) error { return nil },
 		BatchHandler:  nil,
-		FailurePolicy: ktype.FailurePolicy{},
-		AckMode:       ktype.AckModeAtLeastOnce,
+		FailurePolicy: consumer.FailurePolicy{},
+		AckMode:       consumer.AckModeAtLeastOnce,
 	}
 
 	require.NoError(t, r.Register(sub), "first register should succeed")
@@ -75,24 +74,24 @@ func TestRouter_Snapshot_Immutable(t *testing.T) {
 	client := &stubRegisterClient{}
 	r := consumer.NewRouter(client)
 
-	sub := ktype.Subscription{
+	sub := consumer.Subscription{
 		Topic:         "snap-topic",
 		Handler:       func(_ context.Context, _ *kgo.Record) error { return nil },
 		BatchHandler:  nil,
-		FailurePolicy: ktype.FailurePolicy{},
-		AckMode:       ktype.AckModeAtLeastOnce,
+		FailurePolicy: consumer.FailurePolicy{},
+		AckMode:       consumer.AckModeAtLeastOnce,
 	}
 	require.NoError(t, r.Register(sub), "first register should succeed")
 
 	snap := r.Snapshot()
 	assert.Equal(t, len(snap), 1, "snapshot should have 1 entry")
 
-	sub2 := ktype.Subscription{
+	sub2 := consumer.Subscription{
 		Topic:         "another",
 		Handler:       func(_ context.Context, _ *kgo.Record) error { return nil },
 		BatchHandler:  nil,
-		FailurePolicy: ktype.FailurePolicy{},
-		AckMode:       ktype.AckModeAtLeastOnce,
+		FailurePolicy: consumer.FailurePolicy{},
+		AckMode:       consumer.AckModeAtLeastOnce,
 	}
 	require.NoError(t, r.Register(sub2), "second register should succeed")
 
@@ -103,22 +102,22 @@ func TestRouter_RegisterQuietBatch_SkipsClient(t *testing.T) {
 	client := &stubRegisterClient{}
 	r := consumer.NewRouter(client)
 
-	sub1 := ktype.Subscription{
+	sub1 := consumer.Subscription{
 		Topic:         "topic-a",
 		Handler:       func(_ context.Context, _ *kgo.Record) error { return nil },
 		BatchHandler:  nil,
-		FailurePolicy: ktype.FailurePolicy{},
-		AckMode:       ktype.AckModeAtLeastOnce,
+		FailurePolicy: consumer.FailurePolicy{},
+		AckMode:       consumer.AckModeAtLeastOnce,
 	}
-	sub2 := ktype.Subscription{
+	sub2 := consumer.Subscription{
 		Topic:         "topic-b",
 		Handler:       func(_ context.Context, _ *kgo.Record) error { return nil },
 		BatchHandler:  nil,
-		FailurePolicy: ktype.FailurePolicy{},
-		AckMode:       ktype.AckModeAtLeastOnce,
+		FailurePolicy: consumer.FailurePolicy{},
+		AckMode:       consumer.AckModeAtLeastOnce,
 	}
 
-	err := r.RegisterQuietBatch([]ktype.Subscription{sub1, sub2})
+	err := r.RegisterQuietBatch([]consumer.Subscription{sub1, sub2})
 	require.NoError(t, err, "RegisterQuietBatch should succeed")
 
 	// Verify both are in the router.
@@ -140,22 +139,22 @@ func TestRouter_RegisterQuietBatch_Duplicate(t *testing.T) {
 	client := &stubRegisterClient{}
 	r := consumer.NewRouter(client)
 
-	sub1 := ktype.Subscription{
+	sub1 := consumer.Subscription{
 		Topic:         "topic-a",
 		Handler:       func(_ context.Context, _ *kgo.Record) error { return nil },
 		BatchHandler:  nil,
-		FailurePolicy: ktype.FailurePolicy{},
-		AckMode:       ktype.AckModeAtLeastOnce,
+		FailurePolicy: consumer.FailurePolicy{},
+		AckMode:       consumer.AckModeAtLeastOnce,
 	}
-	sub2 := ktype.Subscription{
+	sub2 := consumer.Subscription{
 		Topic:         "topic-a",
 		Handler:       func(_ context.Context, _ *kgo.Record) error { return nil },
 		BatchHandler:  nil,
-		FailurePolicy: ktype.FailurePolicy{},
-		AckMode:       ktype.AckModeAtLeastOnce,
+		FailurePolicy: consumer.FailurePolicy{},
+		AckMode:       consumer.AckModeAtLeastOnce,
 	}
 
-	err := r.RegisterQuietBatch([]ktype.Subscription{sub1, sub2})
+	err := r.RegisterQuietBatch([]consumer.Subscription{sub1, sub2})
 	assert.ErrorContains(t, err, "duplicate topic", "duplicate in batch should error")
 }
 
@@ -163,12 +162,12 @@ func TestRouter_AddConsumeTopics_Called(t *testing.T) {
 	client := &stubRegisterClient{}
 	r := consumer.NewRouter(client)
 
-	sub := ktype.Subscription{
+	sub := consumer.Subscription{
 		Topic:         "topic-a",
 		Handler:       func(_ context.Context, _ *kgo.Record) error { return nil },
 		BatchHandler:  nil,
-		FailurePolicy: ktype.FailurePolicy{},
-		AckMode:       ktype.AckModeAtLeastOnce,
+		FailurePolicy: consumer.FailurePolicy{},
+		AckMode:       consumer.AckModeAtLeastOnce,
 	}
 
 	err := r.Register(sub)
@@ -186,12 +185,12 @@ func TestRouter_Concurrent_NoRace(t *testing.T) {
 	// Pre-register some topics.
 	for i := range 50 {
 		topic := fmt.Sprintf("pre-%d", i)
-		err := r.Register(ktype.Subscription{
+		err := r.Register(consumer.Subscription{
 			Topic:         topic,
 			Handler:       func(_ context.Context, _ *kgo.Record) error { return nil },
 			BatchHandler:  nil,
-			FailurePolicy: ktype.FailurePolicy{},
-			AckMode:       ktype.AckModeAtLeastOnce,
+			FailurePolicy: consumer.FailurePolicy{},
+			AckMode:       consumer.AckModeAtLeastOnce,
 		})
 		require.NoError(t, err, "pre-register should succeed")
 	}
@@ -204,12 +203,12 @@ func TestRouter_Concurrent_NoRace(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			topic := fmt.Sprintf("conc-%d", id)
-			if err := r.Register(ktype.Subscription{
+			if err := r.Register(consumer.Subscription{
 				Topic:         topic,
 				Handler:       func(_ context.Context, _ *kgo.Record) error { return nil },
 				BatchHandler:  nil,
-				FailurePolicy: ktype.FailurePolicy{},
-				AckMode:       ktype.AckModeAtLeastOnce,
+				FailurePolicy: consumer.FailurePolicy{},
+				AckMode:       consumer.AckModeAtLeastOnce,
 			}); err != nil {
 				t.Errorf("Register failed: %v", err)
 			}
