@@ -41,6 +41,22 @@ func benchSetup(b *testing.B, n int) (topic string, cleanup func()) {
 	}
 	producer.Close()
 
+	// Warm broker fetch path and group coordinator to eliminate first-run
+	// variance caused by cold container state.
+	warmer, err := kgo.NewClient(
+		kgo.SeedBrokers(testKafka.PlainBrokers...),
+		kgo.ConsumerGroup(fmt.Sprintf("warmup-%d", time.Now().UnixNano())),
+		kgo.ConsumeTopics(topic),
+		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()),
+	)
+	if err != nil {
+		b.Fatalf("warmup client: %v", err)
+	}
+	warmCtx, warmCancel := context.WithTimeout(ctx, 10*time.Second)
+	warmer.PollRecords(warmCtx, 500)
+	warmer.Close()
+	warmCancel()
+
 	return topic, func() {} // topics cleaned up by container teardown
 }
 
@@ -85,7 +101,7 @@ func BenchmarkRawKgo(b *testing.B) {
 		start := time.Now()
 
 		for processed.Load() < nRecords {
-			fetches := client.PollRecords(ctx, 10_000)
+			fetches := client.PollRecords(ctx, -1)
 			if err := fetches.Err(); err != nil {
 				if ctx.Err() != nil {
 					break
@@ -98,7 +114,6 @@ func BenchmarkRawKgo(b *testing.B) {
 			}
 		}
 
-		b.StopTimer()
 		elapsed := time.Since(start)
 		memAfter := takeMemSnapshot()
 
@@ -124,6 +139,7 @@ func BenchmarkConsumer(b *testing.B) {
 			testKafka.PlainBrokers,
 			fmt.Sprintf("consumer-%d", time.Now().UnixNano()),
 			kafka.WithWorkers(8),
+			kafka.WithFetchMaxRecords(-1),
 		)
 		require.NoError(b, err, "new consumer")
 
@@ -148,7 +164,6 @@ func BenchmarkConsumer(b *testing.B) {
 			time.Sleep(10 * time.Millisecond)
 		}
 
-		b.StopTimer()
 		elapsed := time.Since(start)
 		memAfter := takeMemSnapshot()
 

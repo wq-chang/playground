@@ -156,9 +156,10 @@ func WithBatchTopic(topic string, handler BatchHandler) Option {
 
 // WithFetchMaxRecords sets the maximum number of records returned by a single
 // PollRecords call. Defaults to 500, matching Apache Kafka's max.poll.records.
+// Pass -1 for unlimited (poll all available records).
 func WithFetchMaxRecords(n int) Option {
 	return func(c *config) {
-		if n > 0 {
+		if n > 0 || n == -1 {
 			c.fetchMaxRecords = n
 		}
 	}
