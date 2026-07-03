@@ -75,7 +75,7 @@ func setupIntegration(t *testing.T, cl *integrationClient) (
 	t.Helper()
 
 	logger := testlogger.NewLogger()
-	router := consumer.NewRouter(nil)
+	router := consumer.NewRouter(&stubRegisterClient{})
 	pauses := consumer.NewPauseRegistry(time.Now)
 	run := consumer.NewRunState()
 	registry := consumer.NewPartitionRegistry(logger)

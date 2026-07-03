@@ -50,9 +50,7 @@ func (r *Router) Register(sub ktype.Subscription) error {
 
 	r.subscriptions[sub.Topic] = sub
 	r.snapshot.Store(maps.Clone(r.subscriptions))
-	if r.client != nil {
-		r.client.AddConsumeTopics(sub.Topic)
-	}
+	r.client.AddConsumeTopics(sub.Topic)
 	return nil
 }
 

@@ -181,7 +181,7 @@ func TestRouter_AddConsumeTopics_Called(t *testing.T) {
 }
 
 func TestRouter_Concurrent_NoRace(t *testing.T) {
-	r := consumer.NewRouter(nil)
+	r := consumer.NewRouter(&stubRegisterClient{})
 
 	// Pre-register some topics.
 	for i := range 50 {

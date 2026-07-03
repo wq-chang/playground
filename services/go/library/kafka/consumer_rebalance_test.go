@@ -21,6 +21,11 @@ func discardingLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
+// noopRegisterClient is a RegisterClient stub that no-ops AddConsumeTopics.
+type noopRegisterClient struct{}
+
+func (noopRegisterClient) AddConsumeTopics(topics ...string) {}
+
 // stubFetchClient records fetch control calls.
 type stubFetchClient struct {
 	commitErr     error
@@ -80,7 +85,7 @@ func (s *stubFetchClient) CommitOffsetsSync(ctx context.Context, offsets map[str
 func newTestConsumer(t *testing.T, stub *stubFetchClient) *Consumer {
 	t.Helper()
 
-	router := consumer.NewRouter(nil)
+	router := consumer.NewRouter(noopRegisterClient{})
 	pauses := consumer.NewPauseRegistry(time.Now)
 	run := consumer.NewRunState()
 	registry := consumer.NewPartitionRegistry(nil)

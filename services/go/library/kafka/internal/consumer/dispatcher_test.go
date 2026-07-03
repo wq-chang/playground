@@ -14,7 +14,7 @@ import (
 )
 
 func TestDispatcher_New(t *testing.T) {
-	router := consumer.NewRouter(nil)
+	router := consumer.NewRouter(&stubRegisterClient{})
 	pauses := consumer.NewPauseRegistry(time.Now)
 	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
 	d := consumer.NewDispatcher(router, pauses, registry, nil)
@@ -22,7 +22,7 @@ func TestDispatcher_New(t *testing.T) {
 }
 
 func TestDispatcher_NotifyCapacity_WaitForCapacity(t *testing.T) {
-	router := consumer.NewRouter(nil)
+	router := consumer.NewRouter(&stubRegisterClient{})
 	pauses := consumer.NewPauseRegistry(nil)
 	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
 	d := consumer.NewDispatcher(router, pauses, registry, nil)
@@ -39,7 +39,7 @@ func TestDispatcher_NotifyCapacity_WaitForCapacity(t *testing.T) {
 }
 
 func TestDispatcher_SkipsPausedTopics(t *testing.T) {
-	router := consumer.NewRouter(nil)
+	router := consumer.NewRouter(&stubRegisterClient{})
 	pauses := consumer.NewPauseRegistry(time.Now)
 	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
 
