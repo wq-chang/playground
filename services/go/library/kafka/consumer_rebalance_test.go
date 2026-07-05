@@ -113,7 +113,6 @@ func newTestConsumer(t *testing.T, stub *stubFetchClient) *Consumer {
 		dispatcher:   nil,
 		workerRunner: nil,
 		fetchClient:  stub,
-		workerClient: stub,
 		drainTimeout: 5 * time.Second,
 	}
 }

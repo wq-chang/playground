@@ -102,7 +102,7 @@ func setupIntegration(t *testing.T, cl *integrationClient) (
 		nil, // dlqWriter
 	)
 
-	dispatcher := consumer.NewDispatcher(router, pauses, registry, wr.Start, capacityCh)
+	dispatcher := consumer.NewDispatcher(router, pauses, registry, cl, wr.Start, capacityCh)
 
 	return run, router, registry, committer, dispatcher
 }
@@ -137,7 +137,7 @@ func TestIntegration_FullPipeline_Success(t *testing.T) {
 		{Topic: "test-topic", Partition: 0, Offset: 2, LeaderEpoch: 0},
 	}
 
-	require.NoError(t, dis.Dispatch(context.Background(), records, cl, cl),
+	require.NoError(t, dis.Dispatch(context.Background(), records, cl),
 		"Dispatch should succeed")
 
 	require.True(t, waitFor(2*time.Second, func() bool { return handled.Load() == 3 }),
@@ -196,7 +196,7 @@ func TestIntegration_ExhaustionPausesTopic(t *testing.T) {
 		{Topic: "test-topic", Partition: 0, Offset: 0, LeaderEpoch: 0},
 	}
 
-	require.NoError(t, dis.Dispatch(context.Background(), records, cl, cl),
+	require.NoError(t, dis.Dispatch(context.Background(), records, cl),
 		"Dispatch should succeed")
 
 	require.True(t, waitFor(2*time.Second, func() bool {
@@ -207,7 +207,7 @@ func TestIntegration_ExhaustionPausesTopic(t *testing.T) {
 
 	// Second dispatch should skip the paused topic.
 	records2 := []*kgo.Record{{Topic: "test-topic", Partition: 0, Offset: 1, LeaderEpoch: 0}}
-	require.NoError(t, dis.Dispatch(context.Background(), records2, cl, cl),
+	require.NoError(t, dis.Dispatch(context.Background(), records2, cl),
 		"second Dispatch should succeed with paused topic skipped")
 
 	// BeginClosingAll drains partition states so run.Wait() can return.
@@ -253,7 +253,7 @@ func TestIntegration_BackpressureCycle(t *testing.T) {
 		records = append(records, &kgo.Record{Topic: "b", Partition: 0, Offset: i, LeaderEpoch: 0})
 	}
 
-	require.NoError(t, dis.Dispatch(context.Background(), records, cl, cl),
+	require.NoError(t, dis.Dispatch(context.Background(), records, cl),
 		"Dispatch should succeed without error")
 
 	require.True(t, waitFor(30*time.Second, func() bool {
@@ -300,7 +300,7 @@ func TestDispatcher_Dispatch_PreservesPolledOrderWithinPartition(t *testing.T) {
 		{Topic: "t", Partition: 0, Offset: 2, LeaderEpoch: 0},
 	}
 
-	require.NoError(t, dis.Dispatch(context.Background(), records, cl, cl),
+	require.NoError(t, dis.Dispatch(context.Background(), records, cl),
 		"Dispatch should succeed")
 
 	require.True(t, waitFor(2*time.Second, func() bool {
@@ -354,7 +354,7 @@ func TestDispatcher_Dispatch_PreservesFirstSeenPartitionOrder(t *testing.T) {
 		{Topic: "a", Partition: 0, Offset: 1, LeaderEpoch: 0},
 	}
 
-	require.NoError(t, dis.Dispatch(context.Background(), records, cl, cl),
+	require.NoError(t, dis.Dispatch(context.Background(), records, cl),
 		"Dispatch should succeed")
 
 	require.True(t, waitFor(2*time.Second, func() bool {
@@ -413,7 +413,7 @@ func TestIntegration_DispatchDoesNotBlockOtherPartitions(t *testing.T) {
 	// Dispatch must not block — Verify "b" got dispatched and enqueued.
 	// Since the workers have 4 concurrent slots (default), both records get a slot.
 	// "a" blocks forever in handler, "b" proceeds and completes.
-	require.NoError(t, dis.Dispatch(context.Background(), records, cl, cl),
+	require.NoError(t, dis.Dispatch(context.Background(), records, cl),
 		"Dispatch should not block")
 
 	require.True(t, waitFor(2*time.Second, func() bool { return processed.Load() == 1 }),
@@ -446,7 +446,7 @@ func TestIntegration_ShutdownFlushesRemaining(t *testing.T) {
 		{Topic: "test-topic", Partition: 0, Offset: 1, LeaderEpoch: 0},
 	}
 
-	require.NoError(t, dis.Dispatch(context.Background(), records, cl, cl),
+	require.NoError(t, dis.Dispatch(context.Background(), records, cl),
 		"Dispatch should succeed")
 
 	require.True(t, waitFor(2*time.Second, func() bool { return handled.Load() == 2 }),

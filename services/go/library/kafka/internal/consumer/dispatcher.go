@@ -11,11 +11,12 @@ import (
 // management. It groups polled records by topic-partition, enqueues them into
 // partition workers, and applies backpressure pauses when queues fill up.
 type Dispatcher struct {
-	router   *Router
-	pauses   *PauseRegistry
-	registry *PartitionRegistry
-	startFn  func(*PartitionState, WorkerClient)
-	dispCh   chan struct{}
+	router       *Router
+	pauses       *PauseRegistry
+	registry     *PartitionRegistry
+	workerClient WorkerClient
+	startFn      func(*PartitionState, WorkerClient)
+	dispCh       chan struct{}
 }
 
 // NewDispatcher creates a dispatcher with the given dependencies.
@@ -24,15 +25,17 @@ func NewDispatcher(
 	router *Router,
 	pauses *PauseRegistry,
 	registry *PartitionRegistry,
+	workerClient WorkerClient,
 	startFn func(*PartitionState, WorkerClient),
 	dispCh chan struct{},
 ) *Dispatcher {
 	return &Dispatcher{
-		router:   router,
-		pauses:   pauses,
-		registry: registry,
-		startFn:  startFn,
-		dispCh:   dispCh,
+		router:       router,
+		pauses:       pauses,
+		registry:     registry,
+		workerClient: workerClient,
+		startFn:      startFn,
+		dispCh:       dispCh,
 	}
 }
 
@@ -42,7 +45,6 @@ func (d *Dispatcher) Dispatch(
 	ctx context.Context,
 	records []*kgo.Record,
 	client FetchControlClient,
-	workerClient WorkerClient,
 ) error {
 	batches, err := d.groupByPartition(records)
 	if err != nil {
@@ -82,7 +84,7 @@ func (d *Dispatcher) Dispatch(
 				return err
 			}
 			if created {
-				d.startFn(state, workerClient)
+				d.startFn(state, d.workerClient)
 			}
 
 			for cursor.next < len(cursor.batch.Records) {

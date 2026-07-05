@@ -44,7 +44,6 @@ type Consumer struct {
 	dispatcher   *consumer.Dispatcher
 	workerRunner *consumer.WorkerRunner
 	fetchClient  consumer.FetchControlClient
-	workerClient consumer.WorkerClient
 	drainTimeout time.Duration
 }
 
@@ -112,11 +111,10 @@ func newConsumer(cfg *config, kgoClient *kgo.Client, dlqProducer DLQProducer) (*
 		dispatcher:   nil,
 		workerRunner: nil,
 		fetchClient:  nil,
-		workerClient: nil,
 		drainTimeout: 30 * time.Second,
 	}
 	v2.fetchClient = v2FetchControlClient{kcl: kgoClient}
-	v2.workerClient = v2WorkerClient{kcl: kgoClient}
+	workerClient := v2WorkerClient{kcl: kgoClient}
 
 	regClient := v2RegisterClient{kcl: kgoClient}
 	v2.router = consumer.NewRouter(regClient)
@@ -128,7 +126,7 @@ func newConsumer(cfg *config, kgoClient *kgo.Client, dlqProducer DLQProducer) (*
 		v2.log,
 		v2.registry,
 		v2.pauses,
-		v2.workerClient,
+		workerClient,
 		consumer.CommitConfig{},
 	)
 
@@ -159,6 +157,7 @@ func newConsumer(cfg *config, kgoClient *kgo.Client, dlqProducer DLQProducer) (*
 		v2.router,
 		v2.pauses,
 		v2.registry,
+		workerClient,
 		v2.workerRunner.Start,
 		capacityCh,
 	)
@@ -270,7 +269,6 @@ func (v2 *Consumer) runDispatch(ctx context.Context) error {
 				ctx,
 				records,
 				v2.fetchClient,
-				v2.workerClient,
 			); err != nil {
 				return err
 			}

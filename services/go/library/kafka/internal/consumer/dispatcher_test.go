@@ -17,7 +17,7 @@ func TestDispatcher_New(t *testing.T) {
 	router := consumer.NewRouter(&stubRegisterClient{})
 	pauses := consumer.NewPauseRegistry(time.Now)
 	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
-	d := consumer.NewDispatcher(router, pauses, registry, nil, make(chan struct{}, 1))
+	d := consumer.NewDispatcher(router, pauses, registry, nil, nil, make(chan struct{}, 1))
 	assert.NotNil(t, d, "NewDispatcher should not return nil")
 }
 
@@ -41,7 +41,7 @@ func TestDispatcher_SkipsPausedTopics(t *testing.T) {
 	pauses.Pause("t", nil)
 
 	// Create dispatcher and verify no state is created for paused topic.
-	consumer.NewDispatcher(router, pauses, registry, nil, make(chan struct{}, 1))
+	consumer.NewDispatcher(router, pauses, registry, nil, nil, make(chan struct{}, 1))
 
 	_, ok := registry.Get(consumer.Key{Topic: "t", Partition: 0})
 	assert.False(t, ok, "no partition should be created for paused topic")
