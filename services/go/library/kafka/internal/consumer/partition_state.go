@@ -80,6 +80,12 @@ func (s *PartitionState) Key() Key {
 	return s.key
 }
 
+// Context returns the partition's context, which is cancelled when
+// BeginClosing or Abort is called.
+func (s *PartitionState) Context() context.Context {
+	return s.ctx
+}
+
 // Done returns a read-only channel that is closed when the worker runner
 // has finished processing this partition.
 func (s *PartitionState) Done() <-chan struct{} {
@@ -215,16 +221,14 @@ func (s *PartitionState) MarkCommitted(offset kgo.EpochOffset) bool {
 	return s.dirty
 }
 
-// BeginClosing moves the state into closing mode and stops accepting new work.
+// BeginClosing moves the state into closing mode, stops accepting new work,
+// and cancels the context so in-flight handlers detect the signal and exit.
+// This prevents goroutine leaks when a handler hangs during drain timeout.
 func (s *PartitionState) BeginClosing() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
-	s.beginClosingLocked()
-}
-
-func (s *PartitionState) beginClosingLocked() {
 	if s.lifecycle == partitionLifecycleStopped {
+		s.mu.Unlock()
 		return
 	}
 
@@ -232,6 +236,9 @@ func (s *PartitionState) beginClosingLocked() {
 	s.accepting = false
 	s.backpressurePaused = false
 	s.closeQueueLocked()
+	s.mu.Unlock()
+
+	s.cancel()
 }
 
 func (s *PartitionState) closeQueueLocked() {
@@ -241,15 +248,15 @@ func (s *PartitionState) closeQueueLocked() {
 }
 
 // Abort aborts the state, cancels its context, and reports the last committable
-// offset if one exists.
+// offset if one exists. Delegates lifecycle transition to BeginClosing.
 func (s *PartitionState) Abort() (kgo.EpochOffset, bool) {
+	s.BeginClosing()
+
 	s.mu.Lock()
-	s.beginClosingLocked()
 	offset := s.nextCommitOffset
 	ok := s.committedOffset.Less(offset)
 	s.mu.Unlock()
 
-	s.cancel()
 	return offset, ok
 }
 

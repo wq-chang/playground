@@ -4,6 +4,7 @@ package consumer_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
 
@@ -264,4 +265,47 @@ func TestPartitionState_Enqueue_AfterClosing_Fails(t *testing.T) {
 	records := []*kgo.Record{{Topic: "t", Partition: 1, Offset: 0}}
 	enqueued, _ := ps.TryEnqueue(records)
 	assert.Equal(t, 0, enqueued, "should not enqueue after closing")
+}
+
+func TestPartitionState_BeginClosing_CancelsContext(t *testing.T) {
+	ps := consumer.NewPartitionState(context.Background(), testlogger.NewLogger(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)
+
+	// Context should not be done before closing.
+	ctx := ps.Context()
+	select {
+	case <-ctx.Done():
+		t.Fatal("context should not be done before BeginClosing")
+	default:
+	}
+
+	ps.BeginClosing()
+
+	// Context should be cancelled immediately after BeginClosing.
+	select {
+	case <-ctx.Done():
+	default:
+		t.Fatal("context should be cancelled after BeginClosing")
+	}
+}
+
+func TestPartitionState_BeginClosing_UnblocksContextWaiters(t *testing.T) {
+	ps := consumer.NewPartitionState(context.Background(), testlogger.NewLogger(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)
+
+	ctx := ps.Context()
+
+	blocked := make(chan struct{})
+	go func() {
+		<-ctx.Done()
+		close(blocked)
+	}()
+
+	// Give the goroutine time to start blocking.
+	ps.BeginClosing()
+
+	select {
+	case <-blocked:
+		// Goroutine unblocked — context cancellation works.
+	case <-time.After(time.Second):
+		t.Fatal("goroutine should unblock after BeginClosing cancels context")
+	}
 }
