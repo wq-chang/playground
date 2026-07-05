@@ -67,9 +67,9 @@ func (wr *WorkerRunner) partitionLoop(state *PartitionState) {
 
 	for {
 		select {
-		case <-state.ctx.Done():
+		case <-state.Context().Done():
 			return
-		case records, ok := <-state.queue:
+		case records, ok := <-state.Recv():
 			if !ok {
 				return
 			}
@@ -91,10 +91,10 @@ func (wr *WorkerRunner) partitionLoop(state *PartitionState) {
 				}
 			}
 
-			if state.subscription.BatchHandler != nil {
-				wr.processBatch(state.ctx, state, records)
+			if state.Subscription().BatchHandler != nil {
+				wr.processBatch(state.Context(), state, records)
 			} else {
-				wr.processRecords(state.ctx, state, records)
+				wr.processRecords(state.Context(), state, records)
 			}
 		}
 	}
@@ -112,7 +112,7 @@ func (wr *WorkerRunner) processRecords(
 			continue
 		}
 
-		if state.subscription.AckMode == AckModeAtMostOnce {
+		if state.Subscription().AckMode == AckModeAtMostOnce {
 			if err := wr.committer.CommitRecords(ctx, record); err != nil {
 				wr.run.Fail(err)
 				return
@@ -125,7 +125,7 @@ func (wr *WorkerRunner) processRecords(
 			}
 			return
 		}
-		result := wr.executor.ExecuteRecord(ctx, state.subscription, record, wr.dlqWriter)
+		result := wr.executor.ExecuteRecord(ctx, state.Subscription(), record, wr.dlqWriter)
 		wr.releaseProcessSlot()
 
 		if result.PauseTopic {
@@ -144,7 +144,7 @@ func (wr *WorkerRunner) processRecords(
 			return
 		}
 
-		if state.subscription.AckMode == AckModeAtLeastOnce && result.Resolved {
+		if state.Subscription().AckMode == AckModeAtLeastOnce && result.Resolved {
 			lastResolved = record
 		}
 	}
@@ -167,7 +167,7 @@ func (wr *WorkerRunner) processBatch(
 		return
 	}
 
-	if state.subscription.AckMode == AckModeAtMostOnce {
+	if state.Subscription().AckMode == AckModeAtMostOnce {
 		if err := wr.committer.CommitRecords(ctx, records...); err != nil {
 			wr.run.Fail(err)
 			return
@@ -177,7 +177,7 @@ func (wr *WorkerRunner) processBatch(
 	if err := wr.acquireProcessSlot(ctx); err != nil {
 		return
 	}
-	resolvedCount, cause, pauseTopic := wr.executor.ExecuteBatch(ctx, state.subscription, records, wr.dlqWriter)
+	resolvedCount, cause, pauseTopic := wr.executor.ExecuteBatch(ctx, state.Subscription(), records, wr.dlqWriter)
 	wr.releaseProcessSlot()
 
 	if pauseTopic {
@@ -193,7 +193,7 @@ func (wr *WorkerRunner) processBatch(
 		return
 	}
 
-	if state.subscription.AckMode == AckModeAtLeastOnce && resolvedCount > 0 {
+	if state.Subscription().AckMode == AckModeAtLeastOnce && resolvedCount > 0 {
 		lastResolved := records[resolvedCount-1]
 		if state.AdvanceCommitOffset(lastResolved) && wr.registry.MarkDirty(state) {
 			wr.committer.RequestFlush()

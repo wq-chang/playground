@@ -86,6 +86,17 @@ func (s *PartitionState) Context() context.Context {
 	return s.ctx
 }
 
+// Recv returns the receive-only record queue. The channel is closed when
+// BeginClosing is called.
+func (s *PartitionState) Recv() <-chan []*kgo.Record {
+	return s.queue
+}
+
+// Subscription returns the subscription configuration for this partition.
+func (s *PartitionState) Subscription() Subscription {
+	return s.subscription
+}
+
 // Done returns a read-only channel that is closed when the worker runner
 // has finished processing this partition.
 func (s *PartitionState) Done() <-chan struct{} {
