@@ -5,7 +5,6 @@ package kafka
 
 import (
 	"context"
-	"sync"
 	"testing"
 
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -14,8 +13,8 @@ import (
 	"go-services/library/require"
 )
 
-// newTestClientV2 creates a minimal Client for v2 unit testing.
-func newTestClientV2(t *testing.T) *Client {
+// newTestKgoClient creates a standalone kgo.Client for unit testing.
+func newTestKgoClient(t *testing.T) *kgo.Client {
 	t.Helper()
 
 	kgoClient, err := kgo.NewClient(
@@ -25,27 +24,20 @@ func newTestClientV2(t *testing.T) *Client {
 	require.NoError(t, err, "failed to create test kgo client")
 	t.Cleanup(kgoClient.Close)
 
-	return &Client{
-		kgoClient: kgoClient,
-		Consumer:  nil,
-		Producer:  nil,
-		closeOnce: sync.Once{},
-		closed:    false,
-		mu:        sync.RWMutex{},
-	}
+	return kgoClient
 }
 
 func TestConsumer_New_ValidConfig(t *testing.T) {
-	client := newTestClientV2(t)
+	kgoClient := newTestKgoClient(t)
 	cfg := newConfig([]string{"localhost:9092"}, "test-group")
 
-	v2, err := newConsumer(cfg, client)
+	v2, err := newConsumer(cfg, kgoClient, nil)
 	require.NoError(t, err, "newConsumer should succeed")
 	require.NotNil(t, v2, "Consumer should not be nil")
 }
 
 func TestConsumer_New_WithStartupSubscriptions(t *testing.T) {
-	client := newTestClientV2(t)
+	kgoClient := newTestKgoClient(t)
 	cfg := newConfig([]string{"localhost:9092"}, "test-group")
 	cfg.subscriptions["topic-a"] = newDefaultSubscription(
 		"topic-a",
@@ -58,7 +50,7 @@ func TestConsumer_New_WithStartupSubscriptions(t *testing.T) {
 		AckModeAtMostOnce,
 	)
 
-	v2, err := newConsumer(cfg, client)
+	v2, err := newConsumer(cfg, kgoClient, nil)
 	require.NoError(t, err, "newConsumer should succeed with startup subscriptions")
 
 	snap := v2.router.Snapshot()
@@ -66,9 +58,9 @@ func TestConsumer_New_WithStartupSubscriptions(t *testing.T) {
 }
 
 func TestConsumer_AddSubscription(t *testing.T) {
-	client := newTestClientV2(t)
+	kgoClient := newTestKgoClient(t)
 	cfg := newConfig([]string{"localhost:9092"}, "test-group")
-	v2, err := newConsumer(cfg, client)
+	v2, err := newConsumer(cfg, kgoClient, nil)
 	require.NoError(t, err, "newConsumer should succeed")
 
 	sub := Subscription{
@@ -91,9 +83,9 @@ func TestConsumer_AddSubscription(t *testing.T) {
 }
 
 func TestConsumer_AddSubscription_Duplicate(t *testing.T) {
-	client := newTestClientV2(t)
+	kgoClient := newTestKgoClient(t)
 	cfg := newConfig([]string{"localhost:9092"}, "test-group")
-	v2, err := newConsumer(cfg, client)
+	v2, err := newConsumer(cfg, kgoClient, nil)
 	require.NoError(t, err, "newConsumer should succeed")
 
 	sub := Subscription{
@@ -112,9 +104,9 @@ func TestConsumer_AddSubscription_Duplicate(t *testing.T) {
 }
 
 func TestConsumer_AddSubscription_Invalid(t *testing.T) {
-	client := newTestClientV2(t)
+	kgoClient := newTestKgoClient(t)
 	cfg := newConfig([]string{"localhost:9092"}, "test-group")
-	v2, err := newConsumer(cfg, client)
+	v2, err := newConsumer(cfg, kgoClient, nil)
 	require.NoError(t, err, "newConsumer should succeed")
 
 	sub := Subscription{
@@ -129,9 +121,9 @@ func TestConsumer_AddSubscription_Invalid(t *testing.T) {
 }
 
 func TestConsumer_AddTopic(t *testing.T) {
-	client := newTestClientV2(t)
+	kgoClient := newTestKgoClient(t)
 	cfg := newConfig([]string{"localhost:9092"}, "test-group")
-	v2, err := newConsumer(cfg, client)
+	v2, err := newConsumer(cfg, kgoClient, nil)
 	require.NoError(t, err, "newConsumer should succeed")
 
 	handler := func(context.Context, *kgo.Record) error { return nil }
@@ -145,9 +137,9 @@ func TestConsumer_AddTopic(t *testing.T) {
 }
 
 func TestConsumer_AddBatchTopic(t *testing.T) {
-	client := newTestClientV2(t)
+	kgoClient := newTestKgoClient(t)
 	cfg := newConfig([]string{"localhost:9092"}, "test-group")
-	v2, err := newConsumer(cfg, client)
+	v2, err := newConsumer(cfg, kgoClient, nil)
 	require.NoError(t, err, "newConsumer should succeed")
 
 	handler := func(context.Context, []*kgo.Record) BatchResult { return BatchResult{} }
@@ -161,9 +153,9 @@ func TestConsumer_AddBatchTopic(t *testing.T) {
 }
 
 func TestConsumer_Run_CancelsOnContext(t *testing.T) {
-	client := newTestClientV2(t)
+	kgoClient := newTestKgoClient(t)
 	cfg := newConfig([]string{"localhost:9092"}, "test-group")
-	v2, err := newConsumer(cfg, client)
+	v2, err := newConsumer(cfg, kgoClient, nil)
 	require.NoError(t, err, "newConsumer should succeed")
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -174,9 +166,9 @@ func TestConsumer_Run_CancelsOnContext(t *testing.T) {
 }
 
 func TestConsumer_Run_RejectsConcurrentRun(t *testing.T) {
-	client := newTestClientV2(t)
+	kgoClient := newTestKgoClient(t)
 	cfg := newConfig([]string{"localhost:9092"}, "test-group")
-	v2, err := newConsumer(cfg, client)
+	v2, err := newConsumer(cfg, kgoClient, nil)
 	require.NoError(t, err, "newConsumer should succeed")
 
 	// Start the first run's lifecycle so runState is active, without
@@ -200,9 +192,9 @@ func TestConsumer_Run_RejectsConcurrentRun(t *testing.T) {
 }
 
 func TestConsumer_NormalizesOnRegister(t *testing.T) {
-	client := newTestClientV2(t)
+	kgoClient := newTestKgoClient(t)
 	cfg := newConfig([]string{"localhost:9092"}, "test-group")
-	v2, err := newConsumer(cfg, client)
+	v2, err := newConsumer(cfg, kgoClient, nil)
 	require.NoError(t, err, "newConsumer should succeed")
 
 	err = v2.AddSubscription(Subscription{

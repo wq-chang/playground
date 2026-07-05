@@ -14,23 +14,25 @@ type Dispatcher struct {
 	router   *Router
 	pauses   *PauseRegistry
 	registry *PartitionRegistry
-	runner   *WorkerRunner
+	startFn  func(*PartitionState, WorkerClient)
 	dispCh   chan struct{}
 }
 
 // NewDispatcher creates a dispatcher with the given dependencies.
+// startFn is called when a new partition worker needs to be started.
 func NewDispatcher(
 	router *Router,
 	pauses *PauseRegistry,
 	registry *PartitionRegistry,
-	runner *WorkerRunner,
+	startFn func(*PartitionState, WorkerClient),
+	dispCh chan struct{},
 ) *Dispatcher {
 	return &Dispatcher{
 		router:   router,
 		pauses:   pauses,
 		registry: registry,
-		runner:   runner,
-		dispCh:   make(chan struct{}, 1),
+		startFn:  startFn,
+		dispCh:   dispCh,
 	}
 }
 
@@ -80,7 +82,7 @@ func (d *Dispatcher) Dispatch(
 				return err
 			}
 			if created {
-				d.runner.Start(state, workerClient)
+				d.startFn(state, workerClient)
 			}
 
 			for cursor.next < len(cursor.batch.Records) {
@@ -148,14 +150,6 @@ func (d *Dispatcher) groupByPartition(records []*kgo.Record) ([]PartitionBatch, 
 	}
 
 	return batches, nil
-}
-
-// NotifyCapacity signals that some worker consumed a batch, so dispatch can retry.
-func (d *Dispatcher) NotifyCapacity() {
-	select {
-	case d.dispCh <- struct{}{}:
-	default:
-	}
 }
 
 // WaitForCapacity blocks until capacity becomes available or the context is done.

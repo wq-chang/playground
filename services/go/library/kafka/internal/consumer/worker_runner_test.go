@@ -77,10 +77,10 @@ func subBatch() consumer.Subscription {
 	}
 }
 
-func setupWorker(run *consumer.RunState, reg *consumer.PartitionRegistry, pauses *consumer.PauseRegistry, client *stubWorkerClient, notify func()) *consumer.WorkerRunner {
+func setupWorker(run *consumer.RunState, reg *consumer.PartitionRegistry, pauses *consumer.PauseRegistry, client *stubWorkerClient, capacityCh chan struct{}) *consumer.WorkerRunner {
 	committer := consumer.NewCommitter(testlogger.NewLogger(), reg, pauses, client, consumer.CommitConfig{})
 	executor := consumer.NewRecordExecutor(testlogger.NewLogger())
-	return consumer.NewWorkerRunner(testlogger.NewLogger(), run, committer, executor, reg, pauses, 4, notify, nil)
+	return consumer.NewWorkerRunner(testlogger.NewLogger(), run, committer, executor, reg, pauses, 4, capacityCh, nil)
 }
 
 func startWorker(t *testing.T) (*consumer.RunState, context.Context, *consumer.PartitionRegistry, *consumer.PauseRegistry, *stubWorkerClient) {
@@ -110,43 +110,27 @@ func TestWorkerRunner_Start_RunsPartitionLoop(t *testing.T) {
 	run, runCtx, reg, pauses, client := startWorker(t)
 	defer stopWorker(run)
 
-	var notified atomic.Int32
-	wr := setupWorker(run, reg, pauses, client, func() { notified.Add(1) })
+	capacityCh := make(chan struct{}, 1)
+	wr := setupWorker(run, reg, pauses, client, capacityCh)
 
 	ps := getPS(t, reg, subAck(consumer.AckModeAtLeastOnce), runCtx)
 	wr.Start(ps, client)
 
 	time.Sleep(10 * time.Millisecond)
 	ps.TryEnqueue([]*kgo.Record{{Topic: "t", Partition: 0, Offset: 1}})
-	time.Sleep(50 * time.Millisecond)
 
-	assert.True(t, notified.Load() > 0, "should have notified capacity at least once")
-}
-
-func TestWorkerRunner_SetNotifyCapacity(t *testing.T) {
-	run, runCtx, reg, pauses, client := startWorker(t)
-	defer stopWorker(run)
-
-	wr := setupWorker(run, reg, pauses, client, func() {})
-
-	var called atomic.Bool
-	wr.SetNotifyCapacity(func() { called.Store(true) })
-
-	ps := getPS(t, reg, subAck(consumer.AckModeAtLeastOnce), runCtx)
-	wr.Start(ps, client)
-
-	time.Sleep(10 * time.Millisecond)
-	ps.TryEnqueue([]*kgo.Record{{Topic: "t", Partition: 0, Offset: 1}})
-	time.Sleep(50 * time.Millisecond)
-
-	assert.True(t, called.Load(), "SetNotifyCapacity should be effective")
+	select {
+	case <-capacityCh:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("capacity channel should receive after dequeue")
+	}
 }
 
 func TestWorkerRunner_AtLeastOnce_MarksDirty(t *testing.T) {
 	run, runCtx, reg, pauses, client := startWorker(t)
 	defer stopWorker(run)
 
-	wr := setupWorker(run, reg, pauses, client, func() {})
+	wr := setupWorker(run, reg, pauses, client, make(chan struct{}, 1))
 
 	ps := getPS(t, reg, subAck(consumer.AckModeAtLeastOnce), runCtx)
 	wr.Start(ps, client)
@@ -163,7 +147,7 @@ func TestWorkerRunner_AtMostOnce_CommitsBeforeProcessing(t *testing.T) {
 	run, runCtx, reg, pauses, client := startWorker(t)
 	defer stopWorker(run)
 
-	wr := setupWorker(run, reg, pauses, client, func() {})
+	wr := setupWorker(run, reg, pauses, client, make(chan struct{}, 1))
 
 	ps := getPS(t, reg, subAck(consumer.AckModeAtMostOnce), runCtx)
 	wr.Start(ps, client)
@@ -181,7 +165,7 @@ func TestWorkerRunner_BatchProcessing(t *testing.T) {
 	run, runCtx, reg, pauses, client := startWorker(t)
 	defer stopWorker(run)
 
-	wr := setupWorker(run, reg, pauses, client, func() {})
+	wr := setupWorker(run, reg, pauses, client, make(chan struct{}, 1))
 
 	ps := getPS(t, reg, subBatch(), runCtx)
 	wr.Start(ps, client)
@@ -198,7 +182,7 @@ func TestWorkerRunner_TopicPauseOnFailure(t *testing.T) {
 	run, runCtx, reg, pauses, client := startWorker(t)
 	defer stopWorker(run)
 
-	wr := setupWorker(run, reg, pauses, client, func() {})
+	wr := setupWorker(run, reg, pauses, client, make(chan struct{}, 1))
 
 	ps := getPS(t, reg, subFailsThenPause(), runCtx)
 	wr.Start(ps, client)
@@ -226,7 +210,7 @@ func TestWorkerRunner_ProcessSemaphore_BoundsConcurrency(t *testing.T) {
 
 	committer := consumer.NewCommitter(testlogger.NewLogger(), reg, pauses, client, consumer.CommitConfig{})
 	executor := consumer.NewRecordExecutor(testlogger.NewLogger())
-	wr := consumer.NewWorkerRunner(testlogger.NewLogger(), run, committer, executor, reg, pauses, 1, func() {}, nil)
+	wr := consumer.NewWorkerRunner(testlogger.NewLogger(), run, committer, executor, reg, pauses, 4, make(chan struct{}, 1), nil)
 
 	ps := getPS(t, reg, subAck(consumer.AckModeAtLeastOnce), runCtx)
 	wr.Start(ps, client)
@@ -276,7 +260,7 @@ func TestWorkerRunner_FlushResolvedBeforeFatalError(t *testing.T) {
 	committer := consumer.NewCommitter(nil, reg, pauses, client, consumer.CommitConfig{})
 	executor := consumer.NewRecordExecutor(testlogger.NewLogger())
 	failingDLQ := func(_ context.Context, _ *kgo.Record) error { return errors.New("dlq down") }
-	wr := consumer.NewWorkerRunner(testlogger.NewLogger(), run, committer, executor, reg, pauses, 4, func() {}, failingDLQ)
+	wr := consumer.NewWorkerRunner(testlogger.NewLogger(), run, committer, executor, reg, pauses, 4, make(chan struct{}, 1), failingDLQ)
 
 	wr.Start(ps, client)
 	time.Sleep(10 * time.Millisecond)
@@ -321,7 +305,7 @@ func TestWorkerRunner_FlushResolvedBeforeContextCancel(t *testing.T) {
 
 	committer := consumer.NewCommitter(nil, reg, pauses, client, consumer.CommitConfig{})
 	executor := consumer.NewRecordExecutor(testlogger.NewLogger())
-	wr := consumer.NewWorkerRunner(testlogger.NewLogger(), run, committer, executor, reg, pauses, 1, func() {}, nil)
+	wr := consumer.NewWorkerRunner(testlogger.NewLogger(), run, committer, executor, reg, pauses, 4, make(chan struct{}, 1), nil)
 	wr.Start(ps, client)
 	time.Sleep(10 * time.Millisecond)
 

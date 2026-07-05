@@ -17,25 +17,8 @@ func TestDispatcher_New(t *testing.T) {
 	router := consumer.NewRouter(&stubRegisterClient{})
 	pauses := consumer.NewPauseRegistry(time.Now)
 	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
-	d := consumer.NewDispatcher(router, pauses, registry, nil)
+	d := consumer.NewDispatcher(router, pauses, registry, nil, make(chan struct{}, 1))
 	assert.NotNil(t, d, "NewDispatcher should not return nil")
-}
-
-func TestDispatcher_NotifyCapacity_WaitForCapacity(t *testing.T) {
-	router := consumer.NewRouter(&stubRegisterClient{})
-	pauses := consumer.NewPauseRegistry(nil)
-	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
-	d := consumer.NewDispatcher(router, pauses, registry, nil)
-
-	done := make(chan struct{})
-	go func() {
-		err := d.WaitForCapacity(context.Background())
-		assert.NoError(t, err, "WaitForCapacity should return nil when signaled")
-		close(done)
-	}()
-
-	d.NotifyCapacity()
-	<-done
 }
 
 func TestDispatcher_SkipsPausedTopics(t *testing.T) {
@@ -58,7 +41,7 @@ func TestDispatcher_SkipsPausedTopics(t *testing.T) {
 	pauses.Pause("t", nil)
 
 	// Create dispatcher and verify no state is created for paused topic.
-	consumer.NewDispatcher(router, pauses, registry, nil)
+	consumer.NewDispatcher(router, pauses, registry, nil, make(chan struct{}, 1))
 
 	_, ok := registry.Get(consumer.Key{Topic: "t", Partition: 0})
 	assert.False(t, ok, "no partition should be created for paused topic")

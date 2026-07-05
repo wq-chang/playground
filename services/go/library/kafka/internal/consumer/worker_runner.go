@@ -17,13 +17,14 @@ type WorkerRunner struct {
 	pauses     *PauseRegistry
 	logger     *slog.Logger
 	processSem chan struct{}
-	notifyCap  func()
+	capacityCh chan struct{}
 	dlqWriter  func(ctx context.Context, record *kgo.Record) error
 }
 
 // NewWorkerRunner creates a worker runner with the given dependencies.
-// notifyCapacity is called when a batch is dequeued (wired to Dispatcher.NotifyCapacity).
-// dlqWriter publishes enriched records to the DLQ topic.
+// capacityCh is signaled (non-blocking) when a batch is dequeued so the
+// dispatcher can retry stalled dispatches. dlqWriter publishes enriched
+// records to the DLQ topic.
 func NewWorkerRunner(
 	logger *slog.Logger,
 	run *RunState,
@@ -32,7 +33,7 @@ func NewWorkerRunner(
 	registry *PartitionRegistry,
 	pauses *PauseRegistry,
 	maxConcurrent int,
-	notifyCapacity func(),
+	capacityCh chan struct{},
 	dlqWriter func(ctx context.Context, record *kgo.Record) error,
 ) *WorkerRunner {
 	if maxConcurrent < 1 {
@@ -46,19 +47,12 @@ func NewWorkerRunner(
 		pauses:     pauses,
 		logger:     logger,
 		processSem: make(chan struct{}, maxConcurrent),
-		notifyCap:  notifyCapacity,
+		capacityCh: capacityCh,
 		dlqWriter:  dlqWriter,
 	}
 }
 
-// SetNotifyCapacity updates the capacity notification callback after construction.
-// Used to break circular dependency between WorkerRunner and Dispatcher.
-func (wr *WorkerRunner) SetNotifyCapacity(fn func()) {
-	wr.notifyCap = fn
-}
-
 // Start launches a goroutine for this partition under the run's wait group.
-// Must be called before the first enqueue to avoid NotifyCapacity deadlock.
 func (wr *WorkerRunner) Start(state *PartitionState, client WorkerClient) {
 	wr.run.Go(func() {
 		wr.partitionLoop(state, client)
@@ -78,7 +72,10 @@ func (wr *WorkerRunner) partitionLoop(state *PartitionState, client WorkerClient
 			}
 
 			state.OnDequeue(records)
-			wr.notifyCap()
+			select {
+			case wr.capacityCh <- struct{}{}:
+			default:
+			}
 
 			// Resume partition if backpressure is cleared and topic is not paused.
 			// The low-watermark check is handled inside TryResumeBackpressure to

@@ -135,24 +135,22 @@ func New(brokers []string, groupId string, opts ...Option) (*Client, error) {
 		return nil, fmt.Errorf("failed to create kgo client: %w", err)
 	}
 
+	producer := newProducer(cfg, kgoClient)
+
+	consumer, err = newConsumer(cfg, kgoClient, producer)
+	if err != nil {
+		kgoClient.Close()
+		return nil, fmt.Errorf("failed to initialize consumer: %w", err)
+	}
+
 	client := &Client{
-		Consumer:  nil,
-		Producer:  nil,
+		Consumer:  consumer,
+		Producer:  producer,
 		kgoClient: kgoClient,
 		closeOnce: sync.Once{},
 		closed:    false,
 		mu:        sync.RWMutex{},
 	}
-
-	consumer, err = newConsumer(cfg, client)
-	if err != nil {
-		client.Close()
-		return nil, fmt.Errorf("failed to initialize consumer: %w", err)
-	}
-	producer := newProducer(cfg, client)
-
-	client.Consumer = consumer
-	client.Producer = producer
 
 	return client, nil
 }

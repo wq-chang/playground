@@ -92,16 +92,17 @@ func setupIntegration(t *testing.T, cl *integrationClient) (
 
 	executor := consumer.NewRecordExecutor(logger)
 
+	capacityCh := make(chan struct{}, 1)
+
 	wr := consumer.NewWorkerRunner(
 		logger, run, committer, executor,
 		registry, pauses,
 		4,
-		nil, // notifyCapacity — wired below
+		capacityCh,
 		nil, // dlqWriter
 	)
 
-	dispatcher := consumer.NewDispatcher(router, pauses, registry, wr)
-	wr.SetNotifyCapacity(dispatcher.NotifyCapacity)
+	dispatcher := consumer.NewDispatcher(router, pauses, registry, wr.Start, capacityCh)
 
 	return run, router, registry, committer, dispatcher
 }

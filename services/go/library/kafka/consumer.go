@@ -24,10 +24,17 @@ const (
 	AckModeAtMostOnce = consumer.AckModeAtMostOnce
 )
 
+// DLQProducer is the narrow interface Consumer needs for dead-letter publishing.
+// Client.Producer satisfies this interface.
+type DLQProducer interface {
+	ProduceSync(ctx context.Context, record *kgo.Record) error
+}
+
 // Consumer is the topic subscription and consumption API.
 type Consumer struct {
 	cfg          *config
-	client       *Client
+	kgoClient    *kgo.Client
+	dlqProducer  DLQProducer
 	log          *slog.Logger
 	router       *consumer.Router
 	pauses       *consumer.PauseRegistry
@@ -89,11 +96,13 @@ func (a v2WorkerClient) ResumeFetchPartitions(partitions map[string][]int32) {
 	a.kcl.ResumeFetchPartitions(partitions)
 }
 
-// newConsumer creates a Consumer from the shared config and client.
-func newConsumer(cfg *config, client *Client) (*Consumer, error) {
+// newConsumer creates a Consumer from the shared config, kgo client, and
+// optional DLQ producer.
+func newConsumer(cfg *config, kgoClient *kgo.Client, dlqProducer DLQProducer) (*Consumer, error) {
 	v2 := &Consumer{
 		cfg:          cfg,
-		client:       client,
+		kgoClient:    kgoClient,
+		dlqProducer:  dlqProducer,
 		log:          cfg.logger,
 		router:       nil,
 		pauses:       nil,
@@ -106,10 +115,10 @@ func newConsumer(cfg *config, client *Client) (*Consumer, error) {
 		workerClient: nil,
 		drainTimeout: 30 * time.Second,
 	}
-	v2.fetchClient = v2FetchControlClient{kcl: client.kgoClient}
-	v2.workerClient = v2WorkerClient{kcl: client.kgoClient}
+	v2.fetchClient = v2FetchControlClient{kcl: kgoClient}
+	v2.workerClient = v2WorkerClient{kcl: kgoClient}
 
-	regClient := v2RegisterClient{kcl: client.kgoClient}
+	regClient := v2RegisterClient{kcl: kgoClient}
 	v2.router = consumer.NewRouter(regClient)
 	v2.pauses = consumer.NewPauseRegistry(time.Now)
 	v2.runState = consumer.NewRunState()
@@ -125,13 +134,14 @@ func newConsumer(cfg *config, client *Client) (*Consumer, error) {
 
 	executor := consumer.NewRecordExecutor(v2.log)
 
-	dlqClient := client
 	dlqWriter := func(ctx context.Context, record *kgo.Record) error {
-		if dlqClient.Producer != nil {
-			return dlqClient.Producer.ProduceSync(ctx, record)
+		if dlqProducer != nil {
+			return dlqProducer.ProduceSync(ctx, record)
 		}
 		return fmt.Errorf("dlq publishing requires a producer-enabled client")
 	}
+
+	capacityCh := make(chan struct{}, 1)
 
 	v2.workerRunner = consumer.NewWorkerRunner(
 		v2.log,
@@ -141,12 +151,15 @@ func newConsumer(cfg *config, client *Client) (*Consumer, error) {
 		v2.registry,
 		v2.pauses,
 		v2.cfg.workers,
-		func() {},
+		capacityCh,
 		dlqWriter,
 	)
 
-	v2.dispatcher = consumer.NewDispatcher(v2.router, v2.pauses, v2.registry, v2.workerRunner)
-	v2.workerRunner.SetNotifyCapacity(v2.dispatcher.NotifyCapacity)
+	v2.dispatcher = consumer.NewDispatcher(
+		v2.router, v2.pauses, v2.registry,
+		v2.workerRunner.Start,
+		capacityCh,
+	)
 
 	subs := make([]Subscription, 0, len(cfg.subscriptions))
 	for _, sub := range cfg.subscriptions {
@@ -190,7 +203,7 @@ func (v2 *Consumer) Run(ctx context.Context) error {
 	pollCtx, stopPolling := mergeRunContexts(ctx, runCtx)
 	defer stopPolling()
 
-	if v2.client == nil || v2.client.kgoClient == nil {
+	if v2.kgoClient == nil {
 		return fmt.Errorf("consumer client is not initialized")
 	}
 
@@ -234,7 +247,7 @@ func (v2 *Consumer) Run(ctx context.Context) error {
 }
 
 func (v2 *Consumer) runDispatch(ctx context.Context) error {
-	cl := v2.client.kgoClient
+	cl := v2.kgoClient
 	maxRecords := v2.cfg.fetchMaxRecords
 	for {
 		fetches := cl.PollRecords(ctx, maxRecords)

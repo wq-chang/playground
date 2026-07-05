@@ -15,13 +15,6 @@ type OffsetClient interface {
 	CommitOffsetsSync(ctx context.Context, offsets map[string]map[int32]kgo.EpochOffset) error
 }
 
-// CommitPauseClient extends OffsetClient with topic pause capabilities.
-// TODO(v2): used by v2 façade when orchestrating the full pause flow.
-type CommitPauseClient interface {
-	OffsetClient
-	PauseFetchTopics(topics ...string)
-}
-
 // CommitConfig configures the commit loop timing and timeouts.
 type CommitConfig struct {
 	FlushInterval      time.Duration
