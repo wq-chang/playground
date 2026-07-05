@@ -52,7 +52,13 @@ type Committer struct {
 }
 
 // NewCommitter creates a commit owner with the given dependencies.
-func NewCommitter(logger *slog.Logger, registry *PartitionRegistry, pauses *PauseRegistry, client OffsetClient, cfg CommitConfig) *Committer {
+func NewCommitter(
+	logger *slog.Logger,
+	registry *PartitionRegistry,
+	pauses *PauseRegistry,
+	client OffsetClient,
+	cfg CommitConfig,
+) *Committer {
 	cfg = cfg.withDefaults()
 	cm := &Committer{
 		registry: registry,

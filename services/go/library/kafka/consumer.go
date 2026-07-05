@@ -156,7 +156,9 @@ func newConsumer(cfg *config, kgoClient *kgo.Client, dlqProducer DLQProducer) (*
 	)
 
 	v2.dispatcher = consumer.NewDispatcher(
-		v2.router, v2.pauses, v2.registry,
+		v2.router,
+		v2.pauses,
+		v2.registry,
 		v2.workerRunner.Start,
 		capacityCh,
 	)
