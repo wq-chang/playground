@@ -150,8 +150,6 @@ func WithBatchTopic(topic string, handler BatchHandler) Option {
 	}
 }
 
-// --- Producer Specific Options ---
-
 // --- Consumer Specific Options (continued) ---
 
 // WithFetchMaxRecords sets the maximum number of records returned by a single

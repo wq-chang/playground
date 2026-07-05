@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -43,8 +42,6 @@ func (c CommitConfig) withDefaults() CommitConfig {
 // and final-commit behavior.
 type Committer struct {
 	registry *PartitionRegistry
-	pauses   *PauseRegistry
-	log      *slog.Logger
 	client   OffsetClient
 	flushCh  chan struct{}
 	commitMu chan struct{}
@@ -53,17 +50,13 @@ type Committer struct {
 
 // NewCommitter creates a commit owner with the given dependencies.
 func NewCommitter(
-	logger *slog.Logger,
 	registry *PartitionRegistry,
-	pauses *PauseRegistry,
 	client OffsetClient,
 	cfg CommitConfig,
 ) *Committer {
 	cfg = cfg.withDefaults()
 	cm := &Committer{
 		registry: registry,
-		pauses:   pauses,
-		log:      logger,
 		client:   client,
 		cfg:      cfg,
 		flushCh:  make(chan struct{}, 1),
@@ -248,22 +241,6 @@ func recordsToOffsets(records []*kgo.Record) map[string]map[int32]kgo.EpochOffse
 		return nil
 	}
 	return offsets
-}
-
-// PauseTopic commits the given offsets for a paused topic.
-// The caller is responsible for marking the topic paused and aborting
-// partition states — Committer only handles the offset commit.
-func (cm *Committer) PauseTopic(ctx context.Context, offsets map[string]map[int32]kgo.EpochOffset) error {
-	if len(offsets) == 0 {
-		return nil
-	}
-
-	if err := cm.acquireCommitMu(ctx); err != nil {
-		return err
-	}
-	defer cm.releaseCommitMu()
-
-	return cm.client.CommitOffsetsSync(ctx, offsets)
 }
 
 // Finalize waits for the selected states to drain, then commits the final

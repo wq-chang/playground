@@ -86,9 +86,7 @@ func newTestConsumer(t *testing.T, stub *stubFetchClient) *Consumer {
 	registry := consumer.NewPartitionRegistry(nil)
 
 	committer := consumer.NewCommitter(
-		nil,
 		registry,
-		pauses,
 		stub,
 		consumer.CommitConfig{
 			FlushInterval:      10 * time.Millisecond,

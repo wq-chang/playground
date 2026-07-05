@@ -60,7 +60,7 @@ func subBatch() consumer.Subscription {
 }
 
 func setupWorker(run *consumer.RunState, reg *consumer.PartitionRegistry, pauses *consumer.PauseRegistry, client *stubWorkerClient, capacityCh chan struct{}, kgoClient *kgo.Client) *consumer.WorkerRunner {
-	committer := consumer.NewCommitter(testlogger.NewLogger(), reg, pauses, client, consumer.CommitConfig{})
+	committer := consumer.NewCommitter(reg, client, consumer.CommitConfig{})
 	executor := consumer.NewRecordExecutor(testlogger.NewLogger())
 	return consumer.NewWorkerRunner(testlogger.NewLogger(), run, committer, executor, reg, pauses, 4, capacityCh, nil, kgoClient)
 }
@@ -206,7 +206,7 @@ func TestWorkerRunner_ProcessSemaphore_BoundsConcurrency(t *testing.T) {
 	run, runCtx, reg, pauses, client := startWorker(t)
 	defer stopWorker(run)
 
-	committer := consumer.NewCommitter(testlogger.NewLogger(), reg, pauses, client, consumer.CommitConfig{})
+	committer := consumer.NewCommitter(reg, client, consumer.CommitConfig{})
 	executor := consumer.NewRecordExecutor(testlogger.NewLogger())
 	wr := consumer.NewWorkerRunner(testlogger.NewLogger(), run, committer, executor, reg, pauses, 4, make(chan struct{}, 1), nil, newTestKgoClient(t))
 
@@ -255,7 +255,7 @@ func TestWorkerRunner_FlushResolvedBeforeFatalError(t *testing.T) {
 	ps, _, err := reg.GetOrCreate(consumer.Key{Topic: "t", Partition: 0}, sub, runCtx, 10)
 	require.NoError(t, err, "GetOrCreate should succeed")
 
-	committer := consumer.NewCommitter(nil, reg, pauses, client, consumer.CommitConfig{})
+	committer := consumer.NewCommitter(reg, client, consumer.CommitConfig{})
 	executor := consumer.NewRecordExecutor(testlogger.NewLogger())
 	failingDLQ := func(_ context.Context, _ *kgo.Record) error { return errors.New("dlq down") }
 	wr := consumer.NewWorkerRunner(testlogger.NewLogger(), run, committer, executor, reg, pauses, 4, make(chan struct{}, 1), failingDLQ, newTestKgoClient(t))
@@ -301,7 +301,7 @@ func TestWorkerRunner_FlushResolvedBeforeContextCancel(t *testing.T) {
 	ps, _, err := reg.GetOrCreate(consumer.Key{Topic: "t", Partition: 0}, sub, runCtx, 10)
 	require.NoError(t, err, "GetOrCreate should succeed")
 
-	committer := consumer.NewCommitter(nil, reg, pauses, client, consumer.CommitConfig{})
+	committer := consumer.NewCommitter(reg, client, consumer.CommitConfig{})
 	executor := consumer.NewRecordExecutor(testlogger.NewLogger())
 	wr := consumer.NewWorkerRunner(testlogger.NewLogger(), run, committer, executor, reg, pauses, 4, make(chan struct{}, 1), nil, newTestKgoClient(t))
 	wr.Start(ps)

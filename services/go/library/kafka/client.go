@@ -34,8 +34,6 @@ type Client struct {
 	Producer  *Producer
 	kgoClient *kgo.Client
 	closeOnce sync.Once
-	closed    bool
-	mu        sync.RWMutex
 }
 
 // Close closes the shared franz-go client used by both Consumer and Producer.
@@ -44,11 +42,7 @@ func (c *Client) Close() {
 	if c == nil {
 		return
 	}
-
 	c.closeOnce.Do(func() {
-		c.mu.Lock()
-		c.closed = true
-		c.mu.Unlock()
 		if c.kgoClient != nil {
 			c.kgoClient.Close()
 		}
@@ -148,8 +142,6 @@ func New(brokers []string, groupId string, opts ...Option) (*Client, error) {
 		Producer:  producer,
 		kgoClient: kgoClient,
 		closeOnce: sync.Once{},
-		closed:    false,
-		mu:        sync.RWMutex{},
 	}
 
 	return client, nil

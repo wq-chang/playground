@@ -93,9 +93,7 @@ func newConsumer(cfg *config, kgoClient *kgo.Client, dlqProducer DLQProducer) (*
 
 	v2.registry = consumer.NewPartitionRegistry(v2.log)
 	v2.committer = consumer.NewCommitter(
-		v2.log,
 		v2.registry,
-		v2.pauses,
 		commitOffsetsSync(kgoClient),
 		consumer.CommitConfig{},
 	)

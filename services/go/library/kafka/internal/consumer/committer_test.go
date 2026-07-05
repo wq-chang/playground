@@ -36,11 +36,10 @@ func (s *stubOffsetClient) CommitOffsetsSync(ctx context.Context, offsets map[st
 func newTestCommitter(
 	t *testing.T,
 	reg *consumer.PartitionRegistry,
-	pauses *consumer.PauseRegistry,
 	client consumer.OffsetClient,
 ) *consumer.Committer {
 	t.Helper()
-	return consumer.NewCommitter(testlogger.NewLogger(), reg, pauses, client, consumer.CommitConfig{
+	return consumer.NewCommitter(reg, client, consumer.CommitConfig{
 		FlushInterval:      50 * time.Millisecond,
 		DebounceInterval:   10 * time.Millisecond,
 		DrainTimeout:       100 * time.Millisecond,
@@ -50,9 +49,8 @@ func newTestCommitter(
 
 func TestCommitter_RequestFlush_TriggersFlush(t *testing.T) {
 	reg := consumer.NewPartitionRegistry(testlogger.NewLogger())
-	pauses := consumer.NewPauseRegistry(time.Now)
 	client := &stubOffsetClient{}
-	cm := newTestCommitter(t, reg, pauses, client)
+	cm := newTestCommitter(t, reg, client)
 
 	ps, _, errGC := reg.GetOrCreate(consumer.Key{Topic: "t", Partition: 0}, testSub("t"), context.Background(), 10)
 	require.NoError(t, errGC, "GetOrCreate should succeed")
@@ -82,9 +80,8 @@ func TestCommitter_RequestFlush_TriggersFlush(t *testing.T) {
 
 func TestCommitter_Flush_CommitsDirtyOffsets(t *testing.T) {
 	reg := consumer.NewPartitionRegistry(testlogger.NewLogger())
-	pauses := consumer.NewPauseRegistry(time.Now)
 	client := &stubOffsetClient{}
-	cm := newTestCommitter(t, reg, pauses, client)
+	cm := newTestCommitter(t, reg, client)
 
 	ps, _, errGC := reg.GetOrCreate(consumer.Key{Topic: "t", Partition: 0}, testSub("t"), context.Background(), 10)
 	require.NoError(t, errGC, "GetOrCreate should succeed")
@@ -102,9 +99,8 @@ func TestCommitter_Flush_CommitsDirtyOffsets(t *testing.T) {
 
 func TestCommitter_CommitRecords_CommitsRecords(t *testing.T) {
 	reg := consumer.NewPartitionRegistry(testlogger.NewLogger())
-	pauses := consumer.NewPauseRegistry(time.Now)
 	client := &stubOffsetClient{}
-	cm := newTestCommitter(t, reg, pauses, client)
+	cm := newTestCommitter(t, reg, client)
 
 	records := []*kgo.Record{
 		{Topic: "t", Partition: 0, Offset: 5, LeaderEpoch: 0},
@@ -123,9 +119,8 @@ func TestCommitter_CommitRecords_CommitsRecords(t *testing.T) {
 
 func TestCommitter_CommitRecords_EmptyNoOp(t *testing.T) {
 	reg := consumer.NewPartitionRegistry(testlogger.NewLogger())
-	pauses := consumer.NewPauseRegistry(time.Now)
 	client := &stubOffsetClient{}
-	cm := newTestCommitter(t, reg, pauses, client)
+	cm := newTestCommitter(t, reg, client)
 
 	err := cm.CommitRecords(context.Background())
 	require.NoError(t, err, "CommitRecords with no args should succeed")
@@ -137,9 +132,8 @@ func TestCommitter_CommitRecords_EmptyNoOp(t *testing.T) {
 
 func TestCommitter_Flush_NoDirty_NoCommit(t *testing.T) {
 	reg := consumer.NewPartitionRegistry(testlogger.NewLogger())
-	pauses := consumer.NewPauseRegistry(time.Now)
 	client := &stubOffsetClient{}
-	cm := newTestCommitter(t, reg, pauses, client)
+	cm := newTestCommitter(t, reg, client)
 
 	err := cm.Flush(context.Background())
 	require.NoError(t, err, "Flush should succeed")
@@ -151,9 +145,8 @@ func TestCommitter_Flush_NoDirty_NoCommit(t *testing.T) {
 
 func TestCommitter_Flush_CommitFailure(t *testing.T) {
 	reg := consumer.NewPartitionRegistry(testlogger.NewLogger())
-	pauses := consumer.NewPauseRegistry(time.Now)
 	client := &stubOffsetClient{fail: true, mu: sync.Mutex{}, commits: nil}
-	cm := newTestCommitter(t, reg, pauses, client)
+	cm := newTestCommitter(t, reg, client)
 
 	ps, _, errGC := reg.GetOrCreate(consumer.Key{Topic: "t", Partition: 0}, testSub("t"), context.Background(), 10)
 	require.NoError(t, errGC, "GetOrCreate should succeed")
@@ -166,9 +159,8 @@ func TestCommitter_Flush_CommitFailure(t *testing.T) {
 
 func TestCommitter_Finalize_WaitsAndCommits(t *testing.T) {
 	reg := consumer.NewPartitionRegistry(testlogger.NewLogger())
-	pauses := consumer.NewPauseRegistry(time.Now)
 	client := &stubOffsetClient{}
-	cm := newTestCommitter(t, reg, pauses, client)
+	cm := newTestCommitter(t, reg, client)
 
 	ps, _, errGC := reg.GetOrCreate(consumer.Key{Topic: "t", Partition: 0}, testSub("t"), context.Background(), 10)
 	require.NoError(t, errGC, "GetOrCreate should succeed")
@@ -185,23 +177,5 @@ func TestCommitter_Finalize_WaitsAndCommits(t *testing.T) {
 
 	client.mu.Lock()
 	assert.Equal(t, 1, len(client.commits), "should have committed final offsets")
-	client.mu.Unlock()
-}
-
-func TestCommitter_PauseTopic_CommitsOffsets(t *testing.T) {
-	reg := consumer.NewPartitionRegistry(testlogger.NewLogger())
-	pauses := consumer.NewPauseRegistry(time.Now)
-	client := &stubOffsetClient{}
-	cm := newTestCommitter(t, reg, pauses, client)
-
-	offsets := map[string]map[int32]kgo.EpochOffset{
-		"t": {0: {Epoch: 0, Offset: 6}},
-	}
-
-	err := cm.PauseTopic(context.Background(), offsets)
-	require.NoError(t, err, "PauseTopic should succeed")
-
-	client.mu.Lock()
-	assert.Equal(t, 1, len(client.commits), "should have committed the offsets for the paused topic")
 	client.mu.Unlock()
 }

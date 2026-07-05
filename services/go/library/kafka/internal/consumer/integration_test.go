@@ -75,7 +75,7 @@ func setupIntegration(t *testing.T, cl *offsetRecorder) (
 	registry := consumer.NewPartitionRegistry(logger)
 
 	committer := consumer.NewCommitter(
-		logger, registry, pauses, cl,
+		registry, cl,
 		consumer.CommitConfig{
 			FlushInterval:      10 * time.Millisecond,
 			DebounceInterval:   1 * time.Millisecond,

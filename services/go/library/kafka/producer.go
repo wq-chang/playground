@@ -8,14 +8,12 @@ import (
 
 // Producer wraps the shared Kafka client with record publishing helpers.
 type Producer struct {
-	cfg       *config
 	kgoClient *kgo.Client
 }
 
 // newProducer creates a new Kafka producer.
 func newProducer(cfg *config, kgoClient *kgo.Client) *Producer {
 	return &Producer{
-		cfg:       cfg,
 		kgoClient: kgoClient,
 	}
 }
