@@ -19,18 +19,18 @@
           final: prev: {
             moon = prev.moon.overrideAttrs (
               finalAttrs: previousAttrs: rec {
-                version = "2.2.3";
+                version = "2.3.4";
 
                 src = final.fetchFromGitHub {
                   owner = "moonrepo";
                   repo = "moon";
                   rev = "v${finalAttrs.version}";
-                  hash = "sha256-DLZ4JNz3NlcZtlEn6kHYRym85lxLQ7TsQAhisrjqk98=";
+                  hash = "sha256-LHVw04BgqE/MUFByweeodZvqmURAEjuMi2rgC6svWhI=";
                 };
 
                 cargoDeps = final.rustPlatform.fetchCargoVendor {
                   inherit src;
-                  hash = "sha256-vWsUThZUzDD+K83DIou4xIsiSVp9FRm6dl8QrYD26Oc=";
+                  hash = "sha256-iqfcDyPz+b3uq/KfipronMIbTfkiOmJ9LuhKLGmZBao=";
                 };
 
                 nativeBuildInputs = (previousAttrs.nativeBuildInputs or [ ]) ++ [
@@ -49,6 +49,7 @@
       {
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [
+            mermaid-cli
             jq
             moon
             graphviz # visualize mem allocation

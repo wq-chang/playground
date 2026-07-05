@@ -7,10 +7,10 @@ import (
 	"log/slog"
 	"time"
 
-	"go-services/library/kafka/internal/consumer"
-
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/kmsg"
+
+	"go-services/library/kafka/internal/consumer"
 )
 
 // AckMode determines how the consumer acknowledges records.
