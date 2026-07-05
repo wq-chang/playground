@@ -101,15 +101,20 @@ func newTestConsumer(t *testing.T, stub *stubFetchClient) *Consumer {
 	)
 
 	return &Consumer{
+		cfg:          nil,
+		kgoClient:    nil,
+		dlqProducer:  nil,
+		log:          discardingLogger(),
 		router:       router,
 		pauses:       pauses,
 		runState:     run,
 		registry:     registry,
 		committer:    committer,
+		dispatcher:   nil,
+		workerRunner: nil,
 		fetchClient:  stub,
 		workerClient: stub,
 		drainTimeout: 5 * time.Second,
-		log:          discardingLogger(),
 	}
 }
 
@@ -170,7 +175,15 @@ func TestConsumer_OnPartitionsRevoked_CommitsSelectedOffsets(t *testing.T) {
 }
 
 func TestConsumer_OnPartitionsRevoked_FailsRunOnCommitError(t *testing.T) {
-	stub := &stubFetchClient{commitErr: errors.New("commit failed")}
+	stub := &stubFetchClient{
+		commitErr:     errors.New("commit failed"),
+		commitBlockCh: nil,
+		pausedParts:   nil,
+		resumedParts:  nil,
+		pausedTopics:  nil,
+		committed:     nil,
+		mu:            sync.Mutex{},
+	}
 	v2 := newTestConsumer(t, stub)
 
 	addTestPartition(t, v2, "topic-a", 1, 5, 4, true)

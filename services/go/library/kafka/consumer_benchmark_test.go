@@ -37,7 +37,8 @@ func benchSetup(b *testing.B, n int) (topic string, cleanup func()) {
 		}, nil)
 	}
 	for producer.BufferedProduceRecords() > 0 {
-		producer.Flush(ctx)
+		err = producer.Flush(ctx)
+		require.NoError(b, err, "flush")
 	}
 	producer.Close()
 
@@ -157,7 +158,9 @@ func BenchmarkConsumer(b *testing.B) {
 		start := time.Now()
 
 		go func() {
-			client.Consumer.Run(ctx)
+			if err := client.Consumer.Run(ctx); err != nil && ctx.Err() == nil {
+				b.Errorf("consumer run: %v", err)
+			}
 		}()
 
 		for processed.Load() < nRecords && ctx.Err() == nil {
