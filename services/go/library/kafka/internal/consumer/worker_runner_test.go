@@ -160,6 +160,32 @@ func TestWorkerRunner_BatchProcessing(t *testing.T) {
 	assert.Equal(t, 1, len(snap), "partition should be dirty after batch processing")
 }
 
+func TestWorkerRunner_BatchAtMostOnce_CommitsBeforeProcessing(t *testing.T) {
+	run, runCtx, reg, pauses, client := startWorker(t)
+	defer stopWorker(run)
+
+	sub := consumer.Subscription{
+		Topic:         "t",
+		Handler:       nil,
+		BatchHandler:  func(ctx context.Context, records []*kgo.Record) consumer.BatchResult { return consumer.BatchResult{} },
+		FailurePolicy: consumer.FailurePolicy{MaxAttempts: 1, RetryBackoff: 0, DLQ: nil, OnExhausted: consumer.ExhaustedActionStop},
+		AckMode:       consumer.AckModeAtMostOnce,
+	}
+
+	wr := setupWorker(run, reg, pauses, client, make(chan struct{}, 1), newTestKgoClient(t))
+
+	ps := getPS(t, reg, sub, runCtx)
+	wr.Start(ps)
+
+	time.Sleep(10 * time.Millisecond)
+	ps.TryEnqueue([]*kgo.Record{{Topic: "t", Partition: 0, Offset: 5, LeaderEpoch: 0}})
+	time.Sleep(100 * time.Millisecond)
+
+	client.mu.Lock()
+	assert.Equal(t, 1, len(client.committed), "should commit before processing in at-most-once batch mode")
+	client.mu.Unlock()
+}
+
 func TestWorkerRunner_TopicPauseOnFailure(t *testing.T) {
 	run, runCtx, reg, pauses, client := startWorker(t)
 	defer stopWorker(run)

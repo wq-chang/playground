@@ -113,8 +113,7 @@ func (wr *WorkerRunner) processRecords(
 		}
 
 		if state.subscription.AckMode == AckModeAtMostOnce {
-			offsets := recordsToOffsets([]*kgo.Record{record})
-			if err := wr.committer.client.CommitOffsetsSync(ctx, offsets); err != nil {
+			if err := wr.committer.CommitRecords(ctx, record); err != nil {
 				wr.run.Fail(err)
 				return
 			}
@@ -169,8 +168,7 @@ func (wr *WorkerRunner) processBatch(
 	}
 
 	if state.subscription.AckMode == AckModeAtMostOnce {
-		offsets := recordsToOffsets(records)
-		if err := wr.committer.client.CommitOffsetsSync(ctx, offsets); err != nil {
+		if err := wr.committer.CommitRecords(ctx, records...); err != nil {
 			wr.run.Fail(err)
 			return
 		}
