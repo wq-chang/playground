@@ -43,40 +43,22 @@ type Consumer struct {
 	committer    *consumer.Committer
 	dispatcher   *consumer.Dispatcher
 	workerRunner *consumer.WorkerRunner
-	fetchClient  consumer.FetchControlClient
 	drainTimeout time.Duration
 }
 
-// v2RegisterClient adapts Consumer's Client to consumer.RegisterClient.
-type v2RegisterClient struct {
+// commitOffsetsSync wraps kgo.Client.CommitOffsetsSync's callback-based API
+// into a synchronous error-returning function that satisfies consumer.OffsetClient.
+func commitOffsetsSync(kcl *kgo.Client) consumer.OffsetClient {
+	return offsetCommitter{kcl: kcl}
+}
+
+type offsetCommitter struct {
 	kcl *kgo.Client
 }
 
-func (a v2RegisterClient) AddConsumeTopics(topics ...string) {
-	a.kcl.AddConsumeTopics(topics...)
-}
-
-// v2FetchControlClient adapts Consumer's Client to consumer.FetchControlClient.
-type v2FetchControlClient struct {
-	kcl *kgo.Client
-}
-
-func (a v2FetchControlClient) PauseFetchPartitions(partitions map[string][]int32) {
-	a.kcl.PauseFetchPartitions(partitions)
-}
-
-func (a v2FetchControlClient) ResumeFetchPartitions(partitions map[string][]int32) {
-	a.kcl.ResumeFetchPartitions(partitions)
-}
-
-// v2WorkerClient adapts Consumer's Client to consumer.WorkerClient.
-type v2WorkerClient struct {
-	kcl *kgo.Client
-}
-
-func (a v2WorkerClient) CommitOffsetsSync(ctx context.Context, offsets map[string]map[int32]kgo.EpochOffset) error {
+func (o offsetCommitter) CommitOffsetsSync(ctx context.Context, offsets map[string]map[int32]kgo.EpochOffset) error {
 	var commitErr error
-	a.kcl.CommitOffsetsSync(ctx, offsets, func(
+	o.kcl.CommitOffsetsSync(ctx, offsets, func(
 		_ *kgo.Client,
 		_ *kmsg.OffsetCommitRequest,
 		_ *kmsg.OffsetCommitResponse,
@@ -85,14 +67,6 @@ func (a v2WorkerClient) CommitOffsetsSync(ctx context.Context, offsets map[strin
 		commitErr = err
 	})
 	return commitErr
-}
-
-func (a v2WorkerClient) PauseFetchTopics(topics ...string) {
-	a.kcl.PauseFetchTopics(topics...)
-}
-
-func (a v2WorkerClient) ResumeFetchPartitions(partitions map[string][]int32) {
-	a.kcl.ResumeFetchPartitions(partitions)
 }
 
 // newConsumer creates a Consumer from the shared config, kgo client, and
@@ -110,14 +84,10 @@ func newConsumer(cfg *config, kgoClient *kgo.Client, dlqProducer DLQProducer) (*
 		committer:    nil,
 		dispatcher:   nil,
 		workerRunner: nil,
-		fetchClient:  nil,
 		drainTimeout: 30 * time.Second,
 	}
-	v2.fetchClient = v2FetchControlClient{kcl: kgoClient}
-	workerClient := v2WorkerClient{kcl: kgoClient}
 
-	regClient := v2RegisterClient{kcl: kgoClient}
-	v2.router = consumer.NewRouter(regClient)
+	v2.router = consumer.NewRouter(kgoClient.AddConsumeTopics)
 	v2.pauses = consumer.NewPauseRegistry(time.Now)
 	v2.runState = consumer.NewRunState()
 
@@ -126,7 +96,7 @@ func newConsumer(cfg *config, kgoClient *kgo.Client, dlqProducer DLQProducer) (*
 		v2.log,
 		v2.registry,
 		v2.pauses,
-		workerClient,
+		commitOffsetsSync(kgoClient),
 		consumer.CommitConfig{},
 	)
 
@@ -151,13 +121,14 @@ func newConsumer(cfg *config, kgoClient *kgo.Client, dlqProducer DLQProducer) (*
 		v2.cfg.workers,
 		capacityCh,
 		dlqWriter,
+		kgoClient,
 	)
 
 	v2.dispatcher = consumer.NewDispatcher(
 		v2.router,
 		v2.pauses,
 		v2.registry,
-		workerClient,
+		kgoClient,
 		v2.workerRunner.Start,
 		capacityCh,
 	)
@@ -265,11 +236,7 @@ func (v2 *Consumer) runDispatch(ctx context.Context) error {
 		}
 		records := fetches.Records()
 		if len(records) > 0 {
-			if err := v2.dispatcher.Dispatch(
-				ctx,
-				records,
-				v2.fetchClient,
-			); err != nil {
+			if err := v2.dispatcher.Dispatch(ctx, records); err != nil {
 				return err
 			}
 		}
@@ -280,15 +247,15 @@ func (v2 *Consumer) runDispatch(ctx context.Context) error {
 // onPartitionsRevoked handles partition revocation.
 func (v2 *Consumer) onPartitionsRevoked(
 	ctx context.Context,
-	_ *kgo.Client,
+	cl *kgo.Client,
 	partitions map[string][]int32,
 ) {
 	if len(partitions) == 0 {
 		return
 	}
 
-	if v2.fetchClient != nil {
-		v2.fetchClient.PauseFetchPartitions(partitions)
+	if cl != nil {
+		cl.PauseFetchPartitions(partitions)
 	}
 
 	states := v2.registry.BeginClosing(partitions)

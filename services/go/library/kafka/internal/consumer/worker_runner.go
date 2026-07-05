@@ -19,6 +19,7 @@ type WorkerRunner struct {
 	processSem chan struct{}
 	capacityCh chan struct{}
 	dlqWriter  func(ctx context.Context, record *kgo.Record) error
+	kgoClient  *kgo.Client
 }
 
 // NewWorkerRunner creates a worker runner with the given dependencies.
@@ -35,6 +36,7 @@ func NewWorkerRunner(
 	maxConcurrent int,
 	capacityCh chan struct{},
 	dlqWriter func(ctx context.Context, record *kgo.Record) error,
+	kgoClient *kgo.Client,
 ) *WorkerRunner {
 	if maxConcurrent < 1 {
 		maxConcurrent = 1
@@ -49,17 +51,18 @@ func NewWorkerRunner(
 		processSem: make(chan struct{}, maxConcurrent),
 		capacityCh: capacityCh,
 		dlqWriter:  dlqWriter,
+		kgoClient:  kgoClient,
 	}
 }
 
 // Start launches a goroutine for this partition under the run's wait group.
-func (wr *WorkerRunner) Start(state *PartitionState, client WorkerClient) {
+func (wr *WorkerRunner) Start(state *PartitionState) {
 	wr.run.Go(func() {
-		wr.partitionLoop(state, client)
+		wr.partitionLoop(state)
 	})
 }
 
-func (wr *WorkerRunner) partitionLoop(state *PartitionState, client WorkerClient) {
+func (wr *WorkerRunner) partitionLoop(state *PartitionState) {
 	defer state.MarkStopped()
 
 	for {
@@ -82,16 +85,16 @@ func (wr *WorkerRunner) partitionLoop(state *PartitionState, client WorkerClient
 			// provide hysteresis against rapid pause/resume cycles.
 			if !wr.pauses.IsPaused(state.Key().Topic) {
 				if state.TryResumeBackpressure() {
-					client.ResumeFetchPartitions(map[string][]int32{
+					wr.kgoClient.ResumeFetchPartitions(map[string][]int32{
 						state.Key().Topic: {state.Key().Partition},
 					})
 				}
 			}
 
 			if state.subscription.BatchHandler != nil {
-				wr.processBatch(state.ctx, state, records, client)
+				wr.processBatch(state.ctx, state, records)
 			} else {
-				wr.processRecords(state.ctx, state, records, client)
+				wr.processRecords(state.ctx, state, records)
 			}
 		}
 	}
@@ -101,7 +104,6 @@ func (wr *WorkerRunner) processRecords(
 	ctx context.Context,
 	state *PartitionState,
 	records []*kgo.Record,
-	client WorkerClient,
 ) {
 	var lastResolved *kgo.Record
 
@@ -112,7 +114,7 @@ func (wr *WorkerRunner) processRecords(
 
 		if state.subscription.AckMode == AckModeAtMostOnce {
 			offsets := recordsToOffsets([]*kgo.Record{record})
-			if err := client.CommitOffsetsSync(ctx, offsets); err != nil {
+			if err := wr.committer.client.CommitOffsetsSync(ctx, offsets); err != nil {
 				wr.run.Fail(err)
 				return
 			}
@@ -131,7 +133,7 @@ func (wr *WorkerRunner) processRecords(
 			wr.logger.WarnContext(ctx, "Kafka topic paused after retry exhaustion",
 				"topic", record.Topic, "err", result.Cause)
 			wr.pauses.Pause(record.Topic, result.Cause)
-			client.PauseFetchTopics(record.Topic)
+			wr.kgoClient.PauseFetchTopics(record.Topic)
 			continue
 		}
 
@@ -157,7 +159,6 @@ func (wr *WorkerRunner) processBatch(
 	ctx context.Context,
 	state *PartitionState,
 	records []*kgo.Record,
-	client WorkerClient,
 ) {
 	if len(records) == 0 {
 		return
@@ -169,7 +170,7 @@ func (wr *WorkerRunner) processBatch(
 
 	if state.subscription.AckMode == AckModeAtMostOnce {
 		offsets := recordsToOffsets(records)
-		if err := client.CommitOffsetsSync(ctx, offsets); err != nil {
+		if err := wr.committer.client.CommitOffsetsSync(ctx, offsets); err != nil {
 			wr.run.Fail(err)
 			return
 		}
@@ -185,7 +186,7 @@ func (wr *WorkerRunner) processBatch(
 		wr.logger.WarnContext(ctx, "Kafka topic paused after retry exhaustion",
 			"topic", records[0].Topic, "err", cause)
 		wr.pauses.Pause(records[0].Topic, cause)
-		client.PauseFetchTopics(records[0].Topic)
+		wr.kgoClient.PauseFetchTopics(records[0].Topic)
 		return
 	}
 

@@ -33,7 +33,12 @@ func (s *stubOffsetClient) CommitOffsetsSync(ctx context.Context, offsets map[st
 	return nil
 }
 
-func newTestCommitter(t *testing.T, reg *consumer.PartitionRegistry, pauses *consumer.PauseRegistry, client consumer.OffsetClient) *consumer.Committer {
+func newTestCommitter(
+	t *testing.T,
+	reg *consumer.PartitionRegistry,
+	pauses *consumer.PauseRegistry,
+	client consumer.OffsetClient,
+) *consumer.Committer {
 	t.Helper()
 	return consumer.NewCommitter(testlogger.NewLogger(), reg, pauses, client, consumer.CommitConfig{
 		FlushInterval:      50 * time.Millisecond,

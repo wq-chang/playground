@@ -7,16 +7,23 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
+// PartitionBatch groups all polled records for one topic-partition.
+type PartitionBatch struct {
+	Key          Key
+	Records      []*kgo.Record
+	Subscription Subscription
+}
+
 // Dispatcher owns partition batching, dispatch coordination, and backpressure
 // management. It groups polled records by topic-partition, enqueues them into
 // partition workers, and applies backpressure pauses when queues fill up.
 type Dispatcher struct {
-	router       *Router
-	pauses       *PauseRegistry
-	registry     *PartitionRegistry
-	workerClient WorkerClient
-	startFn      func(*PartitionState, WorkerClient)
-	dispCh       chan struct{}
+	router    *Router
+	pauses    *PauseRegistry
+	registry  *PartitionRegistry
+	kgoClient *kgo.Client
+	startFn   func(*PartitionState)
+	dispCh    chan struct{}
 }
 
 // NewDispatcher creates a dispatcher with the given dependencies.
@@ -25,17 +32,17 @@ func NewDispatcher(
 	router *Router,
 	pauses *PauseRegistry,
 	registry *PartitionRegistry,
-	workerClient WorkerClient,
-	startFn func(*PartitionState, WorkerClient),
+	kgoClient *kgo.Client,
+	startFn func(*PartitionState),
 	dispCh chan struct{},
 ) *Dispatcher {
 	return &Dispatcher{
-		router:       router,
-		pauses:       pauses,
-		registry:     registry,
-		workerClient: workerClient,
-		startFn:      startFn,
-		dispCh:       dispCh,
+		router:    router,
+		pauses:    pauses,
+		registry:  registry,
+		kgoClient: kgoClient,
+		startFn:   startFn,
+		dispCh:    dispCh,
 	}
 }
 
@@ -44,7 +51,6 @@ func NewDispatcher(
 func (d *Dispatcher) Dispatch(
 	ctx context.Context,
 	records []*kgo.Record,
-	client FetchControlClient,
 ) error {
 	batches, err := d.groupByPartition(records)
 	if err != nil {
@@ -84,7 +90,7 @@ func (d *Dispatcher) Dispatch(
 				return err
 			}
 			if created {
-				d.startFn(state, d.workerClient)
+				d.startFn(state)
 			}
 
 			for cursor.next < len(cursor.batch.Records) {
@@ -98,7 +104,7 @@ func (d *Dispatcher) Dispatch(
 
 				// Apply backpressure pause if queue is at high watermark.
 				if state.TryPauseBackpressure() {
-					client.PauseFetchPartitions(map[string][]int32{
+					d.kgoClient.PauseFetchPartitions(map[string][]int32{
 						cursor.batch.Key.Topic: {cursor.batch.Key.Partition},
 					})
 				}

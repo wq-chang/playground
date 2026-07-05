@@ -8,27 +8,22 @@ import (
 	"go-services/library/gsync"
 )
 
-// RegisterClient is the narrow interface Router needs to coordinate
-// with the parent consumer for runtime topic subscription.
-type RegisterClient interface {
-	// AddConsumeTopics subscribes to one or more Kafka topics at runtime.
-	AddConsumeTopics(topics ...string)
-}
-
 // Router owns subscription registration, lookup, and immutable snapshots.
 // Writes clone into a gsync.Value for lock-free reads.
 type Router struct {
 	snapshot      gsync.Value[map[string]Subscription]
-	client        RegisterClient
+	addTopics     func(topics ...string)
 	subscriptions map[string]Subscription
 	mu            sync.Mutex
 }
 
-// NewRouter creates an empty subscription registry with the given client adapter.
-func NewRouter(client RegisterClient) *Router {
+// NewRouter creates an empty subscription registry.
+// addTopics is called when a topic is registered at runtime (typically kgo.Client.AddConsumeTopics).
+// Pass nil to skip runtime topic subscription.
+func NewRouter(addTopics func(topics ...string)) *Router {
 	r := &Router{
 		subscriptions: make(map[string]Subscription),
-		client:        client,
+		addTopics:     addTopics,
 		mu:            sync.Mutex{},
 		snapshot:      gsync.Value[map[string]Subscription]{},
 	}
@@ -48,7 +43,9 @@ func (r *Router) Register(sub Subscription) error {
 
 	r.subscriptions[sub.Topic] = sub
 	r.snapshot.Store(maps.Clone(r.subscriptions))
-	r.client.AddConsumeTopics(sub.Topic)
+	if r.addTopics != nil {
+		r.addTopics(sub.Topic)
+	}
 	return nil
 }
 

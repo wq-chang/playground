@@ -14,7 +14,7 @@ import (
 )
 
 func TestDispatcher_New(t *testing.T) {
-	router := consumer.NewRouter(&stubRegisterClient{})
+	router := consumer.NewRouter(nil)
 	pauses := consumer.NewPauseRegistry(time.Now)
 	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
 	d := consumer.NewDispatcher(router, pauses, registry, nil, nil, make(chan struct{}, 1))
@@ -22,7 +22,7 @@ func TestDispatcher_New(t *testing.T) {
 }
 
 func TestDispatcher_SkipsPausedTopics(t *testing.T) {
-	router := consumer.NewRouter(&stubRegisterClient{})
+	router := consumer.NewRouter(nil)
 	pauses := consumer.NewPauseRegistry(time.Now)
 	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
 

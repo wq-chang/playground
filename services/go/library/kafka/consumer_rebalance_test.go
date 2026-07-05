@@ -21,12 +21,7 @@ func discardingLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
-// noopRegisterClient is a RegisterClient stub that no-ops AddConsumeTopics.
-type noopRegisterClient struct{}
-
-func (noopRegisterClient) AddConsumeTopics(topics ...string) {}
-
-// stubFetchClient records fetch control calls.
+// stubFetchClient records commit and pause calls for rebalance tests.
 type stubFetchClient struct {
 	commitErr     error
 	commitBlockCh chan struct{}
@@ -85,13 +80,16 @@ func (s *stubFetchClient) CommitOffsetsSync(ctx context.Context, offsets map[str
 func newTestConsumer(t *testing.T, stub *stubFetchClient) *Consumer {
 	t.Helper()
 
-	router := consumer.NewRouter(noopRegisterClient{})
+	router := consumer.NewRouter(nil)
 	pauses := consumer.NewPauseRegistry(time.Now)
 	run := consumer.NewRunState()
 	registry := consumer.NewPartitionRegistry(nil)
 
 	committer := consumer.NewCommitter(
-		nil, registry, pauses, stub,
+		nil,
+		registry,
+		pauses,
+		stub,
 		consumer.CommitConfig{
 			FlushInterval:      10 * time.Millisecond,
 			DebounceInterval:   1 * time.Millisecond,
@@ -112,13 +110,20 @@ func newTestConsumer(t *testing.T, stub *stubFetchClient) *Consumer {
 		committer:    committer,
 		dispatcher:   nil,
 		workerRunner: nil,
-		fetchClient:  stub,
 		drainTimeout: 5 * time.Second,
 	}
 }
 
 // addTestPartition creates a partition state with dirty offset and registers it.
-func addTestPartition(t *testing.T, v2 *Consumer, topic string, partition int32, offset int64, epoch int32, dirty bool) {
+func addTestPartition(
+	t *testing.T,
+	v2 *Consumer,
+	topic string,
+	partition int32,
+	offset int64,
+	epoch int32,
+	dirty bool,
+) {
 	t.Helper()
 
 	key := consumer.Key{Topic: topic, Partition: partition}
@@ -149,7 +154,15 @@ func addTestPartition(t *testing.T, v2 *Consumer, topic string, partition int32,
 }
 
 func TestConsumer_OnPartitionsRevoked_CommitsSelectedOffsets(t *testing.T) {
-	stub := &stubFetchClient{}
+	stub := &stubFetchClient{
+		commitErr:     nil,
+		commitBlockCh: nil,
+		pausedParts:   nil,
+		resumedParts:  nil,
+		pausedTopics:  nil,
+		committed:     nil,
+		mu:            sync.Mutex{},
+	}
 	v2 := newTestConsumer(t, stub)
 
 	addTestPartition(t, v2, "topic-a", 1, 5, 4, true)
@@ -160,7 +173,6 @@ func TestConsumer_OnPartitionsRevoked_CommitsSelectedOffsets(t *testing.T) {
 	})
 
 	stub.mu.Lock()
-	assert.Equal(t, 1, len(stub.pausedParts), "should pause revoked partitions")
 	assert.Equal(t, 1, len(stub.committed), "should commit revoked offsets")
 	committed := stub.committed[0]
 	stub.mu.Unlock()
@@ -195,7 +207,7 @@ func TestConsumer_OnPartitionsRevoked_FailsRunOnCommitError(t *testing.T) {
 }
 
 func TestConsumer_OnPartitionsRevoked_WaitsForDrainBeforeCommit(t *testing.T) {
-	stub := &stubFetchClient{}
+	stub := &stubFetchClient{commitErr: nil, commitBlockCh: nil, pausedParts: nil, resumedParts: nil, pausedTopics: nil, committed: nil, mu: sync.Mutex{}}
 	v2 := newTestConsumer(t, stub)
 
 	key := consumer.Key{Topic: "t", Partition: 0}
@@ -226,7 +238,7 @@ func TestConsumer_OnPartitionsRevoked_WaitsForDrainBeforeCommit(t *testing.T) {
 }
 
 func TestConsumer_OnPartitionsLost_DropsSelectedOffsets(t *testing.T) {
-	stub := &stubFetchClient{}
+	stub := &stubFetchClient{commitErr: nil, commitBlockCh: nil, pausedParts: nil, resumedParts: nil, pausedTopics: nil, committed: nil, mu: sync.Mutex{}}
 	v2 := newTestConsumer(t, stub)
 
 	addTestPartition(t, v2, "topic-a", 1, 5, 4, true)
@@ -249,7 +261,7 @@ func TestConsumer_OnPartitionsLost_DropsSelectedOffsets(t *testing.T) {
 }
 
 func TestConsumer_OnPartitionsRevoked_UsesCallbackContextForFinalCommit(t *testing.T) {
-	stub := &stubFetchClient{}
+	stub := &stubFetchClient{commitErr: nil, commitBlockCh: nil, pausedParts: nil, resumedParts: nil, pausedTopics: nil, committed: nil, mu: sync.Mutex{}}
 	v2 := newTestConsumer(t, stub)
 
 	addTestPartition(t, v2, "t", 0, 5, 4, true)
@@ -268,7 +280,7 @@ func TestConsumer_OnPartitionsRevoked_UsesCallbackContextForFinalCommit(t *testi
 }
 
 func TestConsumer_OnPartitionsRevoked_StopsWaitingWhenContextCancelled(t *testing.T) {
-	stub := &stubFetchClient{}
+	stub := &stubFetchClient{commitErr: nil, commitBlockCh: nil, pausedParts: nil, resumedParts: nil, pausedTopics: nil, committed: nil, mu: sync.Mutex{}}
 	v2 := newTestConsumer(t, stub)
 
 	// Create a partition state that blocks on drain (not stopped, not closed).

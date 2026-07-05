@@ -4,7 +4,6 @@ package consumer_test
 import (
 	"context"
 	"errors"
-	"maps"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -19,32 +18,15 @@ import (
 )
 
 type stubWorkerClient struct {
-	resumedPartitions map[string][]int32
-	committed         []map[string]map[int32]kgo.EpochOffset
-	pausedTopics      []string
-	mu                sync.Mutex
+	committed []map[string]map[int32]kgo.EpochOffset
+	mu        sync.Mutex
 }
 
-func (s *stubWorkerClient) CommitOffsetsSync(ctx context.Context, offsets map[string]map[int32]kgo.EpochOffset) error {
+func (s *stubWorkerClient) CommitOffsetsSync(_ context.Context, offsets map[string]map[int32]kgo.EpochOffset) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.committed = append(s.committed, offsets)
 	return nil
-}
-
-func (s *stubWorkerClient) PauseFetchTopics(topics ...string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.pausedTopics = append(s.pausedTopics, topics...)
-}
-
-func (s *stubWorkerClient) ResumeFetchPartitions(partitions map[string][]int32) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.resumedPartitions == nil {
-		s.resumedPartitions = make(map[string][]int32)
-	}
-	maps.Copy(s.resumedPartitions, partitions)
 }
 
 func subAck(mode consumer.AckMode) consumer.Subscription {
@@ -77,10 +59,10 @@ func subBatch() consumer.Subscription {
 	}
 }
 
-func setupWorker(run *consumer.RunState, reg *consumer.PartitionRegistry, pauses *consumer.PauseRegistry, client *stubWorkerClient, capacityCh chan struct{}) *consumer.WorkerRunner {
+func setupWorker(run *consumer.RunState, reg *consumer.PartitionRegistry, pauses *consumer.PauseRegistry, client *stubWorkerClient, capacityCh chan struct{}, kgoClient *kgo.Client) *consumer.WorkerRunner {
 	committer := consumer.NewCommitter(testlogger.NewLogger(), reg, pauses, client, consumer.CommitConfig{})
 	executor := consumer.NewRecordExecutor(testlogger.NewLogger())
-	return consumer.NewWorkerRunner(testlogger.NewLogger(), run, committer, executor, reg, pauses, 4, capacityCh, nil)
+	return consumer.NewWorkerRunner(testlogger.NewLogger(), run, committer, executor, reg, pauses, 4, capacityCh, nil, kgoClient)
 }
 
 func startWorker(t *testing.T) (*consumer.RunState, context.Context, *consumer.PartitionRegistry, *consumer.PauseRegistry, *stubWorkerClient) {
@@ -111,10 +93,10 @@ func TestWorkerRunner_Start_RunsPartitionLoop(t *testing.T) {
 	defer stopWorker(run)
 
 	capacityCh := make(chan struct{}, 1)
-	wr := setupWorker(run, reg, pauses, client, capacityCh)
+	wr := setupWorker(run, reg, pauses, client, capacityCh, newTestKgoClient(t))
 
 	ps := getPS(t, reg, subAck(consumer.AckModeAtLeastOnce), runCtx)
-	wr.Start(ps, client)
+	wr.Start(ps)
 
 	time.Sleep(10 * time.Millisecond)
 	ps.TryEnqueue([]*kgo.Record{{Topic: "t", Partition: 0, Offset: 1}})
@@ -130,10 +112,10 @@ func TestWorkerRunner_AtLeastOnce_MarksDirty(t *testing.T) {
 	run, runCtx, reg, pauses, client := startWorker(t)
 	defer stopWorker(run)
 
-	wr := setupWorker(run, reg, pauses, client, make(chan struct{}, 1))
+	wr := setupWorker(run, reg, pauses, client, make(chan struct{}, 1), newTestKgoClient(t))
 
 	ps := getPS(t, reg, subAck(consumer.AckModeAtLeastOnce), runCtx)
-	wr.Start(ps, client)
+	wr.Start(ps)
 
 	time.Sleep(10 * time.Millisecond)
 	ps.TryEnqueue([]*kgo.Record{{Topic: "t", Partition: 0, Offset: 5, LeaderEpoch: 0}})
@@ -147,10 +129,10 @@ func TestWorkerRunner_AtMostOnce_CommitsBeforeProcessing(t *testing.T) {
 	run, runCtx, reg, pauses, client := startWorker(t)
 	defer stopWorker(run)
 
-	wr := setupWorker(run, reg, pauses, client, make(chan struct{}, 1))
+	wr := setupWorker(run, reg, pauses, client, make(chan struct{}, 1), newTestKgoClient(t))
 
 	ps := getPS(t, reg, subAck(consumer.AckModeAtMostOnce), runCtx)
-	wr.Start(ps, client)
+	wr.Start(ps)
 
 	time.Sleep(10 * time.Millisecond)
 	ps.TryEnqueue([]*kgo.Record{{Topic: "t", Partition: 0, Offset: 5, LeaderEpoch: 0}})
@@ -165,10 +147,10 @@ func TestWorkerRunner_BatchProcessing(t *testing.T) {
 	run, runCtx, reg, pauses, client := startWorker(t)
 	defer stopWorker(run)
 
-	wr := setupWorker(run, reg, pauses, client, make(chan struct{}, 1))
+	wr := setupWorker(run, reg, pauses, client, make(chan struct{}, 1), newTestKgoClient(t))
 
 	ps := getPS(t, reg, subBatch(), runCtx)
-	wr.Start(ps, client)
+	wr.Start(ps)
 
 	time.Sleep(10 * time.Millisecond)
 	ps.TryEnqueue([]*kgo.Record{{Topic: "t", Partition: 0, Offset: 5}})
@@ -182,26 +164,16 @@ func TestWorkerRunner_TopicPauseOnFailure(t *testing.T) {
 	run, runCtx, reg, pauses, client := startWorker(t)
 	defer stopWorker(run)
 
-	wr := setupWorker(run, reg, pauses, client, make(chan struct{}, 1))
+	wr := setupWorker(run, reg, pauses, client, make(chan struct{}, 1), newTestKgoClient(t))
 
 	ps := getPS(t, reg, subFailsThenPause(), runCtx)
-	wr.Start(ps, client)
+	wr.Start(ps)
 
 	time.Sleep(10 * time.Millisecond)
 	ps.TryEnqueue([]*kgo.Record{{Topic: "t", Partition: 0, Offset: 5}})
 	time.Sleep(200 * time.Millisecond)
 
 	assert.True(t, pauses.IsPaused("t"), "topic should be paused after handler exhaustion stop")
-
-	client.mu.Lock()
-	found := false
-	for _, topic := range client.pausedTopics {
-		if topic == "t" {
-			found = true
-		}
-	}
-	assert.True(t, found, "PauseFetchTopics should have been called for topic t")
-	client.mu.Unlock()
 }
 
 func TestWorkerRunner_ProcessSemaphore_BoundsConcurrency(t *testing.T) {
@@ -210,10 +182,10 @@ func TestWorkerRunner_ProcessSemaphore_BoundsConcurrency(t *testing.T) {
 
 	committer := consumer.NewCommitter(testlogger.NewLogger(), reg, pauses, client, consumer.CommitConfig{})
 	executor := consumer.NewRecordExecutor(testlogger.NewLogger())
-	wr := consumer.NewWorkerRunner(testlogger.NewLogger(), run, committer, executor, reg, pauses, 4, make(chan struct{}, 1), nil)
+	wr := consumer.NewWorkerRunner(testlogger.NewLogger(), run, committer, executor, reg, pauses, 4, make(chan struct{}, 1), nil, newTestKgoClient(t))
 
 	ps := getPS(t, reg, subAck(consumer.AckModeAtLeastOnce), runCtx)
-	wr.Start(ps, client)
+	wr.Start(ps)
 
 	time.Sleep(10 * time.Millisecond)
 	for i := range 5 {
@@ -260,9 +232,9 @@ func TestWorkerRunner_FlushResolvedBeforeFatalError(t *testing.T) {
 	committer := consumer.NewCommitter(nil, reg, pauses, client, consumer.CommitConfig{})
 	executor := consumer.NewRecordExecutor(testlogger.NewLogger())
 	failingDLQ := func(_ context.Context, _ *kgo.Record) error { return errors.New("dlq down") }
-	wr := consumer.NewWorkerRunner(testlogger.NewLogger(), run, committer, executor, reg, pauses, 4, make(chan struct{}, 1), failingDLQ)
+	wr := consumer.NewWorkerRunner(testlogger.NewLogger(), run, committer, executor, reg, pauses, 4, make(chan struct{}, 1), failingDLQ, newTestKgoClient(t))
 
-	wr.Start(ps, client)
+	wr.Start(ps)
 	time.Sleep(10 * time.Millisecond)
 
 	ps.TryEnqueue([]*kgo.Record{
@@ -305,8 +277,8 @@ func TestWorkerRunner_FlushResolvedBeforeContextCancel(t *testing.T) {
 
 	committer := consumer.NewCommitter(nil, reg, pauses, client, consumer.CommitConfig{})
 	executor := consumer.NewRecordExecutor(testlogger.NewLogger())
-	wr := consumer.NewWorkerRunner(testlogger.NewLogger(), run, committer, executor, reg, pauses, 4, make(chan struct{}, 1), nil)
-	wr.Start(ps, client)
+	wr := consumer.NewWorkerRunner(testlogger.NewLogger(), run, committer, executor, reg, pauses, 4, make(chan struct{}, 1), nil, newTestKgoClient(t))
+	wr.Start(ps)
 	time.Sleep(10 * time.Millisecond)
 
 	ps.TryEnqueue([]*kgo.Record{

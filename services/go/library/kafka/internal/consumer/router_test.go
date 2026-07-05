@@ -14,21 +14,12 @@ import (
 	"go-services/library/require"
 )
 
-// stubRegisterClient implements consumer.RegisterClient for testing.
-type stubRegisterClient struct {
-	topics []string
-	mu     sync.Mutex
-}
-
-func (s *stubRegisterClient) AddConsumeTopics(topics ...string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.topics = append(s.topics, topics...)
-}
-
 func TestRouter_Register_Success(t *testing.T) {
-	client := &stubRegisterClient{}
-	r := consumer.NewRouter(client)
+	var called []string
+	addTopics := func(topics ...string) {
+		called = append(called, topics...)
+	}
+	r := consumer.NewRouter(addTopics)
 
 	sub := consumer.Subscription{
 		Topic:         "my-topic",
@@ -47,8 +38,11 @@ func TestRouter_Register_Success(t *testing.T) {
 }
 
 func TestRouter_Register_Duplicate(t *testing.T) {
-	client := &stubRegisterClient{}
-	r := consumer.NewRouter(client)
+	var called []string
+	addTopics := func(topics ...string) {
+		called = append(called, topics...)
+	}
+	r := consumer.NewRouter(addTopics)
 
 	sub := consumer.Subscription{
 		Topic:         "dup-topic",
@@ -64,15 +58,18 @@ func TestRouter_Register_Duplicate(t *testing.T) {
 }
 
 func TestRouter_Lookup_Missing(t *testing.T) {
-	r := consumer.NewRouter(&stubRegisterClient{})
+	r := consumer.NewRouter(nil)
 
 	_, ok := r.Lookup("nonexistent")
 	assert.False(t, ok, "missing topic should return false")
 }
 
 func TestRouter_Snapshot_Immutable(t *testing.T) {
-	client := &stubRegisterClient{}
-	r := consumer.NewRouter(client)
+	var called []string
+	addTopics := func(topics ...string) {
+		called = append(called, topics...)
+	}
+	r := consumer.NewRouter(addTopics)
 
 	sub := consumer.Subscription{
 		Topic:         "snap-topic",
@@ -99,8 +96,11 @@ func TestRouter_Snapshot_Immutable(t *testing.T) {
 }
 
 func TestRouter_RegisterQuietBatch_SkipsClient(t *testing.T) {
-	client := &stubRegisterClient{}
-	r := consumer.NewRouter(client)
+	var called []string
+	addTopics := func(topics ...string) {
+		called = append(called, topics...)
+	}
+	r := consumer.NewRouter(addTopics)
 
 	sub1 := consumer.Subscription{
 		Topic:         "topic-a",
@@ -129,15 +129,12 @@ func TestRouter_RegisterQuietBatch_SkipsClient(t *testing.T) {
 	assert.True(t, ok, "topic-b should be found")
 	assert.Equal(t, got.Topic, "topic-b", "topic should match")
 
-	// Verify AddConsumeTopics was NOT called.
-	client.mu.Lock()
-	assert.Equal(t, len(client.topics), 0, "AddConsumeTopics should not be called")
-	client.mu.Unlock()
+	// Verify addTopics was NOT called.
+	assert.Equal(t, len(called), 0, "addTopics should not be called")
 }
 
 func TestRouter_RegisterQuietBatch_Duplicate(t *testing.T) {
-	client := &stubRegisterClient{}
-	r := consumer.NewRouter(client)
+	r := consumer.NewRouter(nil)
 
 	sub1 := consumer.Subscription{
 		Topic:         "topic-a",
@@ -159,8 +156,11 @@ func TestRouter_RegisterQuietBatch_Duplicate(t *testing.T) {
 }
 
 func TestRouter_AddConsumeTopics_Called(t *testing.T) {
-	client := &stubRegisterClient{}
-	r := consumer.NewRouter(client)
+	var called []string
+	addTopics := func(topics ...string) {
+		called = append(called, topics...)
+	}
+	r := consumer.NewRouter(addTopics)
 
 	sub := consumer.Subscription{
 		Topic:         "topic-a",
@@ -173,14 +173,12 @@ func TestRouter_AddConsumeTopics_Called(t *testing.T) {
 	err := r.Register(sub)
 	require.NoError(t, err, "register should succeed")
 
-	client.mu.Lock()
-	assert.Equal(t, len(client.topics), 1, "should have called AddConsumeTopics once")
-	assert.Equal(t, client.topics[0], "topic-a", "should add the correct topic")
-	client.mu.Unlock()
+	assert.Equal(t, len(called), 1, "should have called addTopics once")
+	assert.Equal(t, called[0], "topic-a", "should add the correct topic")
 }
 
 func TestRouter_Concurrent_NoRace(t *testing.T) {
-	r := consumer.NewRouter(&stubRegisterClient{})
+	r := consumer.NewRouter(nil)
 
 	// Pre-register some topics.
 	for i := range 50 {

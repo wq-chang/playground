@@ -20,38 +20,29 @@ import (
 	"go-services/library/testlogger"
 )
 
-// integrationClient implements OffsetClient, WorkerClient, and FetchControlClient.
-type integrationClient struct {
-	committed      []map[string]map[int32]kgo.EpochOffset
-	pausedByTopics []string
-	pausedParts    []map[string][]int32
-	resumedParts   []map[string][]int32
-	mu             sync.Mutex
+// offsetRecorder records offset commits for test verification.
+type offsetRecorder struct {
+	committed []map[string]map[int32]kgo.EpochOffset
+	mu        sync.Mutex
 }
 
-func (c *integrationClient) CommitOffsetsSync(_ context.Context, offsets map[string]map[int32]kgo.EpochOffset) error {
+func (c *offsetRecorder) CommitOffsetsSync(_ context.Context, offsets map[string]map[int32]kgo.EpochOffset) error {
 	c.mu.Lock()
 	c.committed = append(c.committed, offsets)
 	c.mu.Unlock()
 	return nil
 }
 
-func (c *integrationClient) PauseFetchTopics(topics ...string) {
-	c.mu.Lock()
-	c.pausedByTopics = append(c.pausedByTopics, topics...)
-	c.mu.Unlock()
-}
+func newTestKgoClient(t *testing.T) *kgo.Client {
+	t.Helper()
 
-func (c *integrationClient) PauseFetchPartitions(partitions map[string][]int32) {
-	c.mu.Lock()
-	c.pausedParts = append(c.pausedParts, partitions)
-	c.mu.Unlock()
-}
-
-func (c *integrationClient) ResumeFetchPartitions(partitions map[string][]int32) {
-	c.mu.Lock()
-	c.resumedParts = append(c.resumedParts, partitions)
-	c.mu.Unlock()
+	kgoClient, err := kgo.NewClient(
+		kgo.SeedBrokers("localhost:9092"),
+		kgo.ConsumerGroup("test-group"),
+	)
+	require.NoError(t, err, "failed to create test kgo client")
+	t.Cleanup(kgoClient.Close)
+	return kgoClient
 }
 
 func subRecordHandler(fn func(context.Context, *kgo.Record) error) consumer.Subscription {
@@ -65,17 +56,20 @@ func subRecordHandler(fn func(context.Context, *kgo.Record) error) consumer.Subs
 }
 
 // setupIntegration creates all collaborators wired together.
-func setupIntegration(t *testing.T, cl *integrationClient) (
+func setupIntegration(t *testing.T, cl *offsetRecorder) (
 	*consumer.RunState,
 	*consumer.Router,
 	*consumer.PartitionRegistry,
 	*consumer.Committer,
+	*consumer.PauseRegistry,
 	*consumer.Dispatcher,
 ) {
 	t.Helper()
 
+	kgoClient := newTestKgoClient(t)
+
 	logger := testlogger.NewLogger()
-	router := consumer.NewRouter(&stubRegisterClient{})
+	router := consumer.NewRouter(kgoClient.AddConsumeTopics)
 	pauses := consumer.NewPauseRegistry(time.Now)
 	run := consumer.NewRunState()
 	registry := consumer.NewPartitionRegistry(logger)
@@ -100,18 +94,19 @@ func setupIntegration(t *testing.T, cl *integrationClient) (
 		4,
 		capacityCh,
 		nil, // dlqWriter
+		kgoClient,
 	)
 
-	dispatcher := consumer.NewDispatcher(router, pauses, registry, cl, wr.Start, capacityCh)
+	dispatcher := consumer.NewDispatcher(router, pauses, registry, kgoClient, wr.Start, capacityCh)
 
-	return run, router, registry, committer, dispatcher
+	return run, router, registry, committer, pauses, dispatcher
 }
 
 // TestIntegration_FullPipeline_Success dispatches records, verifies handler
 // invocation and offset commit through the full pipeline.
 func TestIntegration_FullPipeline_Success(t *testing.T) {
-	cl := &integrationClient{}
-	run, router, registry, committer, dis := setupIntegration(t, cl)
+	cl := &offsetRecorder{}
+	run, router, registry, committer, _, dis := setupIntegration(t, cl)
 
 	var handled atomic.Int32
 	handler := func(_ context.Context, _ *kgo.Record) error {
@@ -137,7 +132,7 @@ func TestIntegration_FullPipeline_Success(t *testing.T) {
 		{Topic: "test-topic", Partition: 0, Offset: 2, LeaderEpoch: 0},
 	}
 
-	require.NoError(t, dis.Dispatch(context.Background(), records, cl),
+	require.NoError(t, dis.Dispatch(context.Background(), records),
 		"Dispatch should succeed")
 
 	require.True(t, waitFor(2*time.Second, func() bool { return handled.Load() == 3 }),
@@ -173,8 +168,8 @@ func TestIntegration_FullPipeline_Success(t *testing.T) {
 // TestIntegration_ExhaustionPausesTopic verifies that handler exhaustion
 // pauses the topic and stops processing.
 func TestIntegration_ExhaustionPausesTopic(t *testing.T) {
-	cl := &integrationClient{}
-	run, router, registry, committer, dis := setupIntegration(t, cl)
+	cl := &offsetRecorder{}
+	run, router, registry, committer, pauses, dis := setupIntegration(t, cl)
 
 	var handled atomic.Int32
 	handler := func(_ context.Context, _ *kgo.Record) error {
@@ -196,18 +191,16 @@ func TestIntegration_ExhaustionPausesTopic(t *testing.T) {
 		{Topic: "test-topic", Partition: 0, Offset: 0, LeaderEpoch: 0},
 	}
 
-	require.NoError(t, dis.Dispatch(context.Background(), records, cl),
+	require.NoError(t, dis.Dispatch(context.Background(), records),
 		"Dispatch should succeed")
 
 	require.True(t, waitFor(2*time.Second, func() bool {
-		cl.mu.Lock()
-		defer cl.mu.Unlock()
-		return len(cl.pausedByTopics) >= 1
+		return pauses.IsPaused("test-topic")
 	}), "topic should be paused after exhaustion")
 
 	// Second dispatch should skip the paused topic.
 	records2 := []*kgo.Record{{Topic: "test-topic", Partition: 0, Offset: 1, LeaderEpoch: 0}}
-	require.NoError(t, dis.Dispatch(context.Background(), records2, cl),
+	require.NoError(t, dis.Dispatch(context.Background(), records2),
 		"second Dispatch should succeed with paused topic skipped")
 
 	// BeginClosingAll drains partition states so run.Wait() can return.
@@ -220,8 +213,8 @@ func TestIntegration_ExhaustionPausesTopic(t *testing.T) {
 
 // TestIntegration_BackpressureCycle verifies the pause → drain → resume cycle.
 func TestIntegration_BackpressureCycle(t *testing.T) {
-	cl := &integrationClient{}
-	run, router, registry, committer, dis := setupIntegration(t, cl)
+	cl := &offsetRecorder{}
+	run, router, registry, committer, _, dis := setupIntegration(t, cl)
 
 	require.NoError(t, router.Register(consumer.Subscription{
 		Topic:         "a",
@@ -253,15 +246,16 @@ func TestIntegration_BackpressureCycle(t *testing.T) {
 		records = append(records, &kgo.Record{Topic: "b", Partition: 0, Offset: i, LeaderEpoch: 0})
 	}
 
-	require.NoError(t, dis.Dispatch(context.Background(), records, cl),
+	require.NoError(t, dis.Dispatch(context.Background(), records),
 		"Dispatch should succeed without error")
 
+	// Verify all records were processed through backpressure cycle.
 	require.True(t, waitFor(30*time.Second, func() bool {
 		cl.mu.Lock()
-		resumed := len(cl.resumedParts)
+		committed := len(cl.committed)
 		cl.mu.Unlock()
-		return resumed > 0
-	}), "should have resumed partitions after backpressure drained")
+		return committed > 0
+	}), "should have committed offsets after processing all records under backpressure")
 
 	// BeginClosingAll drains partition states so run.Wait() can return.
 	registry.BeginClosingAll()
@@ -271,10 +265,11 @@ func TestIntegration_BackpressureCycle(t *testing.T) {
 	assert.NoError(t, <-commitDone, "commit loop should exit cleanly")
 }
 
-// TestIntegration_ShutdownFlushesRemaining verifies finalization during graceful shutdown.
+// TestDispatcher_Dispatch_PreservesPolledOrderWithinPartition verifies that
+// records from the same topic-partition are processed in poll order.
 func TestDispatcher_Dispatch_PreservesPolledOrderWithinPartition(t *testing.T) {
-	cl := &integrationClient{}
-	_, router, _, _, dis := setupIntegration(t, cl)
+	cl := &offsetRecorder{}
+	_, router, _, _, _, dis := setupIntegration(t, cl)
 
 	var mu sync.Mutex
 	var ordered []int64
@@ -300,7 +295,7 @@ func TestDispatcher_Dispatch_PreservesPolledOrderWithinPartition(t *testing.T) {
 		{Topic: "t", Partition: 0, Offset: 2, LeaderEpoch: 0},
 	}
 
-	require.NoError(t, dis.Dispatch(context.Background(), records, cl),
+	require.NoError(t, dis.Dispatch(context.Background(), records),
 		"Dispatch should succeed")
 
 	require.True(t, waitFor(2*time.Second, func() bool {
@@ -317,8 +312,8 @@ func TestDispatcher_Dispatch_PreservesPolledOrderWithinPartition(t *testing.T) {
 }
 
 func TestDispatcher_Dispatch_PreservesFirstSeenPartitionOrder(t *testing.T) {
-	cl := &integrationClient{}
-	_, router, _, _, dis := setupIntegration(t, cl)
+	cl := &offsetRecorder{}
+	_, router, _, _, _, dis := setupIntegration(t, cl)
 
 	var mu sync.Mutex
 	var ordered []string
@@ -354,7 +349,7 @@ func TestDispatcher_Dispatch_PreservesFirstSeenPartitionOrder(t *testing.T) {
 		{Topic: "a", Partition: 0, Offset: 1, LeaderEpoch: 0},
 	}
 
-	require.NoError(t, dis.Dispatch(context.Background(), records, cl),
+	require.NoError(t, dis.Dispatch(context.Background(), records),
 		"Dispatch should succeed")
 
 	require.True(t, waitFor(2*time.Second, func() bool {
@@ -379,14 +374,8 @@ func TestDispatcher_Dispatch_PreservesFirstSeenPartitionOrder(t *testing.T) {
 }
 
 func TestIntegration_DispatchDoesNotBlockOtherPartitions(t *testing.T) {
-	cl := &integrationClient{}
-	_, router, registry, committer, dis := setupIntegration(t, cl)
-
-	// Partition "a" blocks on processing (1 slot taken), "b" proceeds normally.
-	// Reduce concurrency to 1 to guarantee the blocking consumes the only slot.
-	_ = registry // unused, kept for clarity
-	_ = committer
-	_ = dis
+	cl := &offsetRecorder{}
+	_, router, _, _, _, dis := setupIntegration(t, cl)
 
 	require.NoError(t, router.Register(consumer.Subscription{
 		Topic:         "a",
@@ -413,7 +402,7 @@ func TestIntegration_DispatchDoesNotBlockOtherPartitions(t *testing.T) {
 	// Dispatch must not block — Verify "b" got dispatched and enqueued.
 	// Since the workers have 4 concurrent slots (default), both records get a slot.
 	// "a" blocks forever in handler, "b" proceeds and completes.
-	require.NoError(t, dis.Dispatch(context.Background(), records, cl),
+	require.NoError(t, dis.Dispatch(context.Background(), records),
 		"Dispatch should not block")
 
 	require.True(t, waitFor(2*time.Second, func() bool { return processed.Load() == 1 }),
@@ -421,8 +410,8 @@ func TestIntegration_DispatchDoesNotBlockOtherPartitions(t *testing.T) {
 }
 
 func TestIntegration_ShutdownFlushesRemaining(t *testing.T) {
-	cl := &integrationClient{}
-	run, router, registry, committer, dis := setupIntegration(t, cl)
+	cl := &offsetRecorder{}
+	run, router, registry, committer, _, dis := setupIntegration(t, cl)
 
 	var handled atomic.Int32
 	handler := func(_ context.Context, _ *kgo.Record) error {
@@ -446,7 +435,7 @@ func TestIntegration_ShutdownFlushesRemaining(t *testing.T) {
 		{Topic: "test-topic", Partition: 0, Offset: 1, LeaderEpoch: 0},
 	}
 
-	require.NoError(t, dis.Dispatch(context.Background(), records, cl),
+	require.NoError(t, dis.Dispatch(context.Background(), records),
 		"Dispatch should succeed")
 
 	require.True(t, waitFor(2*time.Second, func() bool { return handled.Load() == 2 }),
