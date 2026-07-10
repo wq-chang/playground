@@ -1,4 +1,3 @@
-// services/go/library/kafka/consumer_v2_rebalance_test.go
 package kafka
 
 import (
@@ -114,7 +113,7 @@ func newTestConsumer(t *testing.T, stub *stubFetchClient) *Consumer {
 // addTestPartition creates a partition state with dirty offset and registers it.
 func addTestPartition(
 	t *testing.T,
-	v2 *Consumer,
+	c *Consumer,
 	topic string,
 	partition int32,
 	offset int64,
@@ -132,7 +131,7 @@ func addTestPartition(
 		AckMode:       consumer.AckModeAtLeastOnce,
 	}
 
-	state, _, err := v2.registry.GetOrCreate(key, sub, context.Background(), 10)
+	state, _, err := c.registry.GetOrCreate(key, sub, context.Background(), 10)
 	require.NoError(t, err, "GetOrCreate should succeed")
 
 	state.AdvanceCommitOffset(&kgo.Record{
@@ -146,7 +145,7 @@ func addTestPartition(
 	state.MarkStopped()
 
 	if dirty {
-		require.True(t, v2.registry.MarkDirty(state), "MarkDirty should succeed")
+		require.True(t, c.registry.MarkDirty(state), "MarkDirty should succeed")
 	}
 }
 
@@ -160,12 +159,12 @@ func TestConsumer_OnPartitionsRevoked_CommitsSelectedOffsets(t *testing.T) {
 		committed:     nil,
 		mu:            sync.Mutex{},
 	}
-	v2 := newTestConsumer(t, stub)
+	c := newTestConsumer(t, stub)
 
-	addTestPartition(t, v2, "topic-a", 1, 5, 4, true)
-	addTestPartition(t, v2, "topic-b", 0, 1, 7, true)
+	addTestPartition(t, c, "topic-a", 1, 5, 4, true)
+	addTestPartition(t, c, "topic-b", 0, 1, 7, true)
 
-	v2.onPartitionsRevoked(context.Background(), nil, map[string][]int32{
+	c.onPartitionsRevoked(context.Background(), nil, map[string][]int32{
 		"topic-b": {0},
 	})
 
@@ -177,9 +176,9 @@ func TestConsumer_OnPartitionsRevoked_CommitsSelectedOffsets(t *testing.T) {
 	assert.Equal(t, int64(2), committed["topic-b"][0].Offset, "revoked partition should commit next offset")
 	assert.Equal(t, int32(7), committed["topic-b"][0].Epoch, "revoked partition should commit epoch")
 
-	_, topicAExists := v2.registry.Get(consumer.Key{Topic: "topic-a", Partition: 1})
+	_, topicAExists := c.registry.Get(consumer.Key{Topic: "topic-a", Partition: 1})
 	assert.True(t, topicAExists, "unrevoked partition should remain")
-	assert.NoError(t, v2.runState.Err(), "successful revoke should not fail run")
+	assert.NoError(t, c.runState.Err(), "successful revoke should not fail run")
 }
 
 func TestConsumer_OnPartitionsRevoked_FailsRunOnCommitError(t *testing.T) {
@@ -192,20 +191,20 @@ func TestConsumer_OnPartitionsRevoked_FailsRunOnCommitError(t *testing.T) {
 		committed:     nil,
 		mu:            sync.Mutex{},
 	}
-	v2 := newTestConsumer(t, stub)
+	c := newTestConsumer(t, stub)
 
-	addTestPartition(t, v2, "topic-a", 1, 5, 4, true)
+	addTestPartition(t, c, "topic-a", 1, 5, 4, true)
 
-	v2.onPartitionsRevoked(context.Background(), nil, map[string][]int32{
+	c.onPartitionsRevoked(context.Background(), nil, map[string][]int32{
 		"topic-a": {1},
 	})
 
-	assert.ErrorIs(t, v2.runState.Err(), stub.commitErr, "run should fail on commit error")
+	assert.ErrorIs(t, c.runState.Err(), stub.commitErr, "run should fail on commit error")
 }
 
 func TestConsumer_OnPartitionsRevoked_WaitsForDrainBeforeCommit(t *testing.T) {
 	stub := &stubFetchClient{commitErr: nil, commitBlockCh: nil, pausedParts: nil, resumedParts: nil, pausedTopics: nil, committed: nil, mu: sync.Mutex{}}
-	v2 := newTestConsumer(t, stub)
+	c := newTestConsumer(t, stub)
 
 	key := consumer.Key{Topic: "t", Partition: 0}
 	sub := consumer.Subscription{
@@ -216,10 +215,10 @@ func TestConsumer_OnPartitionsRevoked_WaitsForDrainBeforeCommit(t *testing.T) {
 		AckMode:       consumer.AckModeAtLeastOnce,
 	}
 
-	state, _, err := v2.registry.GetOrCreate(key, sub, context.Background(), 10)
+	state, _, err := c.registry.GetOrCreate(key, sub, context.Background(), 10)
 	require.NoError(t, err, "GetOrCreate should succeed")
 	state.AdvanceCommitOffset(&kgo.Record{Topic: "t", Partition: 0, Offset: 9, LeaderEpoch: 0})
-	v2.registry.MarkDirty(state)
+	c.registry.MarkDirty(state)
 
 	// Do NOT MarkStopped — Finalize must wait for drain.
 	// Queue closes via BeginClosing, then the drain loop in Finalize
@@ -227,7 +226,7 @@ func TestConsumer_OnPartitionsRevoked_WaitsForDrainBeforeCommit(t *testing.T) {
 	// For this test, call MarkStopped to close the done channel and simulate drain.
 	state.MarkStopped()
 
-	v2.onPartitionsRevoked(context.Background(), nil, map[string][]int32{"t": {0}})
+	c.onPartitionsRevoked(context.Background(), nil, map[string][]int32{"t": {0}})
 
 	stub.mu.Lock()
 	assert.True(t, len(stub.committed) >= 1, "should commit after drain, got %d", len(stub.committed))
@@ -236,12 +235,12 @@ func TestConsumer_OnPartitionsRevoked_WaitsForDrainBeforeCommit(t *testing.T) {
 
 func TestConsumer_OnPartitionsLost_DropsSelectedOffsets(t *testing.T) {
 	stub := &stubFetchClient{commitErr: nil, commitBlockCh: nil, pausedParts: nil, resumedParts: nil, pausedTopics: nil, committed: nil, mu: sync.Mutex{}}
-	v2 := newTestConsumer(t, stub)
+	c := newTestConsumer(t, stub)
 
-	addTestPartition(t, v2, "topic-a", 1, 5, 4, true)
-	addTestPartition(t, v2, "topic-b", 0, 1, 7, true)
+	addTestPartition(t, c, "topic-a", 1, 5, 4, true)
+	addTestPartition(t, c, "topic-b", 0, 1, 7, true)
 
-	v2.onPartitionsLost(context.Background(), map[string][]int32{
+	c.onPartitionsLost(context.Background(), map[string][]int32{
 		"topic-a": {1},
 	})
 
@@ -250,35 +249,35 @@ func TestConsumer_OnPartitionsLost_DropsSelectedOffsets(t *testing.T) {
 	assert.Equal(t, 0, len(stub.committed), "lost partitions should not commit offsets")
 	stub.mu.Unlock()
 
-	_, topicAExists := v2.registry.Get(consumer.Key{Topic: "topic-a", Partition: 1})
+	_, topicAExists := c.registry.Get(consumer.Key{Topic: "topic-a", Partition: 1})
 	assert.False(t, topicAExists, "lost partition should be removed")
 
-	_, topicBExists := v2.registry.Get(consumer.Key{Topic: "topic-b", Partition: 0})
+	_, topicBExists := c.registry.Get(consumer.Key{Topic: "topic-b", Partition: 0})
 	assert.True(t, topicBExists, "unlost partition should remain")
 }
 
 func TestConsumer_OnPartitionsRevoked_UsesCallbackContextForFinalCommit(t *testing.T) {
 	stub := &stubFetchClient{commitErr: nil, commitBlockCh: nil, pausedParts: nil, resumedParts: nil, pausedTopics: nil, committed: nil, mu: sync.Mutex{}}
-	v2 := newTestConsumer(t, stub)
+	c := newTestConsumer(t, stub)
 
-	addTestPartition(t, v2, "t", 0, 5, 4, true)
+	addTestPartition(t, c, "t", 0, 5, 4, true)
 
 	// Use a pre-cancelled context to verify it's threaded through.
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	v2.onPartitionsRevoked(ctx, nil, map[string][]int32{"t": {0}})
+	c.onPartitionsRevoked(ctx, nil, map[string][]int32{"t": {0}})
 
 	// A cancelled context should cause Finalize to fail.
 	// onPartitionsRevoked calls Fail on the error.
-	err := v2.runState.Err()
+	err := c.runState.Err()
 	assert.NotNil(t, err, "revoke with cancelled context should fail run")
 	assert.ErrorIs(t, err, context.Canceled, "error should be context.Canceled")
 }
 
 func TestConsumer_OnPartitionsRevoked_StopsWaitingWhenContextCancelled(t *testing.T) {
 	stub := &stubFetchClient{commitErr: nil, commitBlockCh: nil, pausedParts: nil, resumedParts: nil, pausedTopics: nil, committed: nil, mu: sync.Mutex{}}
-	v2 := newTestConsumer(t, stub)
+	c := newTestConsumer(t, stub)
 
 	// Create a partition state that blocks on drain (not stopped, not closed).
 	key := consumer.Key{Topic: "t", Partition: 0}
@@ -290,18 +289,18 @@ func TestConsumer_OnPartitionsRevoked_StopsWaitingWhenContextCancelled(t *testin
 		AckMode:       consumer.AckModeAtLeastOnce,
 	}
 
-	state, _, err := v2.registry.GetOrCreate(key, sub, context.Background(), 10)
+	state, _, err := c.registry.GetOrCreate(key, sub, context.Background(), 10)
 	require.NoError(t, err, "GetOrCreate should succeed")
 	state.AdvanceCommitOffset(&kgo.Record{Topic: "t", Partition: 0, Offset: 9, LeaderEpoch: 0})
-	v2.registry.MarkDirty(state)
+	c.registry.MarkDirty(state)
 	// Do NOT call MarkStopped — state.Done() will block.
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
-	v2.onPartitionsRevoked(ctx, nil, map[string][]int32{"t": {0}})
+	c.onPartitionsRevoked(ctx, nil, map[string][]int32{"t": {0}})
 
 	// Finalize should have timed out waiting for drain.
-	err = v2.runState.Err()
+	err = c.runState.Err()
 	assert.NotNil(t, err, "revoke with timeout should fail run because drain won't complete")
 }

@@ -14,6 +14,13 @@ type OffsetClient interface {
 	CommitOffsetsSync(ctx context.Context, offsets map[string]map[int32]kgo.EpochOffset) error
 }
 
+// OffsetClientFunc wraps a function as an OffsetClient for adapters.
+type OffsetClientFunc func(ctx context.Context, offsets map[string]map[int32]kgo.EpochOffset) error
+
+func (f OffsetClientFunc) CommitOffsetsSync(ctx context.Context, offsets map[string]map[int32]kgo.EpochOffset) error {
+	return f(ctx, offsets)
+}
+
 // CommitConfig configures the commit loop timing and timeouts.
 type CommitConfig struct {
 	FlushInterval      time.Duration

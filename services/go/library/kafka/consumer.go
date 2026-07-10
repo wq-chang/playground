@@ -49,30 +49,24 @@ type Consumer struct {
 // commitOffsetsSync wraps kgo.Client.CommitOffsetsSync's callback-based API
 // into a synchronous error-returning function that satisfies consumer.OffsetClient.
 func commitOffsetsSync(kcl *kgo.Client) consumer.OffsetClient {
-	return offsetCommitter{kcl: kcl}
-}
-
-type offsetCommitter struct {
-	kcl *kgo.Client
-}
-
-func (o offsetCommitter) CommitOffsetsSync(ctx context.Context, offsets map[string]map[int32]kgo.EpochOffset) error {
-	var commitErr error
-	o.kcl.CommitOffsetsSync(ctx, offsets, func(
-		_ *kgo.Client,
-		_ *kmsg.OffsetCommitRequest,
-		_ *kmsg.OffsetCommitResponse,
-		err error,
-	) {
-		commitErr = err
+	return consumer.OffsetClientFunc(func(ctx context.Context, offsets map[string]map[int32]kgo.EpochOffset) error {
+		var commitErr error
+		kcl.CommitOffsetsSync(ctx, offsets, func(
+			_ *kgo.Client,
+			_ *kmsg.OffsetCommitRequest,
+			_ *kmsg.OffsetCommitResponse,
+			err error,
+		) {
+			commitErr = err
+		})
+		return commitErr
 	})
-	return commitErr
 }
 
 // newConsumer creates a Consumer from the shared config, kgo client, and
 // optional DLQ producer.
 func newConsumer(cfg *config, kgoClient *kgo.Client, dlqProducer DLQProducer) (*Consumer, error) {
-	v2 := &Consumer{
+	c := &Consumer{
 		cfg:          cfg,
 		kgoClient:    kgoClient,
 		dlqProducer:  dlqProducer,
@@ -87,13 +81,13 @@ func newConsumer(cfg *config, kgoClient *kgo.Client, dlqProducer DLQProducer) (*
 		drainTimeout: cfg.drainTimeout,
 	}
 
-	v2.router = consumer.NewRouter(kgoClient.AddConsumeTopics)
-	v2.pauses = consumer.NewPauseRegistry(time.Now)
-	v2.runState = consumer.NewRunState()
+	c.router = consumer.NewRouter(kgoClient.AddConsumeTopics)
+	c.pauses = consumer.NewPauseRegistry(time.Now)
+	c.runState = consumer.NewRunState()
 
-	v2.registry = consumer.NewPartitionRegistry(v2.log)
-	v2.committer = consumer.NewCommitter(
-		v2.registry,
+	c.registry = consumer.NewPartitionRegistry(c.log)
+	c.committer = consumer.NewCommitter(
+		c.registry,
 		commitOffsetsSync(kgoClient),
 		consumer.CommitConfig{
 			FlushInterval:      cfg.flushInterval,
@@ -102,7 +96,7 @@ func newConsumer(cfg *config, kgoClient *kgo.Client, dlqProducer DLQProducer) (*
 		},
 	)
 
-	executor := consumer.NewRecordExecutor(v2.log)
+	executor := consumer.NewRecordExecutor(c.log)
 
 	dlqWriter := func(ctx context.Context, record *kgo.Record) error {
 		if dlqProducer != nil {
@@ -113,25 +107,25 @@ func newConsumer(cfg *config, kgoClient *kgo.Client, dlqProducer DLQProducer) (*
 
 	capacityCh := make(chan struct{}, 1)
 
-	v2.workerRunner = consumer.NewWorkerRunner(
-		v2.log,
-		v2.runState,
-		v2.committer,
+	c.workerRunner = consumer.NewWorkerRunner(
+		c.log,
+		c.runState,
+		c.committer,
 		executor,
-		v2.registry,
-		v2.pauses,
-		v2.cfg.workers,
+		c.registry,
+		c.pauses,
+		c.cfg.workers,
 		capacityCh,
 		dlqWriter,
 		kgoClient,
 	)
 
-	v2.dispatcher = consumer.NewDispatcher(
-		v2.router,
-		v2.pauses,
-		v2.registry,
+	c.dispatcher = consumer.NewDispatcher(
+		c.router,
+		c.pauses,
+		c.registry,
 		kgoClient,
-		v2.workerRunner.Start,
+		c.workerRunner.Start,
 		cfg.queueCapacity,
 		capacityCh,
 	)
@@ -141,12 +135,12 @@ func newConsumer(cfg *config, kgoClient *kgo.Client, dlqProducer DLQProducer) (*
 		subs = append(subs, sub)
 	}
 	if len(subs) > 0 {
-		if err := v2.router.RegisterQuietBatch(subs); err != nil {
+		if err := c.router.RegisterQuietBatch(subs); err != nil {
 			return nil, fmt.Errorf("subscription init: %w", err)
 		}
 	}
 
-	return v2, nil
+	return c, nil
 }
 
 // AddSubscription registers a new topic subscription.
