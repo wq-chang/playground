@@ -129,7 +129,7 @@ func New(brokers []string, groupId string, opts ...Option) (*Client, error) {
 		return nil, fmt.Errorf("failed to create kgo client: %w", err)
 	}
 
-	producer := newProducer(cfg, kgoClient)
+	producer := newProducer(kgoClient)
 
 	consumer, err = newConsumer(cfg, kgoClient, producer)
 	if err != nil {

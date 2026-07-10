@@ -102,6 +102,7 @@ func (e *RecordExecutor) resolveExhausted(
 			"partition", record.Partition,
 			"offset", record.Offset,
 			"attempts", attempts,
+			"err", lastErr,
 		)
 		return RecordResult{Cause: nil, Resolved: true, PauseTopic: false}
 	case ExhaustedActionDLQThenCommit:

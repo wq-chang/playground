@@ -12,7 +12,7 @@ type Producer struct {
 }
 
 // newProducer creates a new Kafka producer.
-func newProducer(cfg *config, kgoClient *kgo.Client) *Producer {
+func newProducer(kgoClient *kgo.Client) *Producer {
 	return &Producer{
 		kgoClient: kgoClient,
 	}

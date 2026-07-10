@@ -258,8 +258,7 @@ func (c *Consumer) onPartitionsRevoked(
 	}
 
 	states := c.registry.BeginClosing(partitions)
-	if err := c.committer.Finalize(ctx, ctx, states,
-		"failed to commit processed offsets on revoke"); err != nil {
+	if err := c.committer.Finalize(ctx, ctx, states, "failed to commit processed offsets on revoke"); err != nil {
 		c.log.ErrorContext(ctx, "failed to commit processed offsets on revoke", "err", err)
 		c.runState.Fail(err)
 	}
