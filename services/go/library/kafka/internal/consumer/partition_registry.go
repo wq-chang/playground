@@ -170,7 +170,7 @@ func (r *PartitionRegistry) DropLost(partitions map[string][]int32) {
 		if _, ok := allowed[key]; !ok {
 			continue
 		}
-		state.Abort()
+		state.BeginClosing()
 		delete(r.partitions, key)
 		delete(r.dirty, key)
 	}

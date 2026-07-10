@@ -313,7 +313,7 @@ func TestWorkerRunner_FlushResolvedBeforeContextCancel(t *testing.T) {
 	})
 
 	<-record0Started
-	ps.Abort()
+	ps.BeginClosing()
 	close(record0Done)
 
 	time.Sleep(200 * time.Millisecond)

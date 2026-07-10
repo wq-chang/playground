@@ -233,20 +233,6 @@ func TestPartitionState_BeginClosing_StopsAccepting(t *testing.T) {
 	assert.False(t, ps.TryPauseBackpressure(), "backpressure pause should fail when not accepting")
 }
 
-func TestPartitionState_Abort_ReturnsOffset(t *testing.T) {
-	ps := consumer.NewPartitionState(context.Background(), testlogger.NewLogger(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)
-
-	record := &kgo.Record{Topic: "t", Partition: 1, Offset: 5, LeaderEpoch: 1}
-	ps.AdvanceCommitOffset(record)
-
-	offset, ok := ps.Abort()
-	assert.True(t, ok, "should return offset on abort")
-	assert.Equal(t, int64(6), offset.Offset, "abort offset should be record.Offset+1")
-
-	assert.False(t, ps.IsRunning(), "should not be running after abort")
-	enqueued, _ := ps.TryEnqueue([]*kgo.Record{{Topic: "t", Partition: 1}})
-	assert.Equal(t, 0, enqueued, "should not enqueue after abort")
-}
 
 func TestPartitionState_MarkStopped(t *testing.T) {
 	ps := consumer.NewPartitionState(context.Background(), testlogger.NewLogger(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)

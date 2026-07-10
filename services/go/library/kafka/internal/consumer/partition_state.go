@@ -81,7 +81,7 @@ func (s *PartitionState) Key() Key {
 }
 
 // Context returns the partition's context, which is cancelled when
-// BeginClosing or Abort is called.
+// BeginClosing is called.
 func (s *PartitionState) Context() context.Context {
 	return s.ctx
 }
@@ -261,19 +261,6 @@ func (s *PartitionState) closeQueueLocked() {
 	s.queueCloseOnce.Do(func() {
 		close(s.queue)
 	})
-}
-
-// Abort aborts the state, cancels its context, and reports the last committable
-// offset if one exists. Delegates lifecycle transition to BeginClosing.
-func (s *PartitionState) Abort() (kgo.EpochOffset, bool) {
-	s.BeginClosing()
-
-	s.mu.Lock()
-	offset := s.nextCommitOffset
-	ok := s.committedOffset.Less(offset)
-	s.mu.Unlock()
-
-	return offset, ok
 }
 
 // MarkStopped marks the state as fully stopped and closes the done channel
