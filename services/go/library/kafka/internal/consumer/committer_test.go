@@ -42,7 +42,6 @@ func newTestCommitter(
 	return consumer.NewCommitter(reg, client, consumer.CommitConfig{
 		FlushInterval:      50 * time.Millisecond,
 		DebounceInterval:   10 * time.Millisecond,
-		DrainTimeout:       100 * time.Millisecond,
 		FinalCommitTimeout: 100 * time.Millisecond,
 	})
 }

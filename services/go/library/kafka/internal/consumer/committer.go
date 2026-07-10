@@ -18,7 +18,6 @@ type OffsetClient interface {
 type CommitConfig struct {
 	FlushInterval      time.Duration
 	DebounceInterval   time.Duration
-	DrainTimeout       time.Duration
 	FinalCommitTimeout time.Duration
 }
 
@@ -28,9 +27,6 @@ func (c CommitConfig) withDefaults() CommitConfig {
 	}
 	if c.DebounceInterval <= 0 {
 		c.DebounceInterval = 100 * time.Millisecond
-	}
-	if c.DrainTimeout <= 0 {
-		c.DrainTimeout = 30 * time.Second
 	}
 	if c.FinalCommitTimeout <= 0 {
 		c.FinalCommitTimeout = 30 * time.Second
@@ -287,11 +283,6 @@ func (cm *Committer) Finalize(
 func (cm *Committer) waitForPartitions(ctx context.Context, states []*PartitionState) error {
 	if len(states) == 0 {
 		return nil
-	}
-	if ctx == nil {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(context.Background(), cm.cfg.DrainTimeout)
-		defer cancel()
 	}
 
 	for _, state := range states {

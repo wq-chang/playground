@@ -47,22 +47,32 @@ type config struct {
 	drainTimeout time.Duration
 	// queueCapacity is the per-partition record queue capacity. Defaults to 64.
 	queueCapacity int
+	// flushInterval is the periodic commit loop interval. Defaults to 500ms.
+	flushInterval time.Duration
+	// debounceInterval is the debounce window for request-flush coalescing. Defaults to 100ms.
+	debounceInterval time.Duration
+	// finalCommitTimeout is the timeout for the final commit during shutdown/rebalance.
+	// Defaults to 30s.
+	finalCommitTimeout time.Duration
 }
 
 // newConfig creates a new kafka onfig with default values.
 func newConfig(brokers []string, groupId string) *config {
 	return &config{
-		groupId:         groupId,
-		subscriptions:   make(map[string]Subscription),
-		workers:         16,
-		defaultAckMode:  AckModeAtLeastOnce,
-		fetchMaxRecords: 500,
-		drainTimeout:    30 * time.Second,
-		queueCapacity:   64,
-		logger:          slog.Default(),
-		auth:            nil,
-		brokers:         brokers,
-		kgoOpts:         []kgo.Opt{},
+		groupId:            groupId,
+		subscriptions:      make(map[string]Subscription),
+		workers:            16,
+		defaultAckMode:     AckModeAtLeastOnce,
+		fetchMaxRecords:    500,
+		drainTimeout:       30 * time.Second,
+		queueCapacity:      64,
+		flushInterval:      500 * time.Millisecond,
+		debounceInterval:   100 * time.Millisecond,
+		finalCommitTimeout: 30 * time.Second,
+		logger:             slog.Default(),
+		auth:               nil,
+		brokers:            brokers,
+		kgoOpts:            []kgo.Opt{},
 	}
 }
 
@@ -188,6 +198,35 @@ func WithQueueCapacity(n int) Option {
 	return func(c *config) {
 		if n > 0 {
 			c.queueCapacity = n
+		}
+	}
+}
+
+// WithFlushInterval sets the periodic commit loop interval. Defaults to 500ms.
+func WithFlushInterval(d time.Duration) Option {
+	return func(c *config) {
+		if d > 0 {
+			c.flushInterval = d
+		}
+	}
+}
+
+// WithDebounceInterval sets the debounce window for request-flush
+// coalescing. Defaults to 100ms.
+func WithDebounceInterval(d time.Duration) Option {
+	return func(c *config) {
+		if d > 0 {
+			c.debounceInterval = d
+		}
+	}
+}
+
+// WithFinalCommitTimeout sets the timeout for the final commit during
+// shutdown or rebalance. Defaults to 30s.
+func WithFinalCommitTimeout(d time.Duration) Option {
+	return func(c *config) {
+		if d > 0 {
+			c.finalCommitTimeout = d
 		}
 	}
 }

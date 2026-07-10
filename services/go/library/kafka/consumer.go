@@ -95,7 +95,11 @@ func newConsumer(cfg *config, kgoClient *kgo.Client, dlqProducer DLQProducer) (*
 	v2.committer = consumer.NewCommitter(
 		v2.registry,
 		commitOffsetsSync(kgoClient),
-		consumer.CommitConfig{},
+		consumer.CommitConfig{
+			FlushInterval:      cfg.flushInterval,
+			DebounceInterval:   cfg.debounceInterval,
+			FinalCommitTimeout: cfg.finalCommitTimeout,
+		},
 	)
 
 	executor := consumer.NewRecordExecutor(v2.log)

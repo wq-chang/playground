@@ -79,7 +79,6 @@ func setupIntegration(t *testing.T, cl *offsetRecorder) (
 		consumer.CommitConfig{
 			FlushInterval:      10 * time.Millisecond,
 			DebounceInterval:   1 * time.Millisecond,
-			DrainTimeout:       5 * time.Second,
 			FinalCommitTimeout: 5 * time.Second,
 		},
 	)
