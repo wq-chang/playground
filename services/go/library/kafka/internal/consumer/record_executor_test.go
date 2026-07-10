@@ -254,7 +254,52 @@ func TestRecordExecutor_ExhaustedDLQ_WriterFails(t *testing.T) {
 	)
 	result := exec.ExecuteRecord(context.Background(), sub, &kgo.Record{Topic: "t"}, dlqWriter)
 	assert.False(t, result.Resolved, "should not resolve when DLQ write fails")
+	assert.True(t, result.PauseTopic, "should pause topic when DLQ write fails after retries")
 	assert.NotNil(t, result.Cause, "should return error from DLQ failure")
+}
+
+func TestRecordExecutor_ExhaustedDLQ_RetriesThenSucceeds(t *testing.T) {
+	exec := consumer.NewRecordExecutor(testlogger.NewLogger())
+	var dlqCalls atomic.Int32
+
+	dlqWriter := func(ctx context.Context, enriched *kgo.Record) error {
+		n := dlqCalls.Add(1)
+		if n < 3 {
+			return errors.New("dlq write failed")
+		}
+		return nil
+	}
+
+	sub := testSubRecord(
+		func(ctx context.Context, record *kgo.Record) error { return errors.New("fail") },
+		consumer.AckModeAtLeastOnce,
+		consumer.FailurePolicy{MaxAttempts: 3, RetryBackoff: time.Millisecond, DLQ: &consumer.DLQConfig{Topic: "dlq"}, OnExhausted: consumer.ExhaustedActionDLQThenCommit},
+	)
+	result := exec.ExecuteRecord(context.Background(), sub, &kgo.Record{Topic: "t"}, dlqWriter)
+	assert.True(t, result.Resolved, "should resolve after DLQ retry succeeds")
+	assert.False(t, result.PauseTopic, "should not pause topic on DLQ success")
+	assert.Equal(t, int32(3), dlqCalls.Load(), "DLQ writer should be called 3 times")
+}
+
+func TestRecordExecutor_ExhaustedDLQ_RetriesExhausted_PausesTopic(t *testing.T) {
+	exec := consumer.NewRecordExecutor(testlogger.NewLogger())
+	var dlqCalls atomic.Int32
+
+	dlqWriter := func(ctx context.Context, enriched *kgo.Record) error {
+		dlqCalls.Add(1)
+		return errors.New("dlq write failed")
+	}
+
+	sub := testSubRecord(
+		func(ctx context.Context, record *kgo.Record) error { return errors.New("fail") },
+		consumer.AckModeAtLeastOnce,
+		consumer.FailurePolicy{MaxAttempts: 3, RetryBackoff: time.Millisecond, DLQ: &consumer.DLQConfig{Topic: "dlq"}, OnExhausted: consumer.ExhaustedActionDLQThenCommit},
+	)
+	result := exec.ExecuteRecord(context.Background(), sub, &kgo.Record{Topic: "t"}, dlqWriter)
+	assert.False(t, result.Resolved, "should not resolve when all DLQ retries fail")
+	assert.True(t, result.PauseTopic, "should pause topic after all DLQ retries fail")
+	assert.NotNil(t, result.Cause, "should return error after DLQ retries exhausted")
+	assert.Equal(t, int32(3), dlqCalls.Load(), "DLQ writer should be called MaxAttempts times")
 }
 
 func TestRecordExecutor_UnsupportedExhaustedAction(t *testing.T) {

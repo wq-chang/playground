@@ -106,30 +106,78 @@ func (e *RecordExecutor) resolveExhausted(
 		)
 		return RecordResult{Cause: nil, Resolved: true, PauseTopic: false}
 	case ExhaustedActionDLQThenCommit:
-		enriched := enrichDLQRecord(record, lastErr, attempts, sub.FailurePolicy.DLQ.Topic)
-		if err := dlqWriter(ctx, enriched); err != nil {
-			return RecordResult{
-				Cause:      fmt.Errorf("failed to publish topic %q to dlq: %w", record.Topic, errors.Join(lastErr, err)),
-				Resolved:   false,
-				PauseTopic: false,
-			}
-		}
-		e.logger.WarnContext(
-			ctx,
-			"Kafka record sent to DLQ after retry exhaustion",
-			"topic", record.Topic,
-			"partition", record.Partition,
-			"offset", record.Offset,
-			"attempts", attempts,
-			"dlqTopic", sub.FailurePolicy.DLQ.Topic,
-		)
-		return RecordResult{Cause: nil, Resolved: true, PauseTopic: false}
+		return e.publishDLQ(ctx, sub, record, lastErr, attempts, dlqWriter)
 	default:
 		return RecordResult{
 			Cause:      fmt.Errorf("unsupported exhausted action: %d", sub.FailurePolicy.OnExhausted),
 			Resolved:   false,
 			PauseTopic: false,
 		}
+	}
+}
+
+// publishDLQ attempts to publish a record to the dead-letter topic.
+// It retries up to the subscription's MaxAttempts with RetryBackoff between
+// each attempt. If all retries fail, the topic is paused so the consumer
+// stays healthy (instead of crashing like a fatal error).
+func (e *RecordExecutor) publishDLQ(
+	ctx context.Context,
+	sub Subscription,
+	record *kgo.Record,
+	lastErr error,
+	attempts int,
+	dlqWriter func(ctx context.Context, enriched *kgo.Record) error,
+) RecordResult {
+	enriched := enrichDLQRecord(record, lastErr, attempts, sub.FailurePolicy.DLQ.Topic)
+	dlqAttempts := sub.FailurePolicy.MaxAttempts
+	var dlqErr error
+
+	for attempt := 1; attempt <= dlqAttempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return RecordResult{Cause: err, Resolved: false, PauseTopic: false}
+		}
+		dlqErr = dlqWriter(ctx, enriched)
+		if dlqErr == nil {
+			e.logger.WarnContext(
+				ctx,
+				"Kafka record sent to DLQ after retry exhaustion",
+				"topic", record.Topic,
+				"partition", record.Partition,
+				"offset", record.Offset,
+				"attempts", attempts,
+				"dlqTopic", sub.FailurePolicy.DLQ.Topic,
+			)
+			return RecordResult{Cause: nil, Resolved: true, PauseTopic: false}
+		}
+		e.logger.ErrorContext(
+			ctx,
+			"Kafka DLQ publish error",
+			"topic", record.Topic,
+			"partition", record.Partition,
+			"offset", record.Offset,
+			"dlqTopic", sub.FailurePolicy.DLQ.Topic,
+			"attempt", attempt,
+			"maxAttempts", dlqAttempts,
+			"err", dlqErr,
+		)
+		if attempt < dlqAttempts {
+			if err := waitForRetry(ctx, sub.FailurePolicy.RetryBackoff); err != nil {
+				return RecordResult{Cause: err, Resolved: false, PauseTopic: false}
+			}
+		}
+	}
+
+	return RecordResult{
+		Cause: fmt.Errorf(
+			"dlq publish failed for topic %q partition %d offset %d after %d attempts: %w",
+			record.Topic,
+			record.Partition,
+			record.Offset,
+			dlqAttempts,
+			errors.Join(lastErr, dlqErr),
+		),
+		Resolved:   false,
+		PauseTopic: true,
 	}
 }
 

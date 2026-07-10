@@ -233,7 +233,6 @@ func TestPartitionState_BeginClosing_StopsAccepting(t *testing.T) {
 	assert.False(t, ps.TryPauseBackpressure(), "backpressure pause should fail when not accepting")
 }
 
-
 func TestPartitionState_MarkStopped(t *testing.T) {
 	ps := consumer.NewPartitionState(context.Background(), testlogger.NewLogger(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)
 
