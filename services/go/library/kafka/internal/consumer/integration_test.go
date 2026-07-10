@@ -97,7 +97,7 @@ func setupIntegration(t *testing.T, cl *offsetRecorder) (
 		kgoClient,
 	)
 
-	dispatcher := consumer.NewDispatcher(router, pauses, registry, kgoClient, wr.Start, capacityCh)
+	dispatcher := consumer.NewDispatcher(router, pauses, registry, kgoClient, wr.Start, 64, capacityCh)
 
 	return run, router, registry, committer, pauses, dispatcher
 }

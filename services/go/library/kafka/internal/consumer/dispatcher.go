@@ -18,12 +18,13 @@ type PartitionBatch struct {
 // management. It groups polled records by topic-partition, enqueues them into
 // partition workers, and applies backpressure pauses when queues fill up.
 type Dispatcher struct {
-	router    *Router
-	pauses    *PauseRegistry
-	registry  *PartitionRegistry
-	kgoClient *kgo.Client
-	startFn   func(*PartitionState)
-	dispCh    chan struct{}
+	router        *Router
+	pauses        *PauseRegistry
+	registry      *PartitionRegistry
+	kgoClient     *kgo.Client
+	startFn       func(*PartitionState)
+	capacityCh    chan struct{}
+	queueCapacity int
 }
 
 // NewDispatcher creates a dispatcher with the given dependencies.
@@ -34,15 +35,17 @@ func NewDispatcher(
 	registry *PartitionRegistry,
 	kgoClient *kgo.Client,
 	startFn func(*PartitionState),
-	dispCh chan struct{},
+	queueCapacity int,
+	capacityCh chan struct{},
 ) *Dispatcher {
 	return &Dispatcher{
-		router:    router,
-		pauses:    pauses,
-		registry:  registry,
-		kgoClient: kgoClient,
-		startFn:   startFn,
-		dispCh:    dispCh,
+		router:        router,
+		pauses:        pauses,
+		registry:      registry,
+		kgoClient:     kgoClient,
+		startFn:       startFn,
+		queueCapacity: queueCapacity,
+		capacityCh:    capacityCh,
 	}
 }
 
@@ -84,7 +87,7 @@ func (d *Dispatcher) Dispatch(
 				cursor.batch.Key,
 				cursor.batch.Subscription,
 				context.Background(),
-				defaultQueueCapacity,
+				d.queueCapacity,
 			)
 			if err != nil {
 				return err
@@ -165,9 +168,7 @@ func (d *Dispatcher) WaitForCapacity(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-d.dispCh:
+	case <-d.capacityCh:
 		return nil
 	}
 }
-
-const defaultQueueCapacity = 64

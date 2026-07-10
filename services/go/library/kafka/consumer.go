@@ -84,7 +84,7 @@ func newConsumer(cfg *config, kgoClient *kgo.Client, dlqProducer DLQProducer) (*
 		committer:    nil,
 		dispatcher:   nil,
 		workerRunner: nil,
-		drainTimeout: 30 * time.Second,
+		drainTimeout: cfg.drainTimeout,
 	}
 
 	v2.router = consumer.NewRouter(kgoClient.AddConsumeTopics)
@@ -128,6 +128,7 @@ func newConsumer(cfg *config, kgoClient *kgo.Client, dlqProducer DLQProducer) (*
 		v2.registry,
 		kgoClient,
 		v2.workerRunner.Start,
+		cfg.queueCapacity,
 		capacityCh,
 	)
 
@@ -137,7 +138,7 @@ func newConsumer(cfg *config, kgoClient *kgo.Client, dlqProducer DLQProducer) (*
 	}
 	if len(subs) > 0 {
 		if err := v2.router.RegisterQuietBatch(subs); err != nil {
-			return nil, fmt.Errorf("v2 init: %w", err)
+			return nil, fmt.Errorf("subscription init: %w", err)
 		}
 	}
 
@@ -145,27 +146,27 @@ func newConsumer(cfg *config, kgoClient *kgo.Client, dlqProducer DLQProducer) (*
 }
 
 // AddSubscription registers a new topic subscription.
-func (v2 *Consumer) AddSubscription(subscription Subscription) error {
+func (c *Consumer) AddSubscription(subscription Subscription) error {
 	normalized, err := subscription.Normalize()
 	if err != nil {
 		return err
 	}
-	return v2.router.Register(normalized)
+	return c.router.Register(normalized)
 }
 
 // AddTopic registers a single-record handler using the default ack mode.
-func (v2 *Consumer) AddTopic(topic string, handler Handler) error {
-	return v2.AddSubscription(newDefaultSubscription(topic, handler, v2.cfg.defaultAckMode))
+func (c *Consumer) AddTopic(topic string, handler Handler) error {
+	return c.AddSubscription(newDefaultSubscription(topic, handler, c.cfg.defaultAckMode))
 }
 
 // AddBatchTopic registers a batch handler using the default ack mode.
-func (v2 *Consumer) AddBatchTopic(topic string, handler BatchHandler) error {
-	return v2.AddSubscription(newDefaultBatchSubscription(topic, handler, v2.cfg.defaultAckMode))
+func (c *Consumer) AddBatchTopic(topic string, handler BatchHandler) error {
+	return c.AddSubscription(newDefaultBatchSubscription(topic, handler, c.cfg.defaultAckMode))
 }
 
 // Run starts the consumer loop.
-func (v2 *Consumer) Run(ctx context.Context) error {
-	runCtx, err := v2.runState.Begin()
+func (c *Consumer) Run(ctx context.Context) error {
+	runCtx, err := c.runState.Begin()
 	if err != nil {
 		return err
 	}
@@ -173,37 +174,37 @@ func (v2 *Consumer) Run(ctx context.Context) error {
 	pollCtx, stopPolling := mergeRunContexts(ctx, runCtx)
 	defer stopPolling()
 
-	if v2.kgoClient == nil {
+	if c.kgoClient == nil {
 		return fmt.Errorf("consumer client is not initialized")
 	}
 
 	// Start commit loop.
-	v2.runState.Go(func() {
-		if commitErr := v2.committer.Run(runCtx); commitErr != nil {
-			v2.runState.Fail(commitErr)
+	c.runState.Go(func() {
+		if commitErr := c.committer.Run(runCtx); commitErr != nil {
+			c.runState.Fail(commitErr)
 		}
 	})
 
 	// Dispatch loop.
-	err = v2.runDispatch(pollCtx)
+	err = c.runDispatch(pollCtx)
 
 	// Graceful shutdown (only if no fatal error).
-	if runErr := v2.runState.Err(); runErr == nil {
-		states := v2.registry.BeginClosingAll()
-		drainCtx, drainCancel := context.WithTimeout(context.Background(), v2.drainTimeout)
+	if runErr := c.runState.Err(); runErr == nil {
+		states := c.registry.BeginClosingAll()
+		drainCtx, drainCancel := context.WithTimeout(context.Background(), c.drainTimeout)
 		defer drainCancel()
-		if shutdownErr := v2.committer.Finalize(drainCtx, nil, states, "failed to commit processed offsets on shutdown"); shutdownErr != nil {
+		if shutdownErr := c.committer.Finalize(drainCtx, nil, states, "failed to commit processed offsets on shutdown"); shutdownErr != nil {
 			if err == nil {
 				err = shutdownErr
 			}
 		}
 	}
 
-	v2.runState.Stop()
-	v2.runState.Wait()
+	c.runState.Stop()
+	c.runState.Wait()
 
-	fatalErr := v2.runState.Err()
-	v2.runState.Reset()
+	fatalErr := c.runState.Err()
+	c.runState.Reset()
 
 	// Error priority.
 	switch {
@@ -216,9 +217,9 @@ func (v2 *Consumer) Run(ctx context.Context) error {
 	}
 }
 
-func (v2 *Consumer) runDispatch(ctx context.Context) error {
-	cl := v2.kgoClient
-	maxRecords := v2.cfg.fetchMaxRecords
+func (c *Consumer) runDispatch(ctx context.Context) error {
+	cl := c.kgoClient
+	maxRecords := c.cfg.fetchMaxRecords
 	for {
 		fetches := cl.PollRecords(ctx, maxRecords)
 		if fetches.IsClientClosed() {
@@ -229,12 +230,12 @@ func (v2 *Consumer) runDispatch(ctx context.Context) error {
 			if ctx.Err() != nil {
 				return nil
 			}
-			v2.log.WarnContext(ctx, "kafka poll error", "err", err)
+			c.log.WarnContext(ctx, "kafka poll error", "err", err)
 			continue
 		}
 		records := fetches.Records()
 		if len(records) > 0 {
-			if err := v2.dispatcher.Dispatch(ctx, records); err != nil {
+			if err := c.dispatcher.Dispatch(ctx, records); err != nil {
 				return err
 			}
 		}
@@ -243,7 +244,7 @@ func (v2 *Consumer) runDispatch(ctx context.Context) error {
 }
 
 // onPartitionsRevoked handles partition revocation.
-func (v2 *Consumer) onPartitionsRevoked(
+func (c *Consumer) onPartitionsRevoked(
 	ctx context.Context,
 	cl *kgo.Client,
 	partitions map[string][]int32,
@@ -256,21 +257,21 @@ func (v2 *Consumer) onPartitionsRevoked(
 		cl.PauseFetchPartitions(partitions)
 	}
 
-	states := v2.registry.BeginClosing(partitions)
-	if err := v2.committer.Finalize(ctx, ctx, states,
+	states := c.registry.BeginClosing(partitions)
+	if err := c.committer.Finalize(ctx, ctx, states,
 		"failed to commit processed offsets on revoke"); err != nil {
-		v2.log.ErrorContext(ctx, "failed to commit processed offsets on revoke", "err", err)
-		v2.runState.Fail(err)
+		c.log.ErrorContext(ctx, "failed to commit processed offsets on revoke", "err", err)
+		c.runState.Fail(err)
 	}
 }
 
 // onPartitionsLost handles lost partitions by dropping in-memory commit progress.
-func (v2 *Consumer) onPartitionsLost(
+func (c *Consumer) onPartitionsLost(
 	ctx context.Context,
 	partitions map[string][]int32,
 ) {
-	v2.log.WarnContext(ctx, "partitions lost; dropping in-memory commit progress", "partitions", partitions)
-	v2.registry.DropLost(partitions)
+	c.log.WarnContext(ctx, "partitions lost; dropping in-memory commit progress", "partitions", partitions)
+	c.registry.DropLost(partitions)
 }
 
 // mergeRunContexts combines the parent context with the run context so that

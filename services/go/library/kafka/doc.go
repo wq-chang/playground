@@ -32,6 +32,15 @@
 // uncommitted, commit past the record, or publish it to a dead-letter topic and
 // commit only after the dead-letter publish succeeds.
 //
+// # Backpressure
+//
+// Each topic-partition has a bounded record queue (configurable via
+// WithQueueCapacity). When a queue fills to its high watermark, the consumer
+// pauses fetching from that partition to apply backpressure. Fetching resumes
+// automatically when the queue drains below the low watermark, providing
+// hysteresis against rapid pause/resume cycles. Use WithDrainTimeout to control
+// how long graceful shutdown waits for in-flight records to finish processing.
+//
 // # Producing
 //
 // Use Client.Producer to send records asynchronously with Produce or

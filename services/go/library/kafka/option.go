@@ -3,6 +3,7 @@ package kafka
 import (
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
 )
@@ -41,6 +42,11 @@ type config struct {
 	// fetchMaxRecords is the max number of records returned by a single PollRecords call.
 	// Defaults to 500, matching Apache Kafka's max.poll.records default.
 	fetchMaxRecords int
+	// drainTimeout is the maximum time to wait for partition workers to drain
+	// during graceful shutdown. Defaults to 30 seconds.
+	drainTimeout time.Duration
+	// queueCapacity is the per-partition record queue capacity. Defaults to 64.
+	queueCapacity int
 }
 
 // newConfig creates a new kafka onfig with default values.
@@ -51,6 +57,8 @@ func newConfig(brokers []string, groupId string) *config {
 		workers:         16,
 		defaultAckMode:  AckModeAtLeastOnce,
 		fetchMaxRecords: 500,
+		drainTimeout:    30 * time.Second,
+		queueCapacity:   64,
 		logger:          slog.Default(),
 		auth:            nil,
 		brokers:         brokers,
@@ -159,6 +167,27 @@ func WithFetchMaxRecords(n int) Option {
 	return func(c *config) {
 		if n > 0 || n == -1 {
 			c.fetchMaxRecords = n
+		}
+	}
+}
+
+// WithDrainTimeout sets the maximum time to wait for partition workers to
+// drain during graceful shutdown. Defaults to 30 seconds.
+func WithDrainTimeout(d time.Duration) Option {
+	return func(c *config) {
+		if d > 0 {
+			c.drainTimeout = d
+		}
+	}
+}
+
+// WithQueueCapacity sets the per-partition record queue capacity.
+// Larger values increase memory usage but reduce backpressure pauses.
+// Defaults to 64.
+func WithQueueCapacity(n int) Option {
+	return func(c *config) {
+		if n > 0 {
+			c.queueCapacity = n
 		}
 	}
 }
