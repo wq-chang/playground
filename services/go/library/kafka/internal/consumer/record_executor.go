@@ -98,14 +98,10 @@ func (e *RecordExecutor) resolveExhausted(
 		e.logger.WarnContext(
 			ctx,
 			"Kafka record dropped after retry exhaustion",
-			"topic",
-			record.Topic,
-			"partition",
-			record.Partition,
-			"offset",
-			record.Offset,
-			"attempts",
-			attempts,
+			"topic", record.Topic,
+			"partition", record.Partition,
+			"offset", record.Offset,
+			"attempts", attempts,
 		)
 		return RecordResult{Cause: nil, Resolved: true, PauseTopic: false}
 	case ExhaustedActionDLQThenCommit:
@@ -117,9 +113,15 @@ func (e *RecordExecutor) resolveExhausted(
 				PauseTopic: false,
 			}
 		}
-		e.logger.WarnContext(ctx, "Kafka record sent to DLQ after retry exhaustion",
-			"topic", record.Topic, "partition", record.Partition, "offset", record.Offset,
-			"attempts", attempts, "dlqTopic", sub.FailurePolicy.DLQ.Topic)
+		e.logger.WarnContext(
+			ctx,
+			"Kafka record sent to DLQ after retry exhaustion",
+			"topic", record.Topic,
+			"partition", record.Partition,
+			"offset", record.Offset,
+			"attempts", attempts,
+			"dlqTopic", sub.FailurePolicy.DLQ.Topic,
+		)
 		return RecordResult{Cause: nil, Resolved: true, PauseTopic: false}
 	default:
 		return RecordResult{

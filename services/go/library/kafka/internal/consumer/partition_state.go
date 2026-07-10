@@ -138,9 +138,14 @@ func (s *PartitionState) OnDequeue(records []*kgo.Record) int {
 
 	s.bufferedRecords -= int32(len(records))
 	if s.bufferedRecords < 0 {
-		s.log.WarnContext(s.ctx, "partition bufferedRecords went negative on dequeue — accounting bug",
-			"topic", s.key.Topic, "partition", s.key.Partition,
-			"dequeued", len(records), "buffered", s.bufferedRecords)
+		s.log.WarnContext(
+			s.ctx,
+			"partition bufferedRecords went negative on dequeue — accounting bug",
+			"topic", s.key.Topic,
+			"partition", s.key.Partition,
+			"dequeued", len(records),
+			"buffered", s.bufferedRecords,
+		)
 		s.bufferedRecords = 0
 	}
 	return int(s.bufferedRecords)

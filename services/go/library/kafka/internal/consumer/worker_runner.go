@@ -129,8 +129,12 @@ func (wr *WorkerRunner) processRecords(
 		wr.releaseProcessSlot()
 
 		if result.PauseTopic {
-			wr.logger.WarnContext(ctx, "Kafka topic paused after retry exhaustion",
-				"topic", record.Topic, "err", result.Cause)
+			wr.logger.WarnContext(
+				ctx,
+				"Kafka topic paused after retry exhaustion",
+				"topic", record.Topic,
+				"err", result.Cause,
+			)
 			wr.pauses.Pause(record.Topic, result.Cause)
 			wr.kgoClient.PauseFetchTopics(record.Topic)
 			continue
@@ -181,8 +185,12 @@ func (wr *WorkerRunner) processBatch(
 	wr.releaseProcessSlot()
 
 	if pauseTopic {
-		wr.logger.WarnContext(ctx, "Kafka topic paused after retry exhaustion",
-			"topic", records[0].Topic, "err", cause)
+		wr.logger.WarnContext(
+			ctx,
+			"Kafka topic paused after retry exhaustion",
+			"topic", records[0].Topic,
+			"err", cause,
+		)
 		wr.pauses.Pause(records[0].Topic, cause)
 		wr.kgoClient.PauseFetchTopics(records[0].Topic)
 		return
