@@ -3,6 +3,7 @@ package consumer_test
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -206,4 +207,78 @@ func TestPartitionRegistry_Cleanup_IgnoresStalePointer(t *testing.T) {
 func TestPartitionRegistry_Cleanup_NilEntry(t *testing.T) {
 	r := consumer.NewPartitionRegistry(testlogger.NewLogger())
 	r.Cleanup([]*consumer.PartitionState{nil})
+}
+
+func TestPartitionRegistry_MarkStateCommitted_ClearsWhenClean(t *testing.T) {
+	r := consumer.NewPartitionRegistry(testlogger.NewLogger())
+	key := consumer.Key{Topic: "t", Partition: 0}
+	ps, _, err := r.GetOrCreate(key, testSub("t"), context.Background(), 10)
+	require.NoError(t, err, "GetOrCreate should succeed")
+
+	// Advance offset and mark dirty.
+	ps.AdvanceCommitOffset(&kgo.Record{Topic: "t", Partition: 0, Offset: 5, LeaderEpoch: 1})
+	r.MarkDirty(ps)
+
+	// Mark committed — no further progress, dirty should be cleared.
+	r.MarkStateCommitted(ps, kgo.EpochOffset{Epoch: 1, Offset: 6})
+
+	snap := r.SnapshotDirtyStates()
+	assert.Equal(t, 0, len(snap), "dirty should be cleared after commit catches up")
+}
+
+func TestPartitionRegistry_MarkStateCommitted_KeepsWhenStillDirty(t *testing.T) {
+	r := consumer.NewPartitionRegistry(testlogger.NewLogger())
+	key := consumer.Key{Topic: "t", Partition: 0}
+	ps, _, err := r.GetOrCreate(key, testSub("t"), context.Background(), 10)
+	require.NoError(t, err, "GetOrCreate should succeed")
+
+	// Advance offset past what we'll commit (simulating worker progress
+	// between snapshot and commit).
+	ps.AdvanceCommitOffset(&kgo.Record{Topic: "t", Partition: 0, Offset: 5, LeaderEpoch: 1})
+	ps.AdvanceCommitOffset(&kgo.Record{Topic: "t", Partition: 0, Offset: 6, LeaderEpoch: 1})
+	r.MarkDirty(ps)
+
+	// Commit only up to offset 6 — state is still dirty at offset 7.
+	r.MarkStateCommitted(ps, kgo.EpochOffset{Epoch: 1, Offset: 6})
+
+	snap := r.SnapshotDirtyStates()
+	assert.Equal(t, 1, len(snap), "dirty should remain when more progress exists")
+}
+
+func TestPartitionRegistry_MarkStateCommitted_AtomicWithMarkDirty(t *testing.T) {
+	r := consumer.NewPartitionRegistry(testlogger.NewLogger())
+	key := consumer.Key{Topic: "t", Partition: 0}
+	ps, _, err := r.GetOrCreate(key, testSub("t"), context.Background(), 10)
+	require.NoError(t, err, "GetOrCreate should succeed")
+
+	ps.AdvanceCommitOffset(&kgo.Record{Topic: "t", Partition: 0, Offset: 5, LeaderEpoch: 1})
+	r.MarkDirty(ps)
+
+	var markDirtyDone, commitDone sync.WaitGroup
+	markDirtyDone.Add(1)
+	commitDone.Add(1)
+
+	// Worker goroutine: wait until commit starts, then sneak in a MarksDirty.
+	go func() {
+		markDirtyDone.Done() // signal readiness
+		commitDone.Wait()    // wait for commit to enter the locked region
+		// This MarkDirty will block until MarkStateCommitted releases r.mu.
+		// After it acquires the lock, the dirty map has already been inspected.
+		ps.AdvanceCommitOffset(&kgo.Record{Topic: "t", Partition: 0, Offset: 6, LeaderEpoch: 1})
+		r.MarkDirty(ps)
+	}()
+
+	// Commit goroutine: commit offset 6, then verify the worker's progress
+	// wasn't lost even though it arrived mid-commit.
+	go func() {
+		markDirtyDone.Wait() // ensure worker is ready
+		r.MarkStateCommitted(ps, kgo.EpochOffset{Epoch: 1, Offset: 6})
+		commitDone.Done()
+	}()
+
+	commitDone.Wait()
+
+	// After commit + worker update, there should still be dirty progress.
+	snap := r.SnapshotDirtyStates()
+	assert.Equal(t, 1, len(snap), "worker's dirty update should survive atomic commit")
 }

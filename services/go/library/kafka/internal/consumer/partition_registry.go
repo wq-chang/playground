@@ -96,6 +96,22 @@ func (r *PartitionRegistry) ClearDirty(key Key, state *PartitionState) {
 	}
 }
 
+// MarkStateCommitted records a successful offset commit and atomically clears
+// the dirty flag if no further progress has been made. Both the state update
+// and dirty-map cleanup happen under registry.mu, closing the TOCTOU window
+// between MarkCommitted and ClearDirty where a worker could re-mark the state.
+func (r *PartitionRegistry) MarkStateCommitted(state *PartitionState, offset kgo.EpochOffset) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if !state.MarkCommitted(offset) {
+		current, ok := r.dirty[state.Key()]
+		if ok && current == state {
+			delete(r.dirty, state.Key())
+		}
+	}
+}
+
 // SnapshotDirtyStates returns a stable snapshot of the currently dirty
 // partition states. Returns nil if none are dirty.
 func (r *PartitionRegistry) SnapshotDirtyStates() map[Key]*PartitionState {

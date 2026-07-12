@@ -154,7 +154,6 @@ func (cm *Committer) snapshotDirtyOffsets() map[string]map[int32]kgo.EpochOffset
 	for key, state := range dirtyStates {
 		offset, ok := state.SnapshotDirtyOffset()
 		if !ok {
-			cm.registry.ClearDirty(key, state)
 			continue
 		}
 
@@ -185,9 +184,7 @@ func (cm *Committer) markCommittedOffsets(offsets map[string]map[int32]kgo.Epoch
 				cm.registry.ClearDirty(key, nil)
 				continue
 			}
-			if !state.MarkCommitted(offset) {
-				cm.registry.ClearDirty(key, state)
-			}
+			cm.registry.MarkStateCommitted(state, offset)
 		}
 	}
 }
