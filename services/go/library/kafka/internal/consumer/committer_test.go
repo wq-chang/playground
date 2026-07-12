@@ -53,8 +53,7 @@ func TestCommitter_RequestFlush_TriggersFlush(t *testing.T) {
 
 	ps, _, errGC := reg.GetOrCreate(consumer.Key{Topic: "t", Partition: 0}, testSub("t"), context.Background(), 10)
 	require.NoError(t, errGC, "GetOrCreate should succeed")
-	ps.AdvanceCommitOffset(&kgo.Record{Topic: "t", Offset: 5, LeaderEpoch: 0})
-	reg.MarkDirty(ps)
+	reg.AdvanceStateCommitOffset(ps, &kgo.Record{Topic: "t", Offset: 5, LeaderEpoch: 0})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -84,8 +83,7 @@ func TestCommitter_Flush_CommitsDirtyOffsets(t *testing.T) {
 
 	ps, _, errGC := reg.GetOrCreate(consumer.Key{Topic: "t", Partition: 0}, testSub("t"), context.Background(), 10)
 	require.NoError(t, errGC, "GetOrCreate should succeed")
-	ps.AdvanceCommitOffset(&kgo.Record{Topic: "t", Offset: 5, LeaderEpoch: 0})
-	reg.MarkDirty(ps)
+	reg.AdvanceStateCommitOffset(ps, &kgo.Record{Topic: "t", Offset: 5, LeaderEpoch: 0})
 
 	err := cm.Flush(context.Background())
 	require.NoError(t, err, "Flush should succeed")
@@ -149,8 +147,7 @@ func TestCommitter_Flush_CommitFailure(t *testing.T) {
 
 	ps, _, errGC := reg.GetOrCreate(consumer.Key{Topic: "t", Partition: 0}, testSub("t"), context.Background(), 10)
 	require.NoError(t, errGC, "GetOrCreate should succeed")
-	ps.AdvanceCommitOffset(&kgo.Record{Topic: "t", Offset: 5, LeaderEpoch: 0})
-	reg.MarkDirty(ps)
+	reg.AdvanceStateCommitOffset(ps, &kgo.Record{Topic: "t", Offset: 5, LeaderEpoch: 0})
 
 	err := cm.Flush(context.Background())
 	assert.ErrorContains(t, err, "commit failed", "Flush should propagate commit error")
@@ -163,8 +160,7 @@ func TestCommitter_Finalize_WaitsAndCommits(t *testing.T) {
 
 	ps, _, errGC := reg.GetOrCreate(consumer.Key{Topic: "t", Partition: 0}, testSub("t"), context.Background(), 10)
 	require.NoError(t, errGC, "GetOrCreate should succeed")
-	ps.AdvanceCommitOffset(&kgo.Record{Topic: "t", Offset: 5, LeaderEpoch: 0})
-	reg.MarkDirty(ps)
+	reg.AdvanceStateCommitOffset(ps, &kgo.Record{Topic: "t", Offset: 5, LeaderEpoch: 0})
 
 	ps.BeginClosing()
 	ps.MarkStopped()

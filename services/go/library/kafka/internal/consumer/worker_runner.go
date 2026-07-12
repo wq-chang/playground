@@ -120,7 +120,7 @@ func (wr *WorkerRunner) processRecords(
 		}
 
 		if err := wr.acquireProcessSlot(ctx); err != nil {
-			if lastResolved != nil && state.AdvanceCommitOffset(lastResolved) && wr.registry.MarkDirty(state) {
+			if lastResolved != nil && wr.registry.AdvanceStateCommitOffset(state, lastResolved) {
 				wr.committer.RequestFlush()
 			}
 			return
@@ -141,7 +141,7 @@ func (wr *WorkerRunner) processRecords(
 		}
 
 		if result.Cause != nil {
-			if lastResolved != nil && state.AdvanceCommitOffset(lastResolved) && wr.registry.MarkDirty(state) {
+			if lastResolved != nil && wr.registry.AdvanceStateCommitOffset(state, lastResolved) {
 				wr.committer.RequestFlush()
 			}
 			wr.run.Fail(result.Cause)
@@ -153,7 +153,7 @@ func (wr *WorkerRunner) processRecords(
 		}
 	}
 
-	if lastResolved != nil && state.AdvanceCommitOffset(lastResolved) && wr.registry.MarkDirty(state) {
+	if lastResolved != nil && wr.registry.AdvanceStateCommitOffset(state, lastResolved) {
 		wr.committer.RequestFlush()
 	}
 }
@@ -203,7 +203,7 @@ func (wr *WorkerRunner) processBatch(
 
 	if state.Subscription().AckMode == AckModeAtLeastOnce && resolvedCount > 0 {
 		lastResolved := records[resolvedCount-1]
-		if state.AdvanceCommitOffset(lastResolved) && wr.registry.MarkDirty(state) {
+		if wr.registry.AdvanceStateCommitOffset(state, lastResolved) {
 			wr.committer.RequestFlush()
 		}
 	}

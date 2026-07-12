@@ -134,18 +134,20 @@ func addTestPartition(
 	state, _, err := c.registry.GetOrCreate(key, sub, context.Background(), 10)
 	require.NoError(t, err, "GetOrCreate should succeed")
 
-	state.AdvanceCommitOffset(&kgo.Record{
+	record := &kgo.Record{
 		Topic:       topic,
 		Partition:   partition,
 		Offset:      offset,
 		LeaderEpoch: epoch,
-	})
+	}
 
 	// MarkStopped so Finalize can proceed (done channel closes without blocking on queue).
 	state.MarkStopped()
 
 	if dirty {
-		require.True(t, c.registry.MarkDirty(state), "MarkDirty should succeed")
+		require.True(t, c.registry.AdvanceStateCommitOffset(state, record), "AdvanceStateCommitOffset should succeed")
+	} else {
+		state.AdvanceCommitOffset(record)
 	}
 }
 
@@ -218,7 +220,7 @@ func TestConsumer_OnPartitionsRevoked_WaitsForDrainBeforeCommit(t *testing.T) {
 	state, _, err := c.registry.GetOrCreate(key, sub, context.Background(), 10)
 	require.NoError(t, err, "GetOrCreate should succeed")
 	state.AdvanceCommitOffset(&kgo.Record{Topic: "t", Partition: 0, Offset: 9, LeaderEpoch: 0})
-	c.registry.MarkDirty(state)
+	c.registry.AdvanceStateCommitOffset(state, &kgo.Record{Topic: state.Key().Topic, Partition: state.Key().Partition, Offset: 0, LeaderEpoch: 0})
 
 	// Do NOT MarkStopped — Finalize must wait for drain.
 	// Queue closes via BeginClosing, then the drain loop in Finalize
@@ -292,7 +294,7 @@ func TestConsumer_OnPartitionsRevoked_StopsWaitingWhenContextCancelled(t *testin
 	state, _, err := c.registry.GetOrCreate(key, sub, context.Background(), 10)
 	require.NoError(t, err, "GetOrCreate should succeed")
 	state.AdvanceCommitOffset(&kgo.Record{Topic: "t", Partition: 0, Offset: 9, LeaderEpoch: 0})
-	c.registry.MarkDirty(state)
+	c.registry.AdvanceStateCommitOffset(state, &kgo.Record{Topic: state.Key().Topic, Partition: state.Key().Partition, Offset: 0, LeaderEpoch: 0})
 	// Do NOT call MarkStopped — state.Done() will block.
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)

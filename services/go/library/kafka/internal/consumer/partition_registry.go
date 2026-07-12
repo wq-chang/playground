@@ -62,24 +62,6 @@ func (r *PartitionRegistry) GetOrCreate(
 	return ps, true, nil
 }
 
-// MarkDirty records that a partition has dirty commit progress.
-// Returns false if the state is not tracked by this registry.
-func (r *PartitionRegistry) MarkDirty(state *PartitionState) bool {
-	if state == nil {
-		return false
-	}
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	current, ok := r.partitions[state.Key()]
-	if !ok || current != state {
-		return false
-	}
-	r.dirty[state.Key()] = state
-	return true
-}
-
 // ClearDirty removes dirty tracking for a partition. If state is non-nil,
 // it only clears if the state pointer still matches the tracked one.
 func (r *PartitionRegistry) ClearDirty(key Key, state *PartitionState) {
@@ -110,6 +92,33 @@ func (r *PartitionRegistry) MarkStateCommitted(state *PartitionState, offset kgo
 			delete(r.dirty, state.Key())
 		}
 	}
+}
+
+// AdvanceStateCommitOffset advances the commit offset for a record and atomically
+// marks the partition dirty in the registry. Both operations happen under
+// registry.mu, closing the TOCTOU window between AdvanceCommitOffset and
+// MarkDirty where the commit loop could snapshot the dirty map and miss a
+// newly-dirtied state.
+// Returns true if the offset was advanced (i.e., the record progressed past
+// the previously-tracked offset). Returns false for nil or unregistered states.
+func (r *PartitionRegistry) AdvanceStateCommitOffset(state *PartitionState, record *kgo.Record) bool {
+	if state == nil {
+		return false
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	current, ok := r.partitions[state.Key()]
+	if !ok || current != state {
+		return false
+	}
+
+	if !state.AdvanceCommitOffset(record) {
+		return false
+	}
+	r.dirty[state.Key()] = state
+	return true
 }
 
 // SnapshotDirtyStates returns a stable snapshot of the currently dirty

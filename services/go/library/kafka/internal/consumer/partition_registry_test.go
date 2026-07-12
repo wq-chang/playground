@@ -70,36 +70,13 @@ func TestPartitionRegistry_Get_AfterCreate(t *testing.T) {
 	assert.NotNil(t, ps, "returned state should not be nil")
 }
 
-func TestPartitionRegistry_MarkDirty(t *testing.T) {
-	r := consumer.NewPartitionRegistry(testlogger.NewLogger())
-	key := consumer.Key{Topic: "t", Partition: 1}
-	ps, _, err := r.GetOrCreate(key, testSub("t"), context.Background(), 10)
-	require.NoError(t, err, "GetOrCreate should succeed")
-
-	dirty := r.MarkDirty(ps)
-	assert.True(t, dirty, "MarkDirty should return true")
-}
-
-func TestPartitionRegistry_MarkDirty_WrongState(t *testing.T) {
-	r := consumer.NewPartitionRegistry(testlogger.NewLogger())
-	_, _, errGC := r.GetOrCreate(consumer.Key{Topic: "t", Partition: 0}, testSub("t"), context.Background(), 10)
-	require.NoError(t, errGC, "GetOrCreate should succeed")
-
-	orphan := consumer.NewPartitionState(context.Background(), testlogger.NewLogger(), consumer.Key{Topic: "x", Partition: 9}, testSub("x"), 10)
-	dirty := r.MarkDirty(orphan)
-	assert.False(t, dirty, "MarkDirty for unknown state should return false")
-
-	dirty = r.MarkDirty(nil)
-	assert.False(t, dirty, "MarkDirty for nil should return false")
-}
-
 func TestPartitionRegistry_ClearDirty(t *testing.T) {
 	r := consumer.NewPartitionRegistry(testlogger.NewLogger())
 	key := consumer.Key{Topic: "t", Partition: 1}
 	ps, _, errGC := r.GetOrCreate(key, testSub("t"), context.Background(), 10)
 	require.NoError(t, errGC, "GetOrCreate should succeed")
 
-	r.MarkDirty(ps)
+	r.AdvanceStateCommitOffset(ps, &kgo.Record{Topic: ps.Key().Topic, Partition: ps.Key().Partition, Offset: 0, LeaderEpoch: 0})
 	r.ClearDirty(key, ps)
 
 	snap := r.SnapshotDirtyStates()
@@ -113,8 +90,8 @@ func TestPartitionRegistry_SnapshotDirtyStates(t *testing.T) {
 	ps2, _, err := r.GetOrCreate(consumer.Key{Topic: "b", Partition: 0}, testSub("b"), context.Background(), 10)
 	require.NoError(t, err, "GetOrCreate should succeed")
 
-	r.MarkDirty(ps1)
-	r.MarkDirty(ps2)
+	r.AdvanceStateCommitOffset(ps1, &kgo.Record{Topic: ps1.Key().Topic, Partition: ps1.Key().Partition, Offset: 0, LeaderEpoch: 0})
+	r.AdvanceStateCommitOffset(ps2, &kgo.Record{Topic: ps2.Key().Topic, Partition: ps2.Key().Partition, Offset: 0, LeaderEpoch: 0})
 
 	snap := r.SnapshotDirtyStates()
 	assert.Equal(t, 2, len(snap), "snapshot should have 2 entries")
@@ -152,7 +129,7 @@ func TestPartitionRegistry_DropLost(t *testing.T) {
 	ps, _, errGC := r.GetOrCreate(key, testSub("t"), context.Background(), 10)
 	require.NoError(t, errGC, "GetOrCreate should succeed")
 
-	r.MarkDirty(ps)
+	r.AdvanceStateCommitOffset(ps, &kgo.Record{Topic: ps.Key().Topic, Partition: ps.Key().Partition, Offset: 0, LeaderEpoch: 0})
 	r.DropLost(map[string][]int32{"t": {0}})
 
 	_, ok := r.Get(key)
@@ -216,8 +193,7 @@ func TestPartitionRegistry_MarkStateCommitted_ClearsWhenClean(t *testing.T) {
 	require.NoError(t, err, "GetOrCreate should succeed")
 
 	// Advance offset and mark dirty.
-	ps.AdvanceCommitOffset(&kgo.Record{Topic: "t", Partition: 0, Offset: 5, LeaderEpoch: 1})
-	r.MarkDirty(ps)
+	r.AdvanceStateCommitOffset(ps, &kgo.Record{Topic: "t", Partition: 0, Offset: 5, LeaderEpoch: 1})
 
 	// Mark committed — no further progress, dirty should be cleared.
 	r.MarkStateCommitted(ps, kgo.EpochOffset{Epoch: 1, Offset: 6})
@@ -235,8 +211,7 @@ func TestPartitionRegistry_MarkStateCommitted_KeepsWhenStillDirty(t *testing.T) 
 	// Advance offset past what we'll commit (simulating worker progress
 	// between snapshot and commit).
 	ps.AdvanceCommitOffset(&kgo.Record{Topic: "t", Partition: 0, Offset: 5, LeaderEpoch: 1})
-	ps.AdvanceCommitOffset(&kgo.Record{Topic: "t", Partition: 0, Offset: 6, LeaderEpoch: 1})
-	r.MarkDirty(ps)
+	r.AdvanceStateCommitOffset(ps, &kgo.Record{Topic: "t", Partition: 0, Offset: 6, LeaderEpoch: 1})
 
 	// Commit only up to offset 6 — state is still dirty at offset 7.
 	r.MarkStateCommitted(ps, kgo.EpochOffset{Epoch: 1, Offset: 6})
@@ -245,14 +220,13 @@ func TestPartitionRegistry_MarkStateCommitted_KeepsWhenStillDirty(t *testing.T) 
 	assert.Equal(t, 1, len(snap), "dirty should remain when more progress exists")
 }
 
-func TestPartitionRegistry_MarkStateCommitted_AtomicWithMarkDirty(t *testing.T) {
+func TestPartitionRegistry_MarkStateCommitted_AtomicWithAdvanceStateCommitOffset(t *testing.T) {
 	r := consumer.NewPartitionRegistry(testlogger.NewLogger())
 	key := consumer.Key{Topic: "t", Partition: 0}
 	ps, _, err := r.GetOrCreate(key, testSub("t"), context.Background(), 10)
 	require.NoError(t, err, "GetOrCreate should succeed")
 
-	ps.AdvanceCommitOffset(&kgo.Record{Topic: "t", Partition: 0, Offset: 5, LeaderEpoch: 1})
-	r.MarkDirty(ps)
+	r.AdvanceStateCommitOffset(ps, &kgo.Record{Topic: "t", Partition: 0, Offset: 5, LeaderEpoch: 1})
 
 	var markDirtyDone, commitDone sync.WaitGroup
 	markDirtyDone.Add(1)
@@ -262,10 +236,9 @@ func TestPartitionRegistry_MarkStateCommitted_AtomicWithMarkDirty(t *testing.T) 
 	go func() {
 		markDirtyDone.Done() // signal readiness
 		commitDone.Wait()    // wait for commit to enter the locked region
-		// This MarkDirty will block until MarkStateCommitted releases r.mu.
+		// This AdvanceStateCommitOffset will block until MarkStateCommitted releases r.mu.
 		// After it acquires the lock, the dirty map has already been inspected.
-		ps.AdvanceCommitOffset(&kgo.Record{Topic: "t", Partition: 0, Offset: 6, LeaderEpoch: 1})
-		r.MarkDirty(ps)
+		r.AdvanceStateCommitOffset(ps, &kgo.Record{Topic: "t", Partition: 0, Offset: 6, LeaderEpoch: 1})
 	}()
 
 	// Commit goroutine: commit offset 6, then verify the worker's progress
@@ -281,4 +254,47 @@ func TestPartitionRegistry_MarkStateCommitted_AtomicWithMarkDirty(t *testing.T) 
 	// After commit + worker update, there should still be dirty progress.
 	snap := r.SnapshotDirtyStates()
 	assert.Equal(t, 1, len(snap), "worker's dirty update should survive atomic commit")
+}
+
+func TestPartitionRegistry_AdvanceStateCommitOffset_AdvancesAndMarks(t *testing.T) {
+	r := consumer.NewPartitionRegistry(testlogger.NewLogger())
+	key := consumer.Key{Topic: "t", Partition: 0}
+	ps, _, err := r.GetOrCreate(key, testSub("t"), context.Background(), 10)
+	require.NoError(t, err, "GetOrCreate should succeed")
+
+	advanced := r.AdvanceStateCommitOffset(ps, &kgo.Record{Topic: "t", Partition: 0, Offset: 5, LeaderEpoch: 1})
+	assert.True(t, advanced, "first record should advance offset")
+
+	snap := r.SnapshotDirtyStates()
+	assert.Equal(t, 1, len(snap), "state should be dirty after advance")
+}
+
+func TestPartitionRegistry_AdvanceStateCommitOffset_StaleOffset(t *testing.T) {
+	r := consumer.NewPartitionRegistry(testlogger.NewLogger())
+	key := consumer.Key{Topic: "t", Partition: 0}
+	ps, _, err := r.GetOrCreate(key, testSub("t"), context.Background(), 10)
+	require.NoError(t, err, "GetOrCreate should succeed")
+
+	r.AdvanceStateCommitOffset(ps, &kgo.Record{Topic: "t", Partition: 0, Offset: 10, LeaderEpoch: 1})
+
+	// Older offset should not advance.
+	advanced := r.AdvanceStateCommitOffset(ps, &kgo.Record{Topic: "t", Partition: 0, Offset: 5, LeaderEpoch: 1})
+	assert.False(t, advanced, "stale offset should not advance")
+}
+
+func TestPartitionRegistry_AdvanceStateCommitOffset_NilState(t *testing.T) {
+	r := consumer.NewPartitionRegistry(testlogger.NewLogger())
+	advanced := r.AdvanceStateCommitOffset(nil, &kgo.Record{Topic: "t", Partition: 0, Offset: 0, LeaderEpoch: 0})
+	assert.False(t, advanced, "nil state should not advance")
+}
+
+func TestPartitionRegistry_AdvanceStateCommitOffset_Unregistered(t *testing.T) {
+	r := consumer.NewPartitionRegistry(testlogger.NewLogger())
+	orphan := consumer.NewPartitionState(
+		context.Background(), testlogger.NewLogger(),
+		consumer.Key{Topic: "orphan", Partition: 0},
+		testSub("orphan"), 10,
+	)
+	advanced := r.AdvanceStateCommitOffset(orphan, &kgo.Record{Topic: "orphan", Partition: 0, Offset: 0, LeaderEpoch: 0})
+	assert.False(t, advanced, "unregistered state should not advance")
 }
