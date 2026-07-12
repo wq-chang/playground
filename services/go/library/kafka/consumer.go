@@ -186,9 +186,11 @@ func (c *Consumer) Run(ctx context.Context) error {
 	// Dispatch loop.
 	err = c.runDispatch(pollCtx)
 
-	// Graceful shutdown (only if no fatal error).
+	// Shut down all partition workers unconditionally so that Wait() can
+	// complete even when a fatal error has been recorded.
+	states := c.registry.BeginClosingAll()
+
 	if runErr := c.runState.Err(); runErr == nil {
-		states := c.registry.BeginClosingAll()
 		drainCtx, drainCancel := context.WithTimeout(context.Background(), c.drainTimeout)
 		defer drainCancel()
 		if shutdownErr := c.committer.Finalize(drainCtx, nil, states, "failed to commit processed offsets on shutdown"); shutdownErr != nil {
@@ -196,6 +198,8 @@ func (c *Consumer) Run(ctx context.Context) error {
 				err = shutdownErr
 			}
 		}
+	} else {
+		c.registry.Cleanup(states)
 	}
 
 	c.runState.Stop()
@@ -233,7 +237,7 @@ func (c *Consumer) runDispatch(ctx context.Context) error {
 		}
 		records := fetches.Records()
 		if len(records) > 0 {
-			if err := c.dispatcher.Dispatch(ctx, records); err != nil {
+			if err := c.dispatcher.Dispatch(ctx, c.runState.Context(), records); err != nil {
 				return err
 			}
 		}

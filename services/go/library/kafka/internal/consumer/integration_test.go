@@ -131,7 +131,7 @@ func TestIntegration_FullPipeline_Success(t *testing.T) {
 		{Topic: "test-topic", Partition: 0, Offset: 2, LeaderEpoch: 0},
 	}
 
-	require.NoError(t, dis.Dispatch(context.Background(), records),
+	require.NoError(t, dis.Dispatch(context.Background(), runCtx, records),
 		"Dispatch should succeed")
 
 	require.True(t, waitFor(2*time.Second, func() bool { return handled.Load() == 3 }),
@@ -190,7 +190,7 @@ func TestIntegration_ExhaustionPausesTopic(t *testing.T) {
 		{Topic: "test-topic", Partition: 0, Offset: 0, LeaderEpoch: 0},
 	}
 
-	require.NoError(t, dis.Dispatch(context.Background(), records),
+	require.NoError(t, dis.Dispatch(context.Background(), runCtx, records),
 		"Dispatch should succeed")
 
 	require.True(t, waitFor(2*time.Second, func() bool {
@@ -199,7 +199,7 @@ func TestIntegration_ExhaustionPausesTopic(t *testing.T) {
 
 	// Second dispatch should skip the paused topic.
 	records2 := []*kgo.Record{{Topic: "test-topic", Partition: 0, Offset: 1, LeaderEpoch: 0}}
-	require.NoError(t, dis.Dispatch(context.Background(), records2),
+	require.NoError(t, dis.Dispatch(context.Background(), runCtx, records2),
 		"second Dispatch should succeed with paused topic skipped")
 
 	// BeginClosingAll drains partition states so run.Wait() can return.
@@ -245,7 +245,7 @@ func TestIntegration_BackpressureCycle(t *testing.T) {
 		records = append(records, &kgo.Record{Topic: "b", Partition: 0, Offset: i, LeaderEpoch: 0})
 	}
 
-	require.NoError(t, dis.Dispatch(context.Background(), records),
+	require.NoError(t, dis.Dispatch(context.Background(), runCtx, records),
 		"Dispatch should succeed without error")
 
 	// Verify all records were processed through backpressure cycle.
@@ -294,7 +294,7 @@ func TestDispatcher_Dispatch_PreservesPolledOrderWithinPartition(t *testing.T) {
 		{Topic: "t", Partition: 0, Offset: 2, LeaderEpoch: 0},
 	}
 
-	require.NoError(t, dis.Dispatch(context.Background(), records),
+	require.NoError(t, dis.Dispatch(context.Background(), context.Background(), records),
 		"Dispatch should succeed")
 
 	require.True(t, waitFor(2*time.Second, func() bool {
@@ -348,7 +348,7 @@ func TestDispatcher_Dispatch_PreservesFirstSeenPartitionOrder(t *testing.T) {
 		{Topic: "a", Partition: 0, Offset: 1, LeaderEpoch: 0},
 	}
 
-	require.NoError(t, dis.Dispatch(context.Background(), records),
+	require.NoError(t, dis.Dispatch(context.Background(), context.Background(), records),
 		"Dispatch should succeed")
 
 	require.True(t, waitFor(2*time.Second, func() bool {
@@ -401,7 +401,7 @@ func TestIntegration_DispatchDoesNotBlockOtherPartitions(t *testing.T) {
 	// Dispatch must not block — Verify "b" got dispatched and enqueued.
 	// Since the workers have 4 concurrent slots (default), both records get a slot.
 	// "a" blocks forever in handler, "b" proceeds and completes.
-	require.NoError(t, dis.Dispatch(context.Background(), records),
+	require.NoError(t, dis.Dispatch(context.Background(), context.Background(), records),
 		"Dispatch should not block")
 
 	require.True(t, waitFor(2*time.Second, func() bool { return processed.Load() == 1 }),
@@ -434,7 +434,7 @@ func TestIntegration_ShutdownFlushesRemaining(t *testing.T) {
 		{Topic: "test-topic", Partition: 0, Offset: 1, LeaderEpoch: 0},
 	}
 
-	require.NoError(t, dis.Dispatch(context.Background(), records),
+	require.NoError(t, dis.Dispatch(context.Background(), runCtx, records),
 		"Dispatch should succeed")
 
 	require.True(t, waitFor(2*time.Second, func() bool { return handled.Load() == 2 }),
@@ -457,6 +457,75 @@ func TestIntegration_ShutdownFlushesRemaining(t *testing.T) {
 	defer cl.mu.Unlock()
 	assert.True(t, len(cl.committed) > 0, "should have committed offsets during shutdown, got %d",
 		len(cl.committed))
+}
+
+// TestIntegration_FatalErrorDoesNotDeadlock verifies that shutdown completes
+// even after a fatal error is recorded mid-run. Regression test for the
+// deadlock where partition workers' contexts were decoupled from the run
+// lifecycle, causing Wait() to hang forever after a fatal error. See C1/H1 in todo.md.
+func TestIntegration_FatalErrorDoesNotDeadlock(t *testing.T) {
+	cl := &offsetRecorder{}
+	run, router, registry, committer, _, dis := setupIntegration(t, cl)
+
+	var handled atomic.Int32
+	handler := func(_ context.Context, _ *kgo.Record) error {
+		handled.Add(1)
+		return nil
+	}
+
+	require.NoError(t, router.Register(subRecordHandler(handler)), "Register should succeed")
+
+	runCtx, err := run.Begin()
+	require.NoError(t, err, "Begin should succeed")
+
+	commitDone := make(chan error, 1)
+	run.Go(func() {
+		commitDone <- committer.Run(runCtx)
+	})
+
+	// Dispatch records, passing the run context so partition workers are
+	// children of the run lifecycle — this is the core of the C1/H1 fix.
+	records := []*kgo.Record{
+		{Topic: "test-topic", Partition: 0, Offset: 0, LeaderEpoch: 0},
+		{Topic: "test-topic", Partition: 0, Offset: 1, LeaderEpoch: 0},
+	}
+	require.NoError(t, dis.Dispatch(context.Background(), runCtx, records),
+		"Dispatch should succeed")
+
+	require.True(t, waitFor(2*time.Second, func() bool { return handled.Load() == 2 }),
+		"both records should be processed, got %d", handled.Load())
+
+	// Simulate a fatal error mid-run.
+	run.Fail(errors.New("simulated fatal error"))
+
+	// Shut down. If the fix is working, BeginClosingAll + Stop + Wait
+	// will return promptly rather than hanging.
+	states := registry.BeginClosingAll()
+	registry.Cleanup(states)
+	run.Stop()
+
+	done := make(chan struct{})
+	go func() {
+		run.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Success — Wait() returned without hanging.
+	case <-time.After(5 * time.Second):
+		t.Fatal("run.Wait() hung after fatal error — deadlock regression")
+	}
+
+	// Commit loop should exit after Stop().
+	select {
+	case <-commitDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("commit loop did not exit after Stop()")
+	}
+
+	assert.Equal(t, run.Err().Error(), "simulated fatal error",
+		"fatal error should be preserved")
 }
 
 func waitFor(timeout time.Duration, fn func() bool) bool {

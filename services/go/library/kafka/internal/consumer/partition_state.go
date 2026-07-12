@@ -21,7 +21,7 @@ const (
 //
 // The queue and lifecycle transitions are thread-safe under a private mutex.
 // The done channel is exposed read-only via Done() — closing it is the
-// responsibility of the worker runner (Step 7).
+// responsibility of the worker runner.
 type PartitionState struct {
 	ctx                context.Context
 	log                *slog.Logger
@@ -251,16 +251,13 @@ func (s *PartitionState) BeginClosing() {
 	s.lifecycle = partitionLifecycleClosing
 	s.accepting = false
 	s.backpressurePaused = false
-	s.closeQueueLocked()
-	s.mu.Unlock()
-
-	s.cancel()
-}
-
-func (s *PartitionState) closeQueueLocked() {
 	s.queueCloseOnce.Do(func() {
 		close(s.queue)
 	})
+
+	s.mu.Unlock()
+
+	s.cancel()
 }
 
 // MarkStopped marks the state as fully stopped and closes the done channel

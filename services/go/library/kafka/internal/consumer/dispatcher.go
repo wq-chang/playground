@@ -50,9 +50,12 @@ func NewDispatcher(
 }
 
 // Dispatch partitions a poll result and enqueues records into partition workers.
+// parentCtx is the run lifecycle context — partition-worker contexts derive
+// from it so that Fail/Stop cancellation cascades to all workers.
 // Returns an error if a fatal dispatch error occurs (not context.Canceled).
 func (d *Dispatcher) Dispatch(
 	ctx context.Context,
+	parentCtx context.Context,
 	records []*kgo.Record,
 ) error {
 	batches, err := d.groupByPartition(records)
@@ -86,7 +89,7 @@ func (d *Dispatcher) Dispatch(
 			state, created, err := d.registry.GetOrCreate(
 				cursor.batch.Key,
 				cursor.batch.Subscription,
-				context.Background(),
+				parentCtx,
 				d.queueCapacity,
 			)
 			if err != nil {
