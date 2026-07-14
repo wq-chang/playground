@@ -36,8 +36,8 @@ type PartitionState struct {
 	queueCloseOnce     sync.Once
 	closeDoneOnce      sync.Once
 	mu                 sync.Mutex
-	bufferedRecords    int32
-	maxBufferedRecords int32
+	bufferedRecords    int
+	maxBufferedRecords int
 	accepting          bool
 	backpressurePaused bool
 	dirty              bool
@@ -66,7 +66,7 @@ func NewPartitionState(
 		closeDoneOnce:      sync.Once{},
 		mu:                 sync.Mutex{},
 		log:                logger,
-		maxBufferedRecords: int32(queueCapacity),
+		maxBufferedRecords: queueCapacity,
 		bufferedRecords:    0,
 		accepting:          true,
 		backpressurePaused: false,
@@ -110,12 +110,12 @@ func (s *PartitionState) TryEnqueue(records []*kgo.Record) (int, int) {
 	defer s.mu.Unlock()
 
 	if !s.accepting || len(records) == 0 {
-		return 0, int(s.bufferedRecords)
+		return 0, s.bufferedRecords
 	}
 
-	available := int(s.maxBufferedRecords - s.bufferedRecords)
+	available := s.maxBufferedRecords - s.bufferedRecords
 	if available <= 0 {
-		return 0, int(s.bufferedRecords)
+		return 0, s.bufferedRecords
 	}
 	if len(records) > available {
 		records = records[:available]
@@ -123,10 +123,10 @@ func (s *PartitionState) TryEnqueue(records []*kgo.Record) (int, int) {
 
 	select {
 	case s.queue <- records:
-		s.bufferedRecords += int32(len(records))
-		return len(records), int(s.bufferedRecords)
+		s.bufferedRecords += len(records)
+		return len(records), s.bufferedRecords
 	default:
-		return 0, int(s.bufferedRecords)
+		return 0, s.bufferedRecords
 	}
 }
 
@@ -136,7 +136,7 @@ func (s *PartitionState) OnDequeue(records []*kgo.Record) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.bufferedRecords -= int32(len(records))
+	s.bufferedRecords -= len(records)
 	if s.bufferedRecords < 0 {
 		s.log.WarnContext(
 			s.ctx,
@@ -148,7 +148,7 @@ func (s *PartitionState) OnDequeue(records []*kgo.Record) int {
 		)
 		s.bufferedRecords = 0
 	}
-	return int(s.bufferedRecords)
+	return s.bufferedRecords
 }
 
 // TryPauseBackpressure marks the partition as pause-by-backpressure if the
@@ -162,7 +162,7 @@ func (s *PartitionState) TryPauseBackpressure() bool {
 	if !s.accepting || s.backpressurePaused {
 		return false
 	}
-	if int(s.bufferedRecords) < int(s.maxBufferedRecords)-1 {
+	if s.bufferedRecords < s.maxBufferedRecords-1 {
 		return false
 	}
 
@@ -181,7 +181,7 @@ func (s *PartitionState) TryResumeBackpressure() bool {
 	if !s.accepting || !s.backpressurePaused {
 		return false
 	}
-	if int(s.bufferedRecords) > int(s.maxBufferedRecords)/2 {
+	if s.bufferedRecords > s.maxBufferedRecords/2 {
 		return false
 	}
 

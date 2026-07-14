@@ -43,7 +43,13 @@ func TestPartitionState_Key(t *testing.T) {
 }
 
 func TestPartitionState_Done_NotClosedInitially(t *testing.T) {
-	ps := consumer.NewPartitionState(context.Background(), testlogger.NewLogger(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 64)
+	ps := consumer.NewPartitionState(
+		context.Background(),
+		testlogger.NewLogger(),
+		consumer.Key{Topic: "t", Partition: 1},
+		testSubscription(),
+		64,
+	)
 	select {
 	case <-ps.Done():
 		t.Fatal("Done channel should not be closed initially")
@@ -52,7 +58,13 @@ func TestPartitionState_Done_NotClosedInitially(t *testing.T) {
 }
 
 func TestPartitionState_TryEnqueue_Success(t *testing.T) {
-	ps := consumer.NewPartitionState(context.Background(), testlogger.NewLogger(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 10)
+	ps := consumer.NewPartitionState(
+		context.Background(),
+		testlogger.NewLogger(),
+		consumer.Key{Topic: "t", Partition: 1},
+		testSubscription(),
+		10,
+	)
 
 	records := make([]*kgo.Record, 3)
 	for i := range records {
