@@ -141,7 +141,7 @@ jobs:
 
       - name: Set up Go
         if: env.HAS_LANGUAGE_PROJECTS == 'true'
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           cache: true
           go-version-file: services/go/go.mod
