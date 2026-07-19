@@ -66,36 +66,31 @@ func (wr *WorkerRunner) partitionLoop(state *PartitionState) {
 	defer state.MarkStopped()
 
 	for {
-		select {
-		case <-state.Context().Done():
+		records, ok := state.Dequeue(state.Context())
+		if !ok {
 			return
-		case records, ok := <-state.Recv():
-			if !ok {
-				return
-			}
+		}
 
-			state.OnDequeue(records)
-			select {
-			case wr.capacityCh <- struct{}{}:
-			default:
-			}
+		select {
+		case wr.capacityCh <- struct{}{}:
+		default:
+		}
 
-			// Resume partition if backpressure is cleared and topic is not paused.
-			// The low-watermark check is handled inside TryResumeBackpressure to
-			// provide hysteresis against rapid pause/resume cycles.
-			if !wr.pauses.IsPaused(state.Key().Topic) {
-				if state.TryResumeBackpressure() {
-					wr.kgoClient.ResumeFetchPartitions(map[string][]int32{
-						state.Key().Topic: {state.Key().Partition},
-					})
-				}
+		// Resume partition if backpressure is cleared and topic is not paused.
+		// The low-watermark check is handled inside TryResumeBackpressure to
+		// provide hysteresis against rapid pause/resume cycles.
+		if !wr.pauses.IsPaused(state.Key().Topic) {
+			if state.TryResumeBackpressure() {
+				wr.kgoClient.ResumeFetchPartitions(map[string][]int32{
+					state.Key().Topic: {state.Key().Partition},
+				})
 			}
+		}
 
-			if state.Subscription().BatchHandler != nil {
-				wr.processBatch(state.Context(), state, records)
-			} else {
-				wr.processRecords(state.Context(), state, records)
-			}
+		if state.Subscription().BatchHandler != nil {
+			wr.processBatch(state.Context(), state, records)
+		} else {
+			wr.processRecords(state.Context(), state, records)
 		}
 	}
 }

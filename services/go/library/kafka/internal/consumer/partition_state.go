@@ -86,12 +86,6 @@ func (s *PartitionState) Context() context.Context {
 	return s.ctx
 }
 
-// Recv returns the receive-only record queue. The channel is closed when
-// BeginClosing is called.
-func (s *PartitionState) Recv() <-chan []*kgo.Record {
-	return s.queue
-}
-
 // Subscription returns the subscription configuration for this partition.
 func (s *PartitionState) Subscription() Subscription {
 	return s.subscription
@@ -121,6 +115,10 @@ func (s *PartitionState) TryEnqueue(records []*kgo.Record) (int, int) {
 		records = records[:available]
 	}
 
+	// The channel send is guaranteed to succeed here: available > 0 means
+	// bufferedRecords < maxBufferedRecords, and since each queued slice
+	// contributes ≥1 to bufferedRecords, len(queue) < cap(queue) always holds.
+	// The default branch exists only as defense against future bugs.
 	select {
 	case s.queue <- records:
 		s.bufferedRecords += len(records)
@@ -130,25 +128,35 @@ func (s *PartitionState) TryEnqueue(records []*kgo.Record) (int, int) {
 	}
 }
 
-// OnDequeue records that a batch left the queue and returns the remaining
-// buffered-record count.
-func (s *PartitionState) OnDequeue(records []*kgo.Record) int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+// Dequeue blocks until a batch is available, the queue is closed, or ctx is
+// done. It atomically updates the buffered count — callers do not need a
+// separate OnDequeue step.
+func (s *PartitionState) Dequeue(ctx context.Context) ([]*kgo.Record, bool) {
+	select {
+	case <-ctx.Done():
+		return nil, false
+	case records, ok := <-s.queue:
+		if !ok {
+			return nil, false
+		}
 
-	s.bufferedRecords -= len(records)
-	if s.bufferedRecords < 0 {
-		s.log.WarnContext(
-			s.ctx,
-			"partition bufferedRecords went negative on dequeue — accounting bug",
-			"topic", s.key.Topic,
-			"partition", s.key.Partition,
-			"dequeued", len(records),
-			"buffered", s.bufferedRecords,
-		)
-		s.bufferedRecords = 0
+		s.mu.Lock()
+		s.bufferedRecords -= len(records)
+		if s.bufferedRecords < 0 {
+			s.log.WarnContext(
+				s.ctx,
+				"partition bufferedRecords went negative on dequeue — accounting bug",
+				"topic", s.key.Topic,
+				"partition", s.key.Partition,
+				"dequeued", len(records),
+				"buffered", s.bufferedRecords,
+			)
+			s.bufferedRecords = 0
+		}
+		s.mu.Unlock()
+
+		return records, true
 	}
-	return s.bufferedRecords
 }
 
 // TryPauseBackpressure marks the partition as pause-by-backpressure if the
