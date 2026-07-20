@@ -150,25 +150,11 @@ func (cm *Committer) snapshotDirtyOffsets() map[string]map[int32]kgo.EpochOffset
 		return nil
 	}
 
-	offsets := make(map[string]map[int32]kgo.EpochOffset)
-	for key, state := range dirtyStates {
-		offset, ok := state.SnapshotDirtyOffset()
-		if !ok {
-			continue
-		}
-
-		partitionsByTopic, exists := offsets[key.Topic]
-		if !exists {
-			partitionsByTopic = make(map[int32]kgo.EpochOffset)
-			offsets[key.Topic] = partitionsByTopic
-		}
-		partitionsByTopic[key.Partition] = offset
+	states := make([]*PartitionState, 0, len(dirtyStates))
+	for _, state := range dirtyStates {
+		states = append(states, state)
 	}
-
-	if len(offsets) == 0 {
-		return nil
-	}
-	return offsets
+	return cm.registry.SnapshotOffsets(states)
 }
 
 func (cm *Committer) markCommittedOffsets(offsets map[string]map[int32]kgo.EpochOffset) {
@@ -181,7 +167,7 @@ func (cm *Committer) markCommittedOffsets(offsets map[string]map[int32]kgo.Epoch
 			key := Key{Topic: topic, Partition: partition}
 			state, ok := cm.registry.Get(key)
 			if !ok {
-				cm.registry.ClearDirty(key, nil)
+				cm.registry.ClearDirty(key)
 				continue
 			}
 			cm.registry.MarkStateCommitted(state, offset)
