@@ -251,6 +251,33 @@ func TestPartitionState_Dequeue_AfterBeginClosing(t *testing.T) {
 	}
 }
 
+func TestPartitionState_Dequeue_CtxWinsWhenBothReady(t *testing.T) {
+	ps := consumer.NewPartitionState(
+		context.Background(),
+		testlogger.NewLogger(),
+		consumer.Key{Topic: "t", Partition: 1},
+		testSubscription(),
+		10,
+	)
+
+	// Enqueue multiple batches.
+	for i := range 3 {
+		ps.TryEnqueue([]*kgo.Record{{Topic: "t", Offset: int64(i)}})
+	}
+
+	// Simulate BeginClosing: close the queue AND cancel the context.
+	// Both signals are ready — Dequeue must deterministically return
+	// via ctx.Done(), leaving records in the queue to be picked up by
+	// the next consumer.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	ps.BeginClosing()
+
+	records, ok := ps.Dequeue(ctx)
+	assert.False(t, ok, "ctx cancellation should win over buffered queue data")
+	assert.Nil(t, records, "no records should be drained when ctx is cancelled")
+}
+
 func TestPartitionState_Dequeue_DoesNotHangWhenCtxCancelled(t *testing.T) {
 	ps := consumer.NewPartitionState(
 		context.Background(),

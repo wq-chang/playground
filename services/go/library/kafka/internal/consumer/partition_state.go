@@ -128,10 +128,21 @@ func (s *PartitionState) TryEnqueue(records []*kgo.Record) (int, int) {
 	}
 }
 
-// Dequeue blocks until a batch is available, the queue is closed, or ctx is
-// done. It atomically updates the buffered count — callers do not need a
-// separate OnDequeue step.
+// Dequeue blocks until a batch of records is available, the queue is closed,
+// or ctx is done. When both the queue is closed and ctx is cancelled (e.g.
+// during shutdown), ctx cancellation takes priority and no records are
+// returned — they remain in the queue and are discarded with the state.
 func (s *PartitionState) Dequeue(ctx context.Context) ([]*kgo.Record, bool) {
+	// Phase 1: non-blocking — if ctx is already done, return immediately.
+	// This avoids dequeuing records during shutdown that would immediately
+	// fail in the handler due to the cancelled context.
+	select {
+	case <-ctx.Done():
+		return nil, false
+	default:
+	}
+
+	// Phase 2: ctx is alive — block on queue data or future cancellation.
 	select {
 	case <-ctx.Done():
 		return nil, false
@@ -139,13 +150,12 @@ func (s *PartitionState) Dequeue(ctx context.Context) ([]*kgo.Record, bool) {
 		if !ok {
 			return nil, false
 		}
-
 		s.mu.Lock()
 		s.bufferedRecords -= len(records)
 		if s.bufferedRecords < 0 {
 			s.log.WarnContext(
 				s.ctx,
-				"partition bufferedRecords went negative on dequeue — accounting bug",
+				"partition bufferedRecords went negative on dequeue — underflow bug",
 				"topic", s.key.Topic,
 				"partition", s.key.Partition,
 				"dequeued", len(records),
@@ -154,7 +164,6 @@ func (s *PartitionState) Dequeue(ctx context.Context) ([]*kgo.Record, bool) {
 			s.bufferedRecords = 0
 		}
 		s.mu.Unlock()
-
 		return records, true
 	}
 }
