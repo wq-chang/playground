@@ -281,11 +281,3 @@ func (s *PartitionState) MarkStopped() {
 		close(s.done)
 	})
 }
-
-// IsRunning reports whether the state is still in running mode.
-func (s *PartitionState) IsRunning() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	return s.lifecycle == partitionLifecycleRunning
-}

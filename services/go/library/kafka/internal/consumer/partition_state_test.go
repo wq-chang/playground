@@ -42,7 +42,8 @@ func TestPartitionState_New(t *testing.T) {
 		64,
 	)
 	assert.NotNil(t, ps, "PartitionState should not be nil")
-	assert.True(t, ps.IsRunning(), "new state should be running")
+	enqueued, _ := ps.TryEnqueue([]*kgo.Record{{Topic: "t", Partition: 1}})
+	assert.Equal(t, 1, enqueued, "new state should accept records")
 }
 
 func TestPartitionState_Key(t *testing.T) {
@@ -575,7 +576,8 @@ func TestPartitionState_BeginClosing_StopsAccepting(t *testing.T) {
 
 	ps.BeginClosing()
 
-	assert.False(t, ps.IsRunning(), "should not be running after closing")
+	enqueued, _ := ps.TryEnqueue([]*kgo.Record{{Topic: "t", Partition: 1}})
+	assert.Equal(t, 0, enqueued, "should not accept records after closing")
 	assert.False(t, ps.TryPauseBackpressure(), "backpressure pause should fail when not accepting")
 }
 
@@ -626,7 +628,8 @@ func TestPartitionState_MarkStopped(t *testing.T) {
 	ps.BeginClosing()
 	ps.MarkStopped()
 
-	assert.False(t, ps.IsRunning(), "should not be running after stop")
+	enqueued, _ := ps.TryEnqueue([]*kgo.Record{{Topic: "t", Partition: 1}})
+	assert.Equal(t, 0, enqueued, "should not accept records after stop")
 
 	select {
 	case <-ps.Done():

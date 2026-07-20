@@ -42,7 +42,8 @@ func TestPartitionRegistry_GetOrCreate_Creates(t *testing.T) {
 	ps, created, err := r.GetOrCreate(key, testSub("t"), context.Background(), 10)
 	require.NoError(t, err, "GetOrCreate should succeed")
 	assert.True(t, created, "should report created=true for new key")
-	assert.True(t, ps.IsRunning(), "new state should be running")
+	enqueued, _ := ps.TryEnqueue([]*kgo.Record{{Topic: "t", Partition: 1}})
+	assert.Equal(t, 1, enqueued, "new state should accept records")
 }
 
 func TestPartitionRegistry_GetOrCreate_ReturnsExisting(t *testing.T) {
@@ -108,8 +109,10 @@ func TestPartitionRegistry_BeginClosing_Selected(t *testing.T) {
 
 	states := r.BeginClosing(map[string][]int32{"t": {0, 1}})
 	assert.Equal(t, 2, len(states), "should close 2 partitions")
-	assert.False(t, ps1.IsRunning(), "ps1 should no longer be running")
-	assert.False(t, ps2.IsRunning(), "ps2 should no longer be running")
+	enqueued1, _ := ps1.TryEnqueue([]*kgo.Record{{Topic: "t", Partition: 0}})
+	assert.Equal(t, 0, enqueued1, "ps1 should not accept records after closing")
+	enqueued2, _ := ps2.TryEnqueue([]*kgo.Record{{Topic: "t", Partition: 1}})
+	assert.Equal(t, 0, enqueued2, "ps2 should not accept records after closing")
 }
 
 func TestPartitionRegistry_BeginClosingAll(t *testing.T) {
