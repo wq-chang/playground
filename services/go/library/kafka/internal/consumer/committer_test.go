@@ -107,7 +107,18 @@ func TestCommitter_RequestFlush_NonBlockingWhenFull(t *testing.T) {
 	cm := newTestCommitter(t, reg, client)
 
 	cm.RequestFlush() // fills the buffer (capacity 1)
-	cm.RequestFlush() // must not block when buffer is full
+
+	done := make(chan struct{})
+	go func() {
+		cm.RequestFlush() // must not block when buffer is full
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("RequestFlush blocked when buffer was full")
+	}
 }
 
 func TestCommitter_Flush_CommitsDirtyOffsets(t *testing.T) {
@@ -237,7 +248,8 @@ func TestCommitter_CommitRecords_NilRecordSkipped(t *testing.T) {
 	client := &stubOffsetClient{}
 	cm := newTestCommitter(t, reg, client)
 
-	err := cm.CommitRecords(context.Background(),
+	err := cm.CommitRecords(
+		context.Background(),
 		nil,
 		&kgo.Record{Topic: "t", Partition: 0, Offset: 5, LeaderEpoch: 0},
 		nil,
@@ -255,7 +267,12 @@ func TestCommitter_Finalize_WaitsAndCommits(t *testing.T) {
 	client := &stubOffsetClient{}
 	cm := newTestCommitter(t, reg, client)
 
-	ps, _, errGC := reg.GetOrCreate(consumer.Key{Topic: "t", Partition: 0}, testSub("t"), context.Background(), 10)
+	ps, _, errGC := reg.GetOrCreate(
+		consumer.Key{Topic: "t", Partition: 0},
+		testSub("t"),
+		context.Background(),
+		10,
+	)
 	require.NoError(t, errGC, "GetOrCreate should succeed")
 	reg.AdvanceStateCommitOffset(ps, &kgo.Record{Topic: "t", Offset: 5, LeaderEpoch: 0})
 
@@ -290,7 +307,12 @@ func TestCommitter_Finalize_DrainContextTimeout(t *testing.T) {
 	client := &stubOffsetClient{}
 	cm := newTestCommitter(t, reg, client)
 
-	ps, _, errGC := reg.GetOrCreate(consumer.Key{Topic: "t", Partition: 0}, testSub("t"), context.Background(), 10)
+	ps, _, errGC := reg.GetOrCreate(
+		consumer.Key{Topic: "t", Partition: 0},
+		testSub("t"),
+		context.Background(),
+		10,
+	)
 	require.NoError(t, errGC, "GetOrCreate should succeed")
 	ps.BeginClosing()
 	// NOT calling MarkStopped — Done() channel stays open, drain will block forever.
@@ -351,7 +373,9 @@ func TestCommitter_Finalize_NilCommitCtx(t *testing.T) {
 	ps.BeginClosing()
 	ps.MarkStopped()
 
-	err := cm.Finalize(context.Background(), nil, []*consumer.PartitionState{ps}, "final commit error") //nolint:staticcheck // intentionally testing nil commitCtx guard
+	// nolint:staticcheck
+	// intentionally testing nil commitCtx guard
+	err := cm.Finalize(context.Background(), nil, []*consumer.PartitionState{ps}, "final commit error")
 	assert.ErrorContains(t, err, "commitCtx must not be nil", "Finalize should reject nil commitCtx")
 
 	client.mu.Lock()
@@ -370,7 +394,9 @@ func TestCommitter_Finalize_NilDrainCtx(t *testing.T) {
 	ps.BeginClosing()
 	ps.MarkStopped()
 
-	err := cm.Finalize(nil, context.Background(), []*consumer.PartitionState{ps}, "final commit error") //nolint:staticcheck // intentionally testing nil drainCtx guard
+	// nolint:staticcheck
+	// intentionally testing nil drainCtx guard
+	err := cm.Finalize(nil, context.Background(), []*consumer.PartitionState{ps}, "final commit error")
 	assert.ErrorContains(t, err, "drainCtx must not be nil", "Finalize should reject nil drainCtx")
 
 	client.mu.Lock()
