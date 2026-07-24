@@ -23,9 +23,8 @@ func (f OffsetClientFunc) CommitOffsetsSync(ctx context.Context, offsets map[str
 
 // CommitConfig configures the commit loop timing and timeouts.
 type CommitConfig struct {
-	FlushInterval      time.Duration
-	DebounceInterval   time.Duration
-	FinalCommitTimeout time.Duration
+	FlushInterval    time.Duration
+	DebounceInterval time.Duration
 }
 
 func (c CommitConfig) withDefaults() CommitConfig {
@@ -34,9 +33,6 @@ func (c CommitConfig) withDefaults() CommitConfig {
 	}
 	if c.DebounceInterval <= 0 {
 		c.DebounceInterval = 100 * time.Millisecond
-	}
-	if c.FinalCommitTimeout <= 0 {
-		c.FinalCommitTimeout = 30 * time.Second
 	}
 	return c
 }
@@ -250,9 +246,7 @@ func (cm *Committer) Finalize(
 	}
 
 	if commitCtx == nil {
-		var cancel context.CancelFunc
-		commitCtx, cancel = context.WithTimeout(context.Background(), cm.cfg.FinalCommitTimeout)
-		defer cancel()
+		return fmt.Errorf("%s: commitCtx must not be nil", errMessage)
 	}
 
 	if err := cm.acquireCommitMu(commitCtx); err != nil {

@@ -88,9 +88,8 @@ func newTestConsumer(t *testing.T, stub *stubFetchClient) *Consumer {
 		registry,
 		stub,
 		consumer.CommitConfig{
-			FlushInterval:      10 * time.Millisecond,
-			DebounceInterval:   1 * time.Millisecond,
-			FinalCommitTimeout: 5 * time.Second,
+			FlushInterval:    10 * time.Millisecond,
+			DebounceInterval: 1 * time.Millisecond,
 		},
 	)
 

@@ -77,9 +77,8 @@ func setupIntegration(t *testing.T, cl *offsetRecorder) (
 	committer := consumer.NewCommitter(
 		registry, cl,
 		consumer.CommitConfig{
-			FlushInterval:      10 * time.Millisecond,
-			DebounceInterval:   1 * time.Millisecond,
-			FinalCommitTimeout: 5 * time.Second,
+			FlushInterval:    10 * time.Millisecond,
+			DebounceInterval: 1 * time.Millisecond,
 		},
 	)
 
@@ -148,7 +147,9 @@ func TestIntegration_FullPipeline_Success(t *testing.T) {
 	states := registry.BeginClosingAll()
 	drainCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	require.NoError(t, committer.Finalize(drainCtx, nil, states,
+	commitCtx, commitCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer commitCancel()
+	require.NoError(t, committer.Finalize(drainCtx, commitCtx, states,
 		"failed to commit on shutdown"),
 		"Finalize should succeed")
 
@@ -444,7 +445,9 @@ func TestIntegration_ShutdownFlushesRemaining(t *testing.T) {
 	states := registry.BeginClosingAll()
 	drainCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	require.NoError(t, committer.Finalize(drainCtx, nil, states,
+	commitCtx, commitCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer commitCancel()
+	require.NoError(t, committer.Finalize(drainCtx, commitCtx, states,
 		"failed to commit on shutdown"),
 		"Finalize should succeed")
 

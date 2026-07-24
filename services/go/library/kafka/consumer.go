@@ -90,9 +90,8 @@ func newConsumer(cfg *config, kgoClient *kgo.Client, dlqProducer DLQProducer) (*
 		c.registry,
 		commitOffsetsSync(kgoClient),
 		consumer.CommitConfig{
-			FlushInterval:      cfg.flushInterval,
-			DebounceInterval:   cfg.debounceInterval,
-			FinalCommitTimeout: cfg.finalCommitTimeout,
+			FlushInterval:    cfg.flushInterval,
+			DebounceInterval: cfg.debounceInterval,
 		},
 	)
 
@@ -193,9 +192,11 @@ func (c *Consumer) Run(ctx context.Context) error {
 	if runErr := c.runState.Err(); runErr == nil {
 		drainCtx, drainCancel := context.WithTimeout(context.Background(), c.drainTimeout)
 		defer drainCancel()
+		commitCtx, commitCancel := context.WithTimeout(context.Background(), c.cfg.finalCommitTimeout)
+		defer commitCancel()
 		if shutdownErr := c.committer.Finalize(
 			drainCtx,
-			nil,
+			commitCtx,
 			states,
 			"failed to commit processed offsets on shutdown"); shutdownErr != nil {
 			if err == nil {

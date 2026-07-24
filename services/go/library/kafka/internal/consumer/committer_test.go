@@ -52,9 +52,8 @@ func newTestCommitter(
 		reg,
 		client,
 		consumer.CommitConfig{
-			FlushInterval:      50 * time.Millisecond,
-			DebounceInterval:   10 * time.Millisecond,
-			FinalCommitTimeout: 100 * time.Millisecond,
+			FlushInterval:    50 * time.Millisecond,
+			DebounceInterval: 10 * time.Millisecond,
 		},
 	)
 }
@@ -352,11 +351,11 @@ func TestCommitter_Finalize_NilCommitCtx(t *testing.T) {
 	ps.BeginClosing()
 	ps.MarkStopped()
 
-	err := cm.Finalize(context.Background(), nil, []*consumer.PartitionState{ps}, "final commit error")
-	require.NoError(t, err, "Finalize should succeed with nil commitCtx")
+	err := cm.Finalize(context.Background(), nil, []*consumer.PartitionState{ps}, "final commit error") //nolint:staticcheck // intentionally testing nil commitCtx guard
+	assert.ErrorContains(t, err, "commitCtx must not be nil", "Finalize should reject nil commitCtx")
 
 	client.mu.Lock()
-	assert.Equal(t, 1, len(client.commits), "should have committed with default timeout")
+	assert.Equal(t, 0, len(client.commits), "no commit when commitCtx is nil")
 	client.mu.Unlock()
 }
 
