@@ -1,4 +1,3 @@
-// services/go/library/kafka/internal/consumer/committer_test.go
 package consumer_test
 
 import (
@@ -18,18 +17,28 @@ import (
 
 // stubOffsetClient implements consumer.OffsetClient for testing.
 type stubOffsetClient struct {
-	commits []map[string]map[int32]kgo.EpochOffset
-	mu      sync.Mutex
-	fail    bool
+	commitCh chan struct{}
+	commits  []map[string]map[int32]kgo.EpochOffset
+	mu       sync.Mutex
+	fail     bool
 }
 
-func (s *stubOffsetClient) CommitOffsetsSync(ctx context.Context, offsets map[string]map[int32]kgo.EpochOffset) error {
+func (s *stubOffsetClient) CommitOffsetsSync(
+	ctx context.Context,
+	offsets map[string]map[int32]kgo.EpochOffset,
+) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.fail {
 		return errors.New("commit failed")
 	}
 	s.commits = append(s.commits, offsets)
+	if s.commitCh != nil {
+		select {
+		case s.commitCh <- struct{}{}:
+		default:
+		}
+	}
 	return nil
 }
 
@@ -39,19 +48,28 @@ func newTestCommitter(
 	client consumer.OffsetClient,
 ) *consumer.Committer {
 	t.Helper()
-	return consumer.NewCommitter(reg, client, consumer.CommitConfig{
-		FlushInterval:      50 * time.Millisecond,
-		DebounceInterval:   10 * time.Millisecond,
-		FinalCommitTimeout: 100 * time.Millisecond,
-	})
+	return consumer.NewCommitter(
+		reg,
+		client,
+		consumer.CommitConfig{
+			FlushInterval:      50 * time.Millisecond,
+			DebounceInterval:   10 * time.Millisecond,
+			FinalCommitTimeout: 100 * time.Millisecond,
+		},
+	)
 }
 
 func TestCommitter_RequestFlush_TriggersFlush(t *testing.T) {
 	reg := consumer.NewPartitionRegistry(testlogger.NewLogger())
-	client := &stubOffsetClient{}
+	client := &stubOffsetClient{fail: false, mu: sync.Mutex{}, commits: nil, commitCh: make(chan struct{}, 1)}
 	cm := newTestCommitter(t, reg, client)
 
-	ps, _, errGC := reg.GetOrCreate(consumer.Key{Topic: "t", Partition: 0}, testSub("t"), context.Background(), 10)
+	ps, _, errGC := reg.GetOrCreate(
+		consumer.Key{Topic: "t", Partition: 0},
+		testSub("t"),
+		context.Background(),
+		10,
+	)
 	require.NoError(t, errGC, "GetOrCreate should succeed")
 	reg.AdvanceStateCommitOffset(ps, &kgo.Record{Topic: "t", Offset: 5, LeaderEpoch: 0})
 
@@ -60,20 +78,37 @@ func TestCommitter_RequestFlush_TriggersFlush(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		err := cm.Run(ctx) // expected to exit when ctx is cancelled
+		err := cm.Run(ctx)
 		require.NoError(t, err, "Run should exit without error")
 		close(done)
 	}()
 
 	cm.RequestFlush()
-	time.Sleep(100 * time.Millisecond)
+
+	select {
+	case <-client.commitCh:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for commit after RequestFlush")
+	}
+
+	// Stop the commit loop before checking the commit count so the ticker
+	// cannot fire and produce a second commit between the signal and the
+	// assertion.
+	cancel()
+	<-done
 
 	client.mu.Lock()
 	assert.Equal(t, 1, len(client.commits), "should have committed once")
 	client.mu.Unlock()
+}
 
-	cancel()
-	<-done
+func TestCommitter_RequestFlush_NonBlockingWhenFull(t *testing.T) {
+	reg := consumer.NewPartitionRegistry(testlogger.NewLogger())
+	client := &stubOffsetClient{}
+	cm := newTestCommitter(t, reg, client)
+
+	cm.RequestFlush() // fills the buffer (capacity 1)
+	cm.RequestFlush() // must not block when buffer is full
 }
 
 func TestCommitter_Flush_CommitsDirtyOffsets(t *testing.T) {
@@ -90,40 +125,7 @@ func TestCommitter_Flush_CommitsDirtyOffsets(t *testing.T) {
 
 	client.mu.Lock()
 	assert.Equal(t, 1, len(client.commits), "should have committed once")
-	assert.Equal(t, int64(6), client.commits[0]["t"][0].Offset, "should commit offset.Offset+1")
-	client.mu.Unlock()
-}
-
-func TestCommitter_CommitRecords_CommitsRecords(t *testing.T) {
-	reg := consumer.NewPartitionRegistry(testlogger.NewLogger())
-	client := &stubOffsetClient{}
-	cm := newTestCommitter(t, reg, client)
-
-	records := []*kgo.Record{
-		{Topic: "t", Partition: 0, Offset: 5, LeaderEpoch: 0},
-		{Topic: "t", Partition: 1, Offset: 10, LeaderEpoch: 0},
-	}
-
-	err := cm.CommitRecords(context.Background(), records...)
-	require.NoError(t, err, "CommitRecords should succeed")
-
-	client.mu.Lock()
-	assert.Equal(t, 1, len(client.commits), "should have committed once")
-	assert.Equal(t, int64(6), client.commits[0]["t"][0].Offset, "first record offset should be +1")
-	assert.Equal(t, int64(11), client.commits[0]["t"][1].Offset, "second record offset should be +1")
-	client.mu.Unlock()
-}
-
-func TestCommitter_CommitRecords_EmptyNoOp(t *testing.T) {
-	reg := consumer.NewPartitionRegistry(testlogger.NewLogger())
-	client := &stubOffsetClient{}
-	cm := newTestCommitter(t, reg, client)
-
-	err := cm.CommitRecords(context.Background())
-	require.NoError(t, err, "CommitRecords with no args should succeed")
-
-	client.mu.Lock()
-	assert.Equal(t, 0, len(client.commits), "no commit for empty records")
+	assert.Equal(t, 6, client.commits[0]["t"][0].Offset, "should commit offset.Offset+1")
 	client.mu.Unlock()
 }
 
@@ -142,7 +144,7 @@ func TestCommitter_Flush_NoDirty_NoCommit(t *testing.T) {
 
 func TestCommitter_Flush_CommitFailure(t *testing.T) {
 	reg := consumer.NewPartitionRegistry(testlogger.NewLogger())
-	client := &stubOffsetClient{fail: true, mu: sync.Mutex{}, commits: nil}
+	client := &stubOffsetClient{fail: true, mu: sync.Mutex{}, commits: nil, commitCh: nil}
 	cm := newTestCommitter(t, reg, client)
 
 	ps, _, errGC := reg.GetOrCreate(consumer.Key{Topic: "t", Partition: 0}, testSub("t"), context.Background(), 10)
@@ -151,6 +153,102 @@ func TestCommitter_Flush_CommitFailure(t *testing.T) {
 
 	err := cm.Flush(context.Background())
 	assert.ErrorContains(t, err, "commit failed", "Flush should propagate commit error")
+}
+
+func TestCommitter_Run_ReturnsNilOnContextCancel(t *testing.T) {
+	reg := consumer.NewPartitionRegistry(testlogger.NewLogger())
+	client := &stubOffsetClient{}
+	cm := newTestCommitter(t, reg, client)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := cm.Run(ctx)
+	require.NoError(t, err, "Run should return nil when context is cancelled")
+}
+
+func TestCommitter_Run_ReturnsErrorOnCommitFailure(t *testing.T) {
+	reg := consumer.NewPartitionRegistry(testlogger.NewLogger())
+	client := &stubOffsetClient{fail: true, mu: sync.Mutex{}, commits: nil, commitCh: nil}
+	cm := newTestCommitter(t, reg, client)
+
+	ps, _, errGC := reg.GetOrCreate(consumer.Key{Topic: "t", Partition: 0}, testSub("t"), context.Background(), 10)
+	require.NoError(t, errGC, "GetOrCreate should succeed")
+	reg.AdvanceStateCommitOffset(ps, &kgo.Record{Topic: "t", Offset: 5, LeaderEpoch: 0})
+
+	ctx := t.Context()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- cm.Run(ctx)
+	}()
+
+	select {
+	case err := <-errCh:
+		assert.ErrorContains(t, err, "failed to commit processed offsets", "Run should return commit error")
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for Run to return error")
+	}
+}
+
+func TestCommitter_CommitRecords_CommitsRecords(t *testing.T) {
+	reg := consumer.NewPartitionRegistry(testlogger.NewLogger())
+	client := &stubOffsetClient{}
+	cm := newTestCommitter(t, reg, client)
+
+	records := []*kgo.Record{
+		{Topic: "t", Partition: 0, Offset: 5, LeaderEpoch: 0},
+		{Topic: "t", Partition: 1, Offset: 10, LeaderEpoch: 0},
+	}
+
+	err := cm.CommitRecords(context.Background(), records...)
+	require.NoError(t, err, "CommitRecords should succeed")
+
+	client.mu.Lock()
+	assert.Equal(t, 1, len(client.commits), "should have committed once")
+	assert.Equal(t, 6, client.commits[0]["t"][0].Offset, "first record offset should be +1")
+	assert.Equal(t, 11, client.commits[0]["t"][1].Offset, "second record offset should be +1")
+	client.mu.Unlock()
+}
+
+func TestCommitter_CommitRecords_EmptyNoOp(t *testing.T) {
+	reg := consumer.NewPartitionRegistry(testlogger.NewLogger())
+	client := &stubOffsetClient{}
+	cm := newTestCommitter(t, reg, client)
+
+	err := cm.CommitRecords(context.Background())
+	require.NoError(t, err, "CommitRecords with no args should succeed")
+
+	client.mu.Lock()
+	assert.Equal(t, 0, len(client.commits), "no commit for empty records")
+	client.mu.Unlock()
+}
+
+func TestCommitter_CommitRecords_CommitFailure(t *testing.T) {
+	reg := consumer.NewPartitionRegistry(testlogger.NewLogger())
+	client := &stubOffsetClient{fail: true, mu: sync.Mutex{}, commits: nil, commitCh: nil}
+	cm := newTestCommitter(t, reg, client)
+
+	err := cm.CommitRecords(context.Background(), &kgo.Record{Topic: "t", Offset: 1, LeaderEpoch: 0})
+	assert.ErrorContains(t, err, "commit failed", "CommitRecords should propagate commit error")
+}
+
+func TestCommitter_CommitRecords_NilRecordSkipped(t *testing.T) {
+	reg := consumer.NewPartitionRegistry(testlogger.NewLogger())
+	client := &stubOffsetClient{}
+	cm := newTestCommitter(t, reg, client)
+
+	err := cm.CommitRecords(context.Background(),
+		nil,
+		&kgo.Record{Topic: "t", Partition: 0, Offset: 5, LeaderEpoch: 0},
+		nil,
+	)
+	require.NoError(t, err, "CommitRecords should skip nil records")
+
+	client.mu.Lock()
+	require.Equal(t, 1, len(client.commits), "should have committed once")
+	assert.Equal(t, 1, len(client.commits[0]["t"]), "only one partition should be committed")
+	client.mu.Unlock()
 }
 
 func TestCommitter_Finalize_WaitsAndCommits(t *testing.T) {
@@ -172,5 +270,111 @@ func TestCommitter_Finalize_WaitsAndCommits(t *testing.T) {
 
 	client.mu.Lock()
 	assert.Equal(t, 1, len(client.commits), "should have committed final offsets")
+	client.mu.Unlock()
+}
+
+func TestCommitter_Finalize_EmptyStatesNoOp(t *testing.T) {
+	reg := consumer.NewPartitionRegistry(testlogger.NewLogger())
+	client := &stubOffsetClient{}
+	cm := newTestCommitter(t, reg, client)
+
+	err := cm.Finalize(context.Background(), context.Background(), nil, "err msg")
+	require.NoError(t, err, "Finalize with empty states should be a no-op")
+
+	client.mu.Lock()
+	assert.Equal(t, 0, len(client.commits), "no commit for empty states")
+	client.mu.Unlock()
+}
+
+func TestCommitter_Finalize_DrainContextTimeout(t *testing.T) {
+	reg := consumer.NewPartitionRegistry(testlogger.NewLogger())
+	client := &stubOffsetClient{}
+	cm := newTestCommitter(t, reg, client)
+
+	ps, _, errGC := reg.GetOrCreate(consumer.Key{Topic: "t", Partition: 0}, testSub("t"), context.Background(), 10)
+	require.NoError(t, errGC, "GetOrCreate should succeed")
+	ps.BeginClosing()
+	// NOT calling MarkStopped — Done() channel stays open, drain will block forever.
+
+	drainCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := cm.Finalize(drainCtx, context.Background(), []*consumer.PartitionState{ps}, "drain failed")
+	assert.ErrorContains(t, err, "failed waiting for topic", "Finalize should propagate drain error")
+}
+
+func TestCommitter_Finalize_NoDirtyOffsets(t *testing.T) {
+	reg := consumer.NewPartitionRegistry(testlogger.NewLogger())
+	client := &stubOffsetClient{}
+	cm := newTestCommitter(t, reg, client)
+
+	ps, _, errGC := reg.GetOrCreate(consumer.Key{Topic: "t", Partition: 0}, testSub("t"), context.Background(), 10)
+	require.NoError(t, errGC, "GetOrCreate should succeed")
+	// NOT calling AdvanceStateCommitOffset — no dirty offsets.
+	ps.BeginClosing()
+	ps.MarkStopped()
+
+	err := cm.Finalize(context.Background(), context.Background(), []*consumer.PartitionState{ps}, "final commit error")
+	require.NoError(t, err, "Finalize should succeed without committing")
+
+	client.mu.Lock()
+	assert.Equal(t, 0, len(client.commits), "no commit when nothing dirty")
+	client.mu.Unlock()
+
+	_, ok := reg.Get(consumer.Key{Topic: "t", Partition: 0})
+	assert.False(t, ok, "state should be cleaned up even without dirty offsets")
+}
+
+func TestCommitter_Finalize_CommitFailure(t *testing.T) {
+	reg := consumer.NewPartitionRegistry(testlogger.NewLogger())
+	client := &stubOffsetClient{fail: true, mu: sync.Mutex{}, commits: nil, commitCh: nil}
+	cm := newTestCommitter(t, reg, client)
+
+	ps, _, errGC := reg.GetOrCreate(consumer.Key{Topic: "t", Partition: 0}, testSub("t"), context.Background(), 10)
+	require.NoError(t, errGC, "GetOrCreate should succeed")
+	reg.AdvanceStateCommitOffset(ps, &kgo.Record{Topic: "t", Offset: 5, LeaderEpoch: 0})
+	ps.BeginClosing()
+	ps.MarkStopped()
+
+	err := cm.Finalize(context.Background(), context.Background(), []*consumer.PartitionState{ps}, "final commit error")
+	assert.ErrorContains(t, err, "final commit error", "Finalize should wrap the error message")
+	assert.ErrorContains(t, err, "commit failed", "Finalize should include the underlying error")
+}
+
+func TestCommitter_Finalize_NilCommitCtx(t *testing.T) {
+	reg := consumer.NewPartitionRegistry(testlogger.NewLogger())
+	client := &stubOffsetClient{}
+	cm := newTestCommitter(t, reg, client)
+
+	ps, _, errGC := reg.GetOrCreate(consumer.Key{Topic: "t", Partition: 0}, testSub("t"), context.Background(), 10)
+	require.NoError(t, errGC, "GetOrCreate should succeed")
+	reg.AdvanceStateCommitOffset(ps, &kgo.Record{Topic: "t", Offset: 5, LeaderEpoch: 0})
+	ps.BeginClosing()
+	ps.MarkStopped()
+
+	err := cm.Finalize(context.Background(), nil, []*consumer.PartitionState{ps}, "final commit error")
+	require.NoError(t, err, "Finalize should succeed with nil commitCtx")
+
+	client.mu.Lock()
+	assert.Equal(t, 1, len(client.commits), "should have committed with default timeout")
+	client.mu.Unlock()
+}
+
+func TestCommitter_Finalize_NilDrainCtx(t *testing.T) {
+	reg := consumer.NewPartitionRegistry(testlogger.NewLogger())
+	client := &stubOffsetClient{}
+	cm := newTestCommitter(t, reg, client)
+
+	ps, _, errGC := reg.GetOrCreate(consumer.Key{Topic: "t", Partition: 0}, testSub("t"), context.Background(), 10)
+	require.NoError(t, errGC, "GetOrCreate should succeed")
+	reg.AdvanceStateCommitOffset(ps, &kgo.Record{Topic: "t", Offset: 5, LeaderEpoch: 0})
+	ps.BeginClosing()
+	ps.MarkStopped()
+
+	err := cm.Finalize(nil, context.Background(), []*consumer.PartitionState{ps}, "final commit error") //nolint:staticcheck // intentionally testing nil drainCtx guard
+	assert.ErrorContains(t, err, "drainCtx must not be nil", "Finalize should reject nil drainCtx")
+
+	client.mu.Lock()
+	assert.Equal(t, 0, len(client.commits), "no commit when drainCtx is nil")
 	client.mu.Unlock()
 }

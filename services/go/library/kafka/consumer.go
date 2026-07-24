@@ -193,7 +193,11 @@ func (c *Consumer) Run(ctx context.Context) error {
 	if runErr := c.runState.Err(); runErr == nil {
 		drainCtx, drainCancel := context.WithTimeout(context.Background(), c.drainTimeout)
 		defer drainCancel()
-		if shutdownErr := c.committer.Finalize(drainCtx, nil, states, "failed to commit processed offsets on shutdown"); shutdownErr != nil {
+		if shutdownErr := c.committer.Finalize(
+			drainCtx,
+			nil,
+			states,
+			"failed to commit processed offsets on shutdown"); shutdownErr != nil {
 			if err == nil {
 				err = shutdownErr
 			}

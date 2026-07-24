@@ -77,6 +77,30 @@ func (cm *Committer) RequestFlush() {
 	}
 }
 
+// Flush immediately flushes all dirty offsets.
+func (cm *Committer) Flush(ctx context.Context) error {
+	return cm.flush(ctx)
+}
+
+func (cm *Committer) flush(ctx context.Context) error {
+	if err := cm.acquireCommitMu(ctx); err != nil {
+		return err
+	}
+	defer cm.releaseCommitMu()
+
+	offsets := cm.snapshotDirtyOffsets()
+	if len(offsets) == 0 {
+		return nil
+	}
+
+	if err := cm.client.CommitOffsetsSync(ctx, offsets); err != nil {
+		return fmt.Errorf("failed to commit processed offsets: %w", err)
+	}
+
+	cm.markCommittedOffsets(offsets)
+	return nil
+}
+
 // Run runs the commit loop until the context ends. It flushes dirty offsets
 // on a periodic timer and on RequestFlush with debounce coalescing.
 func (cm *Committer) Run(ctx context.Context) error {
@@ -118,30 +142,6 @@ func (cm *Committer) Run(ctx context.Context) error {
 			}
 		}
 	}
-}
-
-// Flush immediately flushes all dirty offsets.
-func (cm *Committer) Flush(ctx context.Context) error {
-	return cm.flush(ctx)
-}
-
-func (cm *Committer) flush(ctx context.Context) error {
-	if err := cm.acquireCommitMu(ctx); err != nil {
-		return err
-	}
-	defer cm.releaseCommitMu()
-
-	offsets := cm.snapshotDirtyOffsets()
-	if len(offsets) == 0 {
-		return nil
-	}
-
-	if err := cm.client.CommitOffsetsSync(ctx, offsets); err != nil {
-		return fmt.Errorf("failed to commit processed offsets: %w", err)
-	}
-
-	cm.markCommittedOffsets(offsets)
-	return nil
 }
 
 func (cm *Committer) snapshotDirtyOffsets() map[string]map[int32]kgo.EpochOffset {
@@ -239,6 +239,10 @@ func (cm *Committer) Finalize(
 ) error {
 	if len(states) == 0 {
 		return nil
+	}
+
+	if drainCtx == nil {
+		return fmt.Errorf("%s: drainCtx must not be nil", errMessage)
 	}
 
 	if err := cm.waitForPartitions(drainCtx, states); err != nil {
