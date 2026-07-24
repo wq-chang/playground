@@ -99,12 +99,6 @@ type FailurePolicy struct {
 	OnExhausted ExhaustedAction
 }
 
-// PauseInfo records why and when a topic was paused.
-type PauseInfo struct {
-	Cause    error
-	PausedAt time.Time
-}
-
 // Subscription configures how a topic is consumed.
 type Subscription struct {
 	// Topic is the Kafka topic name consumed by this subscription.

@@ -34,14 +34,6 @@ func TestExhaustedActionConstants(t *testing.T) {
 	assert.Equal(t, consumer.ExhaustedAction(3), consumer.ExhaustedActionDLQThenCommit, "3 is DLQThenCommit")
 }
 
-func TestPauseInfoFields(t *testing.T) {
-	sentinel := errors.New("test error")
-	now := time.Now()
-	info := consumer.PauseInfo{Cause: sentinel, PausedAt: now}
-	assert.ErrorIs(t, info.Cause, sentinel, "pause cause should be preserved")
-	assert.True(t, info.PausedAt.Equal(now), "pause time should be set")
-}
-
 func TestNormalizeFailurePolicy_Defaults(t *testing.T) {
 	policy, err := consumer.NormalizeFailurePolicy(consumer.FailurePolicy{
 		MaxAttempts:  0,

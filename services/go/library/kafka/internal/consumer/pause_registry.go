@@ -8,6 +8,12 @@ import (
 	"go-services/library/gsync"
 )
 
+// PauseInfo records why and when a topic was paused.
+type PauseInfo struct {
+	Cause    error
+	PausedAt time.Time
+}
+
 // PauseRegistry owns paused-topic state and provides immutable snapshots
 // for concurrent readers. Reads (IsPaused, Snapshot) are lock-free via
 // gsync.Value. It does not handle Kafka-level pause operations or offset

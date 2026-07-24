@@ -8,15 +8,20 @@ import (
 
 	"go-services/library/assert"
 	"go-services/library/kafka/internal/consumer"
+	"go-services/library/require"
 )
 
-func TestPauseRegistry_FirstPauseReturnsTrue(t *testing.T) {
+func TestPauseRegistry_Pause_FirstPauseReturnsTrue(t *testing.T) {
 	pr := consumer.NewPauseRegistry(time.Now)
 	wasPaused := pr.Pause("topic-a", errors.New("test error"))
 	assert.True(t, wasPaused, "first pause should return true")
+
+	snap := pr.Snapshot()
+	_, ok := snap["topic-a"]
+	assert.True(t, ok, "snapshot should contain paused topic")
 }
 
-func TestPauseRegistry_RepeatedPauseIsIdempotent(t *testing.T) {
+func TestPauseRegistry_Pause_RepeatedPauseIsIdempotent(t *testing.T) {
 	pr := consumer.NewPauseRegistry(time.Now)
 	pr.Pause("topic-a", errors.New("test error"))
 	wasPaused := pr.Pause("topic-a", errors.New("test error"))
@@ -25,10 +30,17 @@ func TestPauseRegistry_RepeatedPauseIsIdempotent(t *testing.T) {
 
 func TestPauseRegistry_IsPaused(t *testing.T) {
 	pr := consumer.NewPauseRegistry(time.Now)
-	assert.False(t, pr.IsPaused("topic-a"), "not paused yet")
+	require.False(t, pr.IsPaused("topic-a"), "not paused yet")
 
 	pr.Pause("topic-a", errors.New("test error"))
 	assert.True(t, pr.IsPaused("topic-a"), "should be paused now")
+}
+
+func TestPauseRegistry_Snapshot_InitiallyEmpty(t *testing.T) {
+	pr := consumer.NewPauseRegistry(time.Now)
+	snap := pr.Snapshot()
+	assert.NotNil(t, snap, "snapshot should be empty for a fresh registry")
+	assert.Equal(t, len(snap), 0, "snapshot should be empty for a fresh registry")
 }
 
 func TestPauseRegistry_Snapshot_Immutable(t *testing.T) {
