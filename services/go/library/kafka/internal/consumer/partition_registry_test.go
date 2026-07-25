@@ -94,12 +94,12 @@ func TestPartitionRegistry_ClearDirty(t *testing.T) {
 		LeaderEpoch: 0,
 	})
 	snap := r.SnapshotDirtyStates()
-	require.Equal(t, 1, len(snap), "should have dirty states before clear")
+	require.Equal(t, len(snap), 1, "should have dirty states before clear")
 
 	r.ClearDirty(key)
 
 	snap = r.SnapshotDirtyStates()
-	assert.Equal(t, 0, len(snap), "no dirty states after clear")
+	assert.Equal(t, len(snap), 0, "no dirty states after clear")
 }
 
 func TestPartitionRegistry_SnapshotDirtyStates(t *testing.T) {
@@ -119,7 +119,7 @@ func TestPartitionRegistry_SnapshotDirtyStates(t *testing.T) {
 	)
 
 	snap := r.SnapshotDirtyStates()
-	assert.Equal(t, 2, len(snap), "snapshot should have 2 entries")
+	assert.Equal(t, len(snap), 2, "snapshot should have 2 entries")
 }
 
 func TestPartitionRegistry_MarkStateCommitted_ClearsWhenClean(t *testing.T) {
@@ -135,7 +135,7 @@ func TestPartitionRegistry_MarkStateCommitted_ClearsWhenClean(t *testing.T) {
 	r.MarkStateCommitted(ps, kgo.EpochOffset{Epoch: 1, Offset: 6})
 
 	snap := r.SnapshotDirtyStates()
-	assert.Equal(t, 0, len(snap), "dirty should be cleared after commit catches up")
+	assert.Equal(t, len(snap), 0, "dirty should be cleared after commit catches up")
 }
 
 func TestPartitionRegistry_MarkStateCommitted_KeepsWhenStillDirty(t *testing.T) {
@@ -153,7 +153,7 @@ func TestPartitionRegistry_MarkStateCommitted_KeepsWhenStillDirty(t *testing.T) 
 	r.MarkStateCommitted(ps, kgo.EpochOffset{Epoch: 1, Offset: 6})
 
 	snap := r.SnapshotDirtyStates()
-	assert.Equal(t, 1, len(snap), "dirty should remain when more progress exists")
+	assert.Equal(t, len(snap), 1, "dirty should remain when more progress exists")
 }
 
 func TestPartitionRegistry_MarkStateCommitted_AtomicWithAdvanceStateCommitOffset(t *testing.T) {
@@ -189,7 +189,7 @@ func TestPartitionRegistry_MarkStateCommitted_AtomicWithAdvanceStateCommitOffset
 
 	// After commit + worker update, there should still be dirty progress.
 	snap := r.SnapshotDirtyStates()
-	assert.Equal(t, 1, len(snap), "worker's dirty update should survive atomic commit")
+	assert.Equal(t, len(snap), 1, "worker's dirty update should survive atomic commit")
 }
 
 func TestPartitionRegistry_AdvanceStateCommitOffset_AdvancesAndMarks(t *testing.T) {
@@ -202,7 +202,7 @@ func TestPartitionRegistry_AdvanceStateCommitOffset_AdvancesAndMarks(t *testing.
 	assert.True(t, advanced, "first record should advance offset")
 
 	snap := r.SnapshotDirtyStates()
-	assert.Equal(t, 1, len(snap), "state should be dirty after advance")
+	assert.Equal(t, len(snap), 1, "state should be dirty after advance")
 }
 
 func TestPartitionRegistry_AdvanceStateCommitOffset_StaleOffset(t *testing.T) {
@@ -248,13 +248,13 @@ func TestPartitionRegistry_BeginClosing_Selected(t *testing.T) {
 	require.NoError(t, errGC, "GetOrCreate should succeed")
 
 	states := r.BeginClosing(map[string][]int32{"t": {0, 1}})
-	assert.Equal(t, 2, len(states), "should close 2 partitions")
+	assert.Equal(t, len(states), 2, "should close 2 partitions")
 	enqueued1, _ := ps1.TryEnqueue([]*kgo.Record{{Topic: "t", Partition: 0}})
-	assert.Equal(t, 0, enqueued1, "ps1 should not accept records after closing")
+	assert.Equal(t, enqueued1, 0, "ps1 should not accept records after closing")
 	enqueued2, _ := ps2.TryEnqueue([]*kgo.Record{{Topic: "t", Partition: 1}})
-	assert.Equal(t, 0, enqueued2, "ps2 should not accept records after closing")
+	assert.Equal(t, enqueued2, 0, "ps2 should not accept records after closing")
 	enqueued3, _ := ps3.TryEnqueue([]*kgo.Record{{Topic: "other", Partition: 0}})
-	assert.Equal(t, 1, enqueued3, "ps3 should still accept records — not selected for closing")
+	assert.Equal(t, enqueued3, 1, "ps3 should still accept records — not selected for closing")
 }
 
 func TestPartitionRegistry_BeginClosingAll(t *testing.T) {
@@ -265,7 +265,7 @@ func TestPartitionRegistry_BeginClosingAll(t *testing.T) {
 	require.NoError(t, errGC, "GetOrCreate should succeed")
 
 	states := r.BeginClosingAll()
-	assert.Equal(t, 2, len(states), "should close all partitions")
+	assert.Equal(t, len(states), 2, "should close all partitions")
 }
 
 func TestPartitionRegistry_DropLost(t *testing.T) {
@@ -297,8 +297,8 @@ func TestPartitionRegistry_SnapshotOffsets(t *testing.T) {
 	ps.AdvanceCommitOffset(&kgo.Record{Topic: "t", Partition: 0, Offset: 5, LeaderEpoch: 1})
 
 	offsets := r.SnapshotOffsets([]*consumer.PartitionState{ps})
-	assert.Equal(t, 1, len(offsets), "should have 1 topic")
-	assert.Equal(t, int64(6), offsets["t"][0].Offset, "offset should be record.Offset+1")
+	assert.Equal(t, len(offsets), 1, "should have 1 topic")
+	assert.Equal(t, offsets["t"][0].Offset, 6, "offset should be record.Offset+1")
 }
 
 func TestPartitionRegistry_SnapshotOffsets_NilAndEmpty(t *testing.T) {

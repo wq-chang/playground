@@ -347,7 +347,7 @@ func TestKafkaConsumerStopPausesTopicOnly(t *testing.T) {
 	}
 
 	time.Sleep(500 * time.Millisecond)
-	assert.Equal(t, failingCalls.Load(), int32(1), "failing topic should be paused after the first exhausted failure")
+	assert.Equal(t, failingCalls.Load(), 1, "failing topic should be paused after the first exhausted failure")
 
 	select {
 	case err := <-runErrs:

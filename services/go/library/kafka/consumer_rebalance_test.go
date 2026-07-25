@@ -170,12 +170,12 @@ func TestConsumer_OnPartitionsRevoked_CommitsSelectedOffsets(t *testing.T) {
 	})
 
 	stub.mu.Lock()
-	assert.Equal(t, 1, len(stub.committed), "should commit revoked offsets")
+	assert.Equal(t, len(stub.committed), 1, "should commit revoked offsets")
 	committed := stub.committed[0]
 	stub.mu.Unlock()
 
-	assert.Equal(t, int64(2), committed["topic-b"][0].Offset, "revoked partition should commit next offset")
-	assert.Equal(t, int32(7), committed["topic-b"][0].Epoch, "revoked partition should commit epoch")
+	assert.Equal(t, committed["topic-b"][0].Offset, 2, "revoked partition should commit next offset")
+	assert.Equal(t, committed["topic-b"][0].Epoch, 7, "revoked partition should commit epoch")
 
 	_, topicAExists := c.registry.Get(consumer.Key{Topic: "topic-a", Partition: 1})
 	assert.True(t, topicAExists, "unrevoked partition should remain")
@@ -247,7 +247,7 @@ func TestConsumer_OnPartitionsLost_DropsSelectedOffsets(t *testing.T) {
 
 	// Partition should be dropped — no commit, state removed.
 	stub.mu.Lock()
-	assert.Equal(t, 0, len(stub.committed), "lost partitions should not commit offsets")
+	assert.Equal(t, len(stub.committed), 0, "lost partitions should not commit offsets")
 	stub.mu.Unlock()
 
 	_, topicAExists := c.registry.Get(consumer.Key{Topic: "topic-a", Partition: 1})

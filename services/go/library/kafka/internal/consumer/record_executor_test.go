@@ -70,7 +70,7 @@ func TestRecordExecutor_Success(t *testing.T) {
 	)
 	result := exec.ExecuteRecord(context.Background(), sub, &kgo.Record{Topic: "t"}, nil)
 	assert.True(t, result.Resolved, "should be resolved")
-	assert.Equal(t, int32(1), called.Load(), "handler should be called once")
+	assert.Equal(t, called.Load(), 1, "handler should be called once")
 }
 
 func TestRecordExecutor_RetryThenSuccess(t *testing.T) {
@@ -90,7 +90,7 @@ func TestRecordExecutor_RetryThenSuccess(t *testing.T) {
 	)
 	result := exec.ExecuteRecord(context.Background(), sub, &kgo.Record{Topic: "t"}, nil)
 	assert.True(t, result.Resolved, "should resolve after retries")
-	assert.Equal(t, int32(3), attempts.Load(), "handler should be called 3 times")
+	assert.Equal(t, attempts.Load(), 3, "handler should be called 3 times")
 }
 
 func TestRecordExecutor_ExhaustedStop_PausesTopic(t *testing.T) {
@@ -123,12 +123,12 @@ func TestRecordExecutor_ExhaustedDLQ_CallsWriter(t *testing.T) {
 
 	dlqWriter := func(ctx context.Context, enriched *kgo.Record) error {
 		dlqCalled.Add(1)
-		assert.Equal(t, "dlq", enriched.Topic, "should set DLQ topic")
+		assert.Equal(t, enriched.Topic, "dlq", "should set DLQ topic")
 		found := false
 		for _, h := range enriched.Headers {
 			if h.Key == "dlq-original-topic" {
 				found = true
-				assert.Equal(t, "t", string(h.Value), "original topic should match")
+				assert.Equal(t, string(h.Value), "t", "original topic should match")
 			}
 		}
 		assert.True(t, found, "should have dlq-original-topic header")
@@ -142,7 +142,7 @@ func TestRecordExecutor_ExhaustedDLQ_CallsWriter(t *testing.T) {
 	)
 	result := exec.ExecuteRecord(context.Background(), sub, &kgo.Record{Topic: "t", Offset: 5}, dlqWriter)
 	assert.True(t, result.Resolved, "should resolve on DLQ commit")
-	assert.Equal(t, int32(1), dlqCalled.Load(), "DLQ writer should be called once")
+	assert.Equal(t, dlqCalled.Load(), 1, "DLQ writer should be called once")
 }
 
 func TestRecordExecutor_HandlerPanic(t *testing.T) {
@@ -167,7 +167,7 @@ func TestRecordExecutor_Batch_Success(t *testing.T) {
 
 	records := []*kgo.Record{{Topic: "t", Offset: 0}, {Topic: "t", Offset: 1}}
 	resolvedCount, cause, pauseTopic := exec.ExecuteBatch(context.Background(), sub, records, nil)
-	assert.Equal(t, 2, resolvedCount, "all records should be resolved")
+	assert.Equal(t, resolvedCount, 2, "all records should be resolved")
 	assert.Nil(t, cause, "no error on success")
 	assert.False(t, pauseTopic, "should not pause on success")
 }
@@ -184,7 +184,7 @@ func TestRecordExecutor_Batch_PartialFailure(t *testing.T) {
 
 	records := []*kgo.Record{{Topic: "t", Offset: 0}, {Topic: "t", Offset: 1}}
 	resolvedCount, cause, pauseTopic := exec.ExecuteBatch(context.Background(), sub, records, nil)
-	assert.Equal(t, 1, resolvedCount, "first record should be resolved")
+	assert.Equal(t, resolvedCount, 1, "first record should be resolved")
 	assert.NotNil(t, cause, "should return error on batch failure")
 	assert.True(t, pauseTopic, "should pause on stop exhaustion")
 }
@@ -208,10 +208,10 @@ func TestRecordExecutor_Batch_DLQ(t *testing.T) {
 
 	records := []*kgo.Record{{Topic: "t", Offset: 0}}
 	resolvedCount, cause, pauseTopic := exec.ExecuteBatch(context.Background(), sub, records, dlqWriter)
-	assert.Equal(t, 1, resolvedCount, "record resolved via DLQ should count as resolved")
+	assert.Equal(t, resolvedCount, 1, "record resolved via DLQ should count as resolved")
 	assert.Nil(t, cause, "no error on DLQ commit")
 	assert.False(t, pauseTopic, "should not pause on DLQ commit")
-	assert.Equal(t, int32(1), dlqCalled.Load(), "DLQ writer should be called")
+	assert.Equal(t, dlqCalled.Load(), 1, "DLQ writer should be called")
 }
 
 func TestRecordExecutor_Batch_HandlerPanic(t *testing.T) {
@@ -224,7 +224,7 @@ func TestRecordExecutor_Batch_HandlerPanic(t *testing.T) {
 
 	records := []*kgo.Record{{Topic: "t", Offset: 0}}
 	resolvedCount, cause, pauseTopic := exec.ExecuteBatch(context.Background(), sub, records, nil)
-	assert.Equal(t, 0, resolvedCount, "should not resolve on panic")
+	assert.Equal(t, resolvedCount, 0, "should not resolve on panic")
 	assert.NotNil(t, cause, "should return error on panic")
 	assert.True(t, pauseTopic, "should pause on stop exhaustion after panic")
 }
@@ -278,7 +278,7 @@ func TestRecordExecutor_ExhaustedDLQ_RetriesThenSucceeds(t *testing.T) {
 	result := exec.ExecuteRecord(context.Background(), sub, &kgo.Record{Topic: "t"}, dlqWriter)
 	assert.True(t, result.Resolved, "should resolve after DLQ retry succeeds")
 	assert.False(t, result.PauseTopic, "should not pause topic on DLQ success")
-	assert.Equal(t, int32(3), dlqCalls.Load(), "DLQ writer should be called 3 times")
+	assert.Equal(t, dlqCalls.Load(), 3, "DLQ writer should be called 3 times")
 }
 
 func TestRecordExecutor_ExhaustedDLQ_RetriesExhausted_PausesTopic(t *testing.T) {
@@ -299,7 +299,7 @@ func TestRecordExecutor_ExhaustedDLQ_RetriesExhausted_PausesTopic(t *testing.T) 
 	assert.False(t, result.Resolved, "should not resolve when all DLQ retries fail")
 	assert.True(t, result.PauseTopic, "should pause topic after all DLQ retries fail")
 	assert.NotNil(t, result.Cause, "should return error after DLQ retries exhausted")
-	assert.Equal(t, int32(3), dlqCalls.Load(), "DLQ writer should be called MaxAttempts times")
+	assert.Equal(t, dlqCalls.Load(), 3, "DLQ writer should be called MaxAttempts times")
 }
 
 func TestRecordExecutor_UnsupportedExhaustedAction(t *testing.T) {
@@ -325,7 +325,7 @@ func TestRecordExecutor_Batch_RejectsInvalidFailedIndex(t *testing.T) {
 	)
 	records := []*kgo.Record{{Topic: "t", Offset: 0}, {Topic: "t", Offset: 1}}
 	resolved, cause, _ := exec.ExecuteBatch(context.Background(), sub, records, nil)
-	assert.Equal(t, 0, resolved, "should resolve 0 with invalid FailedAt")
+	assert.Equal(t, resolved, 0, "should resolve 0 with invalid FailedAt")
 	assert.NotNil(t, cause, "should return error for negative FailedAt")
 }
 
@@ -340,6 +340,6 @@ func TestRecordExecutor_Batch_RejectsFailedIndexOutOfBounds(t *testing.T) {
 	)
 	records := []*kgo.Record{{Topic: "t", Offset: 0}, {Topic: "t", Offset: 1}}
 	resolved, cause, _ := exec.ExecuteBatch(context.Background(), sub, records, nil)
-	assert.Equal(t, 0, resolved, "should resolve 0 with out-of-bounds FailedAt")
+	assert.Equal(t, resolved, 0, "should resolve 0 with out-of-bounds FailedAt")
 	assert.NotNil(t, cause, "should return error for out-of-bounds FailedAt")
 }

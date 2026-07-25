@@ -122,7 +122,7 @@ func TestWorkerRunner_AtLeastOnce_MarksDirty(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	snap := reg.SnapshotDirtyStates()
-	assert.Equal(t, 1, len(snap), "partition should be dirty after at-least-once processing")
+	assert.Equal(t, len(snap), 1, "partition should be dirty after at-least-once processing")
 }
 
 func TestWorkerRunner_AtMostOnce_CommitsBeforeProcessing(t *testing.T) {
@@ -139,7 +139,7 @@ func TestWorkerRunner_AtMostOnce_CommitsBeforeProcessing(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	client.mu.Lock()
-	assert.Equal(t, 1, len(client.committed), "should commit before processing in at-most-once mode")
+	assert.Equal(t, len(client.committed), 1, "should commit before processing in at-most-once mode")
 	client.mu.Unlock()
 }
 
@@ -157,7 +157,7 @@ func TestWorkerRunner_BatchProcessing(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	snap := reg.SnapshotDirtyStates()
-	assert.Equal(t, 1, len(snap), "partition should be dirty after batch processing")
+	assert.Equal(t, len(snap), 1, "partition should be dirty after batch processing")
 }
 
 func TestWorkerRunner_BatchAtMostOnce_CommitsBeforeProcessing(t *testing.T) {
@@ -182,7 +182,7 @@ func TestWorkerRunner_BatchAtMostOnce_CommitsBeforeProcessing(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	client.mu.Lock()
-	assert.Equal(t, 1, len(client.committed), "should commit before processing in at-most-once batch mode")
+	assert.Equal(t, len(client.committed), 1, "should commit before processing in at-most-once batch mode")
 	client.mu.Unlock()
 }
 
@@ -220,11 +220,11 @@ func TestWorkerRunner_ProcessSemaphore_BoundsConcurrency(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	snap := reg.SnapshotDirtyStates()
-	assert.Equal(t, 1, len(snap), "partition should be dirty")
+	assert.Equal(t, len(snap), 1, "partition should be dirty")
 	if ps, ok := snap[consumer.Key{Topic: "t", Partition: 0}]; ok {
 		off, hasOff := ps.SnapshotDirtyOffset()
 		assert.True(t, hasOff, "should have dirty offset")
-		assert.Equal(t, int64(5), off.Offset, "should reflect last offset+1")
+		assert.Equal(t, off.Offset, 5, "should reflect last offset+1")
 	}
 }
 
@@ -276,7 +276,7 @@ func TestWorkerRunner_FlushResolvedBeforeFatalError(t *testing.T) {
 	require.True(t, ok, "partition must be marked dirty after flushing resolved records")
 	off, hasOff := ps2.SnapshotDirtyOffset()
 	assert.True(t, hasOff, "should have dirty offset")
-	assert.Equal(t, int64(2), off.Offset, "should commit up to offset 2")
+	assert.Equal(t, off.Offset, 2, "should commit up to offset 2")
 }
 
 func TestWorkerRunner_FlushResolvedBeforeContextCancel(t *testing.T) {
@@ -320,5 +320,5 @@ func TestWorkerRunner_FlushResolvedBeforeContextCancel(t *testing.T) {
 
 	off, hasOff := ps.SnapshotDirtyOffset()
 	require.True(t, hasOff, "record 0 must be flushed on context cancel")
-	assert.Equal(t, int64(1), off.Offset, "should advance to offset 1")
+	assert.Equal(t, off.Offset, 1, "should advance to offset 1")
 }

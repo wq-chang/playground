@@ -305,9 +305,9 @@ func TestDispatcher_Dispatch_PreservesPolledOrderWithinPartition(t *testing.T) {
 	}), "all 3 records should be processed, got %d", len(ordered))
 
 	mu.Lock()
-	assert.Equal(t, int64(0), ordered[0], "first processed should be offset 0")
-	assert.Equal(t, int64(1), ordered[1], "second processed should be offset 1")
-	assert.Equal(t, int64(2), ordered[2], "third processed should be offset 2")
+	assert.Equal(t, ordered[0], 0, "first processed should be offset 0")
+	assert.Equal(t, ordered[1], 1, "second processed should be offset 1")
+	assert.Equal(t, ordered[2], 2, "third processed should be offset 2")
 	mu.Unlock()
 }
 
@@ -368,7 +368,7 @@ func TestDispatcher_Dispatch_PreservesFirstSeenPartitionOrder(t *testing.T) {
 			aOffsets = append(aOffsets, off)
 		}
 	}
-	assert.Equal(t, 2, len(aOffsets), "should process 2 records for 'a'")
+	assert.Equal(t, len(aOffsets), 2, "should process 2 records for 'a'")
 	assert.True(t, aOffsets[0] < aOffsets[1], "within 'a', offset 0 should process before offset 1")
 	mu.Unlock()
 }

@@ -96,7 +96,7 @@ func TestRunState_Go_Wait_TracksGoroutines(t *testing.T) {
 	})
 
 	rs.Wait()
-	assert.Equal(t, int32(3), counter.Load(), "both goroutines should have completed")
+	assert.Equal(t, counter.Load(), 3, "both goroutines should have completed")
 }
 
 func TestRunState_Reset_ClearsState(t *testing.T) {

@@ -43,7 +43,7 @@ func TestPartitionState_New(t *testing.T) {
 	)
 	assert.NotNil(t, ps, "PartitionState should not be nil")
 	enqueued, _ := ps.TryEnqueue([]*kgo.Record{{Topic: "t", Partition: 1}})
-	assert.Equal(t, 1, enqueued, "new state should accept records")
+	assert.Equal(t, enqueued, 1, "new state should accept records")
 }
 
 func TestPartitionState_Key(t *testing.T) {
@@ -82,13 +82,13 @@ func TestPartitionState_TryEnqueue_Success(t *testing.T) {
 	}
 
 	enqueued, buffered := ps.TryEnqueue(records)
-	assert.Equal(t, 3, enqueued, "should enqueue all 3 records")
-	assert.Equal(t, 3, buffered, "buffered count should be 3")
+	assert.Equal(t, enqueued, 3, "should enqueue all 3 records")
+	assert.Equal(t, buffered, 3, "buffered count should be 3")
 
 	// Drain the queue — must contain exactly the enqueued records.
 	queued, ok := ps.Dequeue(dequeueCtx(t))
 	assert.True(t, ok, "should dequeue successfully")
-	assert.Equal(t, 3, len(queued), "queued slice should have 3 records")
+	assert.Equal(t, len(queued), 3, "queued slice should have 3 records")
 	for i, r := range queued {
 		assert.Equal(t, int64(i), r.Offset, "queued records should be in original order")
 	}
@@ -109,15 +109,15 @@ func TestPartitionState_TryEnqueue_ExceedsCapacity(t *testing.T) {
 	}
 
 	enqueued, buffered := ps.TryEnqueue(records)
-	assert.Equal(t, 2, enqueued, "should enqueue only 2 (capacity)")
-	assert.Equal(t, 2, buffered, "buffered count should be 2")
+	assert.Equal(t, enqueued, 2, "should enqueue only 2 (capacity)")
+	assert.Equal(t, buffered, 2, "buffered count should be 2")
 
 	// Drain — only the truncated prefix was enqueued.
 	queued, ok := ps.Dequeue(dequeueCtx(t))
 	assert.True(t, ok, "should dequeue successfully")
-	assert.Equal(t, 2, len(queued), "queued slice should have 2 records")
-	assert.Equal(t, 0, queued[0].Offset, "first queued offset")
-	assert.Equal(t, 1, queued[1].Offset, "second queued offset")
+	assert.Equal(t, len(queued), 2, "queued slice should have 2 records")
+	assert.Equal(t, queued[0].Offset, 0, "first queued offset")
+	assert.Equal(t, queued[1].Offset, 1, "second queued offset")
 }
 
 func TestPartitionState_TryEnqueue_EmptyRecords(t *testing.T) {
@@ -130,12 +130,12 @@ func TestPartitionState_TryEnqueue_EmptyRecords(t *testing.T) {
 	)
 
 	enqueued, buffered := ps.TryEnqueue(nil)
-	assert.Equal(t, 0, enqueued, "nil slice should enqueue 0")
-	assert.Equal(t, 0, buffered, "buffered should be 0")
+	assert.Equal(t, enqueued, 0, "nil slice should enqueue 0")
+	assert.Equal(t, buffered, 0, "buffered should be 0")
 
 	enqueued, buffered = ps.TryEnqueue([]*kgo.Record{})
-	assert.Equal(t, 0, enqueued, "empty slice should enqueue 0")
-	assert.Equal(t, 0, buffered, "buffered should be 0")
+	assert.Equal(t, enqueued, 0, "empty slice should enqueue 0")
+	assert.Equal(t, buffered, 0, "buffered should be 0")
 
 	// Queue should still be empty — nothing was enqueued.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
@@ -155,27 +155,27 @@ func TestPartitionState_TryEnqueue_QueueFull(t *testing.T) {
 
 	// Fill the queue completely (2 single-record batches).
 	n, b := ps.TryEnqueue([]*kgo.Record{{Topic: "t", Offset: 10}})
-	assert.Equal(t, 1, n, "first enqueue")
-	assert.Equal(t, 1, b, "buffered should be 1")
+	assert.Equal(t, n, 1, "first enqueue")
+	assert.Equal(t, b, 1, "buffered should be 1")
 	n, b = ps.TryEnqueue([]*kgo.Record{{Topic: "t", Offset: 20}})
-	assert.Equal(t, 1, n, "second enqueue")
-	assert.Equal(t, 2, b, "buffered should be 2")
+	assert.Equal(t, n, 1, "second enqueue")
+	assert.Equal(t, b, 2, "buffered should be 2")
 
 	// Now the queue is full — both channel slots and bufferedRecords at capacity.
 	rejectedEnqueue, buffered := ps.TryEnqueue([]*kgo.Record{{Topic: "t", Offset: 99}})
-	assert.Equal(t, 0, rejectedEnqueue, "should reject when queue is full")
-	assert.Equal(t, 2, buffered, "buffered should still be 2")
+	assert.Equal(t, rejectedEnqueue, 0, "should reject when queue is full")
+	assert.Equal(t, buffered, 2, "buffered should still be 2")
 
 	// Drain — only the first two batches made it in, in order.
 	batch1, ok := ps.Dequeue(dequeueCtx(t))
 	assert.True(t, ok, "first dequeue")
-	assert.Equal(t, 1, len(batch1), "first batch should have 1 record")
-	assert.Equal(t, int64(10), batch1[0].Offset, "first batch offset")
+	assert.Equal(t, len(batch1), 1, "first batch should have 1 record")
+	assert.Equal(t, batch1[0].Offset, 10, "first batch offset")
 
 	batch2, ok := ps.Dequeue(dequeueCtx(t))
 	assert.True(t, ok, "second dequeue")
-	assert.Equal(t, 1, len(batch2), "second batch should have 1 record")
-	assert.Equal(t, int64(20), batch2[0].Offset, "second batch offset")
+	assert.Equal(t, len(batch2), 1, "second batch should have 1 record")
+	assert.Equal(t, batch2[0].Offset, 20, "second batch offset")
 
 	// Queue should be empty now — offset 99 was rejected and not enqueued.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
@@ -197,7 +197,7 @@ func TestPartitionState_Enqueue_AfterClosing_Fails(t *testing.T) {
 
 	records := []*kgo.Record{{Topic: "t", Partition: 1, Offset: 0}}
 	enqueued, _ := ps.TryEnqueue(records)
-	assert.Equal(t, 0, enqueued, "should not enqueue after closing")
+	assert.Equal(t, enqueued, 0, "should not enqueue after closing")
 }
 
 func TestPartitionState_Dequeue_ReturnsRecordsInOrder(t *testing.T) {
@@ -217,7 +217,7 @@ func TestPartitionState_Dequeue_ReturnsRecordsInOrder(t *testing.T) {
 
 	queued, ok := ps.Dequeue(dequeueCtx(t))
 	assert.True(t, ok, "should dequeue successfully")
-	assert.Equal(t, 5, len(queued), "should dequeue all 5 records")
+	assert.Equal(t, len(queued), 5, "should dequeue all 5 records")
 	for i, r := range queued {
 		assert.Equal(t, int64(i), r.Offset, "queued records should be in original order")
 	}
@@ -318,7 +318,7 @@ func TestPartitionState_TryPauseBackpressure_QueueFull(t *testing.T) {
 	// Enqueue 9 batches (high watermark for capacity 10 is 9).
 	for i := range 9 {
 		n, _ := ps.TryEnqueue([]*kgo.Record{{Topic: "t", Offset: int64(i)}})
-		assert.Equal(t, 1, n, "should enqueue record %d", i)
+		assert.Equal(t, n, 1, "should enqueue record %d", i)
 	}
 
 	paused := ps.TryPauseBackpressure()
@@ -337,7 +337,7 @@ func TestPartitionState_TryPauseBackpressure_NotFullEnough(t *testing.T) {
 	// Enqueue only 8 batches (below high watermark of 9).
 	for i := range 8 {
 		n, _ := ps.TryEnqueue([]*kgo.Record{{Topic: "t", Offset: int64(i)}})
-		assert.Equal(t, 1, n, "should enqueue record %d", i)
+		assert.Equal(t, n, 1, "should enqueue record %d", i)
 	}
 
 	paused := ps.TryPauseBackpressure()
@@ -461,7 +461,7 @@ func TestPartitionState_AdvanceCommitOffset(t *testing.T) {
 
 	offset, ok := ps.SnapshotDirtyOffset()
 	assert.True(t, ok, "should be dirty after advance")
-	assert.Equal(t, 6, offset.Offset, "offset should be record.Offset+1")
+	assert.Equal(t, offset.Offset, 6, "offset should be record.Offset+1")
 }
 
 func TestPartitionState_AdvanceCommitOffset_RejectsStaleOffset(t *testing.T) {
@@ -482,7 +482,7 @@ func TestPartitionState_AdvanceCommitOffset_RejectsStaleOffset(t *testing.T) {
 	// State unchanged — still tracking offset 5.
 	offset, ok := ps.SnapshotDirtyOffset()
 	assert.True(t, ok, "should still be dirty")
-	assert.Equal(t, 6, offset.Offset, "should still be original offset+1")
+	assert.Equal(t, offset.Offset, 6, "should still be original offset+1")
 }
 
 func TestPartitionState_AdvanceCommitOffset_TracksHighest(t *testing.T) {
@@ -500,7 +500,7 @@ func TestPartitionState_AdvanceCommitOffset_TracksHighest(t *testing.T) {
 
 	offset, ok := ps.SnapshotDirtyOffset()
 	assert.True(t, ok, "should have dirty offset")
-	assert.Equal(t, 10, offset.Offset, "should track highest offset (9+1)")
+	assert.Equal(t, offset.Offset, 10, "should track highest offset (9+1)")
 }
 
 func TestPartitionState_SnapshotDirtyOffset_AfterAdvance(t *testing.T) {
@@ -520,8 +520,8 @@ func TestPartitionState_SnapshotDirtyOffset_AfterAdvance(t *testing.T) {
 
 	offset, ok := ps.SnapshotDirtyOffset()
 	assert.True(t, ok, "should have dirty offset")
-	assert.Equal(t, 6, offset.Offset, "offset should be record.Offset+1")
-	assert.Equal(t, 1, offset.Epoch, "epoch should match")
+	assert.Equal(t, offset.Offset, 6, "offset should be record.Offset+1")
+	assert.Equal(t, offset.Epoch, 1, "epoch should match")
 }
 
 func TestPartitionState_MarkCommitted_ClearsDirty(t *testing.T) {
@@ -562,7 +562,7 @@ func TestPartitionState_MarkCommitted_StaysDirtyWhenBehind(t *testing.T) {
 
 	offset, ok := ps.SnapshotDirtyOffset()
 	assert.True(t, ok, "should still have dirty offset")
-	assert.Equal(t, 10, offset.Offset, "next commit offset should still be 10")
+	assert.Equal(t, offset.Offset, 10, "next commit offset should still be 10")
 }
 
 func TestPartitionState_MarkCommitted_IgnoresStaleCommit(t *testing.T) {
@@ -604,7 +604,7 @@ func TestPartitionState_BeginClosing_StopsAccepting(t *testing.T) {
 	ps.BeginClosing()
 
 	enqueued, _ := ps.TryEnqueue([]*kgo.Record{{Topic: "t", Partition: 1}})
-	assert.Equal(t, 0, enqueued, "should not accept records after closing")
+	assert.Equal(t, enqueued, 0, "should not accept records after closing")
 	assert.False(t, ps.TryPauseBackpressure(), "backpressure pause should fail when not accepting")
 }
 
@@ -656,7 +656,7 @@ func TestPartitionState_MarkStopped(t *testing.T) {
 	ps.MarkStopped()
 
 	enqueued, _ := ps.TryEnqueue([]*kgo.Record{{Topic: "t", Partition: 1}})
-	assert.Equal(t, 0, enqueued, "should not accept records after stop")
+	assert.Equal(t, enqueued, 0, "should not accept records after stop")
 
 	select {
 	case <-ps.Done():

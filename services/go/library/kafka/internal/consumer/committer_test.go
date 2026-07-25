@@ -97,7 +97,7 @@ func TestCommitter_RequestFlush_TriggersFlush(t *testing.T) {
 	<-done
 
 	client.mu.Lock()
-	assert.Equal(t, 1, len(client.commits), "should have committed once")
+	assert.Equal(t, len(client.commits), 1, "should have committed once")
 	client.mu.Unlock()
 }
 
@@ -134,8 +134,8 @@ func TestCommitter_Flush_CommitsDirtyOffsets(t *testing.T) {
 	require.NoError(t, err, "Flush should succeed")
 
 	client.mu.Lock()
-	assert.Equal(t, 1, len(client.commits), "should have committed once")
-	assert.Equal(t, 6, client.commits[0]["t"][0].Offset, "should commit offset.Offset+1")
+	assert.Equal(t, len(client.commits), 1, "should have committed once")
+	assert.Equal(t, client.commits[0]["t"][0].Offset, 6, "should commit offset.Offset+1")
 	client.mu.Unlock()
 }
 
@@ -148,7 +148,7 @@ func TestCommitter_Flush_NoDirty_NoCommit(t *testing.T) {
 	require.NoError(t, err, "Flush should succeed")
 
 	client.mu.Lock()
-	assert.Equal(t, 0, len(client.commits), "should not commit when nothing is dirty")
+	assert.Equal(t, len(client.commits), 0, "should not commit when nothing is dirty")
 	client.mu.Unlock()
 }
 
@@ -215,9 +215,9 @@ func TestCommitter_CommitRecords_CommitsRecords(t *testing.T) {
 	require.NoError(t, err, "CommitRecords should succeed")
 
 	client.mu.Lock()
-	assert.Equal(t, 1, len(client.commits), "should have committed once")
-	assert.Equal(t, 6, client.commits[0]["t"][0].Offset, "first record offset should be +1")
-	assert.Equal(t, 11, client.commits[0]["t"][1].Offset, "second record offset should be +1")
+	assert.Equal(t, len(client.commits), 1, "should have committed once")
+	assert.Equal(t, client.commits[0]["t"][0].Offset, 6, "first record offset should be +1")
+	assert.Equal(t, client.commits[0]["t"][1].Offset, 11, "second record offset should be +1")
 	client.mu.Unlock()
 }
 
@@ -230,7 +230,7 @@ func TestCommitter_CommitRecords_EmptyNoOp(t *testing.T) {
 	require.NoError(t, err, "CommitRecords with no args should succeed")
 
 	client.mu.Lock()
-	assert.Equal(t, 0, len(client.commits), "no commit for empty records")
+	assert.Equal(t, len(client.commits), 0, "no commit for empty records")
 	client.mu.Unlock()
 }
 
@@ -257,8 +257,8 @@ func TestCommitter_CommitRecords_NilRecordSkipped(t *testing.T) {
 	require.NoError(t, err, "CommitRecords should skip nil records")
 
 	client.mu.Lock()
-	require.Equal(t, 1, len(client.commits), "should have committed once")
-	assert.Equal(t, 1, len(client.commits[0]["t"]), "only one partition should be committed")
+	require.Equal(t, len(client.commits), 1, "should have committed once")
+	assert.Equal(t, len(client.commits[0]["t"]), 1, "only one partition should be committed")
 	client.mu.Unlock()
 }
 
@@ -285,7 +285,7 @@ func TestCommitter_Finalize_WaitsAndCommits(t *testing.T) {
 	require.NoError(t, err, "Finalize should succeed")
 
 	client.mu.Lock()
-	assert.Equal(t, 1, len(client.commits), "should have committed final offsets")
+	assert.Equal(t, len(client.commits), 1, "should have committed final offsets")
 	client.mu.Unlock()
 }
 
@@ -298,7 +298,7 @@ func TestCommitter_Finalize_EmptyStatesNoOp(t *testing.T) {
 	require.NoError(t, err, "Finalize with empty states should be a no-op")
 
 	client.mu.Lock()
-	assert.Equal(t, 0, len(client.commits), "no commit for empty states")
+	assert.Equal(t, len(client.commits), 0, "no commit for empty states")
 	client.mu.Unlock()
 }
 
@@ -339,7 +339,7 @@ func TestCommitter_Finalize_NoDirtyOffsets(t *testing.T) {
 	require.NoError(t, err, "Finalize should succeed without committing")
 
 	client.mu.Lock()
-	assert.Equal(t, 0, len(client.commits), "no commit when nothing dirty")
+	assert.Equal(t, len(client.commits), 0, "no commit when nothing dirty")
 	client.mu.Unlock()
 
 	_, ok := reg.Get(consumer.Key{Topic: "t", Partition: 0})
@@ -373,13 +373,13 @@ func TestCommitter_Finalize_NilCommitCtx(t *testing.T) {
 	ps.BeginClosing()
 	ps.MarkStopped()
 
-	// nolint:staticcheck
 	// intentionally testing nil commitCtx guard
+	// nolint:staticcheck
 	err := cm.Finalize(context.Background(), nil, []*consumer.PartitionState{ps}, "final commit error")
 	assert.ErrorContains(t, err, "commitCtx must not be nil", "Finalize should reject nil commitCtx")
 
 	client.mu.Lock()
-	assert.Equal(t, 0, len(client.commits), "no commit when commitCtx is nil")
+	assert.Equal(t, len(client.commits), 0, "no commit when commitCtx is nil")
 	client.mu.Unlock()
 }
 
@@ -394,12 +394,12 @@ func TestCommitter_Finalize_NilDrainCtx(t *testing.T) {
 	ps.BeginClosing()
 	ps.MarkStopped()
 
-	// nolint:staticcheck
 	// intentionally testing nil drainCtx guard
+	// nolint:staticcheck
 	err := cm.Finalize(nil, context.Background(), []*consumer.PartitionState{ps}, "final commit error")
 	assert.ErrorContains(t, err, "drainCtx must not be nil", "Finalize should reject nil drainCtx")
 
 	client.mu.Lock()
-	assert.Equal(t, 0, len(client.commits), "no commit when drainCtx is nil")
+	assert.Equal(t, len(client.commits), 0, "no commit when drainCtx is nil")
 	client.mu.Unlock()
 }
