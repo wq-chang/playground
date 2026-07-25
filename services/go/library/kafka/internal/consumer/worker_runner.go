@@ -131,7 +131,6 @@ func (wr *WorkerRunner) processRecords(
 				"err", result.Cause,
 			)
 			wr.pauses.Pause(record.Topic, result.Cause)
-			wr.kgoClient.PauseFetchTopics(record.Topic)
 			continue
 		}
 
@@ -187,7 +186,6 @@ func (wr *WorkerRunner) processBatch(
 			"err", cause,
 		)
 		wr.pauses.Pause(records[0].Topic, cause)
-		wr.kgoClient.PauseFetchTopics(records[0].Topic)
 		return
 	}
 

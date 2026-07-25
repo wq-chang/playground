@@ -71,7 +71,7 @@ func startWorker(t *testing.T) (*consumer.RunState, context.Context, *consumer.P
 	runCtx, err := run.Begin()
 	require.NoError(t, err, "Begin should succeed")
 	reg := consumer.NewPartitionRegistry(testlogger.NewLogger())
-	pauses := consumer.NewPauseRegistry(time.Now)
+	pauses := consumer.NewPauseRegistry(time.Now, &stubTopicPauser{})
 	client := &stubWorkerClient{}
 	return run, runCtx, reg, pauses, client
 }

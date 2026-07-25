@@ -70,7 +70,7 @@ func setupIntegration(t *testing.T, cl *offsetRecorder) (
 
 	logger := testlogger.NewLogger()
 	router := consumer.NewRouter(kgoClient.AddConsumeTopics)
-	pauses := consumer.NewPauseRegistry(time.Now)
+	pauses := consumer.NewPauseRegistry(time.Now, &stubTopicPauser{})
 	run := consumer.NewRunState()
 	registry := consumer.NewPartitionRegistry(logger)
 

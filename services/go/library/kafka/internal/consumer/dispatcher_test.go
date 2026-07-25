@@ -18,11 +18,16 @@ import (
 // sub returns a Subscription with a no-op record handler.
 func sub(topic string) consumer.Subscription {
 	return consumer.Subscription{
-		Topic:         topic,
-		Handler:       func(ctx context.Context, record *kgo.Record) error { return nil },
-		BatchHandler:  nil,
-		FailurePolicy: consumer.FailurePolicy{MaxAttempts: 1, RetryBackoff: 0, DLQ: nil, OnExhausted: consumer.ExhaustedActionStop},
-		AckMode:       consumer.AckModeAtLeastOnce,
+		Topic:        topic,
+		Handler:      func(ctx context.Context, record *kgo.Record) error { return nil },
+		BatchHandler: nil,
+		FailurePolicy: consumer.FailurePolicy{
+			MaxAttempts:  1,
+			RetryBackoff: 0,
+			DLQ:          nil,
+			OnExhausted:  consumer.ExhaustedActionStop,
+		},
+		AckMode: consumer.AckModeAtLeastOnce,
 	}
 }
 
@@ -52,7 +57,7 @@ func waitForDispatcherToBlock(t *testing.T) {
 
 func TestDispatcher_New(t *testing.T) {
 	router := consumer.NewRouter(nil)
-	pauses := consumer.NewPauseRegistry(time.Now)
+	pauses := consumer.NewPauseRegistry(time.Now, &stubTopicPauser{})
 	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
 	d := consumer.NewDispatcher(router, pauses, registry, nil, nil, 64, make(chan struct{}, 1))
 	assert.NotNil(t, d, "NewDispatcher should not return nil")
@@ -60,20 +65,20 @@ func TestDispatcher_New(t *testing.T) {
 
 func TestDispatcher_Dispatch_EmptyRecords(t *testing.T) {
 	router := consumer.NewRouter(nil)
-	pauses := consumer.NewPauseRegistry(time.Now)
+	pauses := consumer.NewPauseRegistry(time.Now, &stubTopicPauser{})
 	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
 	d := consumer.NewDispatcher(router, pauses, registry, nil, nil, 64, make(chan struct{}, 1))
 
 	err := d.Dispatch(context.Background(), context.Background(), nil)
-	require.NoError(t, err, "Dispatch nil records should succeed")
+	assert.NoError(t, err, "Dispatch nil records should succeed")
 
 	err = d.Dispatch(context.Background(), context.Background(), []*kgo.Record{})
-	require.NoError(t, err, "Dispatch empty records should succeed")
+	assert.NoError(t, err, "Dispatch empty records should succeed")
 }
 
 func TestDispatcher_Dispatch_UnregisteredTopic_Error(t *testing.T) {
 	router := consumer.NewRouter(nil)
-	pauses := consumer.NewPauseRegistry(time.Now)
+	pauses := consumer.NewPauseRegistry(time.Now, &stubTopicPauser{})
 	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
 	d := consumer.NewDispatcher(router, pauses, registry, nil, nil, 64, make(chan struct{}, 1))
 
@@ -85,7 +90,7 @@ func TestDispatcher_Dispatch_UnregisteredTopic_Error(t *testing.T) {
 
 func TestDispatcher_Dispatch_UnregisteredTopic_AmongValid(t *testing.T) {
 	router := consumer.NewRouter(nil)
-	pauses := consumer.NewPauseRegistry(time.Now)
+	pauses := consumer.NewPauseRegistry(time.Now, &stubTopicPauser{})
 	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
 
 	require.NoError(t, router.Register(sub("valid")), "should register valid topic")
@@ -101,7 +106,7 @@ func TestDispatcher_Dispatch_UnregisteredTopic_AmongValid(t *testing.T) {
 
 func TestDispatcher_Dispatch_PausedTopic_SkipsAllRecords(t *testing.T) {
 	router := consumer.NewRouter(nil)
-	pauses := consumer.NewPauseRegistry(time.Now)
+	pauses := consumer.NewPauseRegistry(time.Now, &stubTopicPauser{})
 	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
 
 	require.NoError(t, router.Register(sub("t")), "should register topic")
@@ -121,7 +126,7 @@ func TestDispatcher_Dispatch_PausedTopic_SkipsAllRecords(t *testing.T) {
 
 func TestDispatcher_Dispatch_MixedPausedAndActive(t *testing.T) {
 	router := consumer.NewRouter(nil)
-	pauses := consumer.NewPauseRegistry(time.Now)
+	pauses := consumer.NewPauseRegistry(time.Now, &stubTopicPauser{})
 	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
 
 	require.NoError(t, router.Register(sub("paused")), "should register paused topic")
@@ -159,7 +164,7 @@ func TestDispatcher_Dispatch_MixedPausedAndActive(t *testing.T) {
 
 func TestDispatcher_Dispatch_SingleRecord_CreatesStateAndEnqueues(t *testing.T) {
 	router := consumer.NewRouter(nil)
-	pauses := consumer.NewPauseRegistry(time.Now)
+	pauses := consumer.NewPauseRegistry(time.Now, &stubTopicPauser{})
 	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
 
 	require.NoError(t, router.Register(sub("t")), "should register topic")
@@ -191,7 +196,7 @@ func TestDispatcher_Dispatch_SingleRecord_CreatesStateAndEnqueues(t *testing.T) 
 
 func TestDispatcher_Dispatch_MultipleRecords_SamePartition(t *testing.T) {
 	router := consumer.NewRouter(nil)
-	pauses := consumer.NewPauseRegistry(time.Now)
+	pauses := consumer.NewPauseRegistry(time.Now, &stubTopicPauser{})
 	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
 
 	require.NoError(t, router.Register(sub("t")), "should register topic")
@@ -224,7 +229,7 @@ func TestDispatcher_Dispatch_MultipleRecords_SamePartition(t *testing.T) {
 
 func TestDispatcher_Dispatch_DifferentPartitions(t *testing.T) {
 	router := consumer.NewRouter(nil)
-	pauses := consumer.NewPauseRegistry(time.Now)
+	pauses := consumer.NewPauseRegistry(time.Now, &stubTopicPauser{})
 	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
 
 	require.NoError(t, router.Register(sub("t")), "should register topic")
@@ -256,7 +261,7 @@ func TestDispatcher_Dispatch_DifferentPartitions(t *testing.T) {
 
 func TestDispatcher_Dispatch_DifferentTopics(t *testing.T) {
 	router := consumer.NewRouter(nil)
-	pauses := consumer.NewPauseRegistry(time.Now)
+	pauses := consumer.NewPauseRegistry(time.Now, &stubTopicPauser{})
 	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
 
 	require.NoError(t, router.Register(sub("a")), "should register topic a")
@@ -285,7 +290,7 @@ func TestDispatcher_Dispatch_DifferentTopics(t *testing.T) {
 
 func TestDispatcher_Dispatch_StartFn_OnlyOnFirstCreation(t *testing.T) {
 	router := consumer.NewRouter(nil)
-	pauses := consumer.NewPauseRegistry(time.Now)
+	pauses := consumer.NewPauseRegistry(time.Now, &stubTopicPauser{})
 	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
 
 	require.NoError(t, router.Register(sub("t")), "should register topic")
@@ -312,7 +317,7 @@ func TestDispatcher_Dispatch_StartFn_OnlyOnFirstCreation(t *testing.T) {
 
 func TestDispatcher_Dispatch_WaitForCapacity_ContextCancelled(t *testing.T) {
 	router := consumer.NewRouter(nil)
-	pauses := consumer.NewPauseRegistry(time.Now)
+	pauses := consumer.NewPauseRegistry(time.Now, &stubTopicPauser{})
 	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
 
 	require.NoError(t, router.Register(sub("t")), "should register topic")
@@ -343,7 +348,7 @@ func TestDispatcher_Dispatch_WaitForCapacity_ContextCancelled(t *testing.T) {
 
 func TestDispatcher_Dispatch_BackpressurePause(t *testing.T) {
 	router := consumer.NewRouter(nil)
-	pauses := consumer.NewPauseRegistry(time.Now)
+	pauses := consumer.NewPauseRegistry(time.Now, &stubTopicPauser{})
 	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
 
 	require.NoError(t, router.Register(sub("t")), "should register topic")
@@ -372,7 +377,7 @@ func TestDispatcher_Dispatch_BackpressurePause(t *testing.T) {
 
 func TestDispatcher_Dispatch_WaitForCapacity_Signalled(t *testing.T) {
 	router := consumer.NewRouter(nil)
-	pauses := consumer.NewPauseRegistry(time.Now)
+	pauses := consumer.NewPauseRegistry(time.Now, &stubTopicPauser{})
 	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
 
 	require.NoError(t, router.Register(sub("t")), "should register topic")
@@ -423,7 +428,7 @@ func TestDispatcher_Dispatch_WaitForCapacity_Signalled(t *testing.T) {
 
 func TestDispatcher_Dispatch_PartialEnqueue_RetriesAfterCapacity(t *testing.T) {
 	router := consumer.NewRouter(nil)
-	pauses := consumer.NewPauseRegistry(time.Now)
+	pauses := consumer.NewPauseRegistry(time.Now, &stubTopicPauser{})
 	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
 
 	require.NoError(t, router.Register(sub("t")), "should register topic")
@@ -479,7 +484,7 @@ func TestDispatcher_Dispatch_PartialEnqueue_RetriesAfterCapacity(t *testing.T) {
 
 func TestDispatcher_Dispatch_MultiPartitionBackpressure(t *testing.T) {
 	router := consumer.NewRouter(nil)
-	pauses := consumer.NewPauseRegistry(time.Now)
+	pauses := consumer.NewPauseRegistry(time.Now, &stubTopicPauser{})
 	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
 
 	require.NoError(t, router.Register(sub("t")), "should register topic")

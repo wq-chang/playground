@@ -8,6 +8,12 @@ import (
 	"go-services/library/gsync"
 )
 
+// topicPauser is the subset of *kgo.Client used by PauseRegistry
+// to tell Kafka to stop fetching a topic.
+type topicPauser interface {
+	PauseFetchTopics(topics ...string) []string
+}
+
 // PauseInfo records why and when a topic was paused.
 type PauseInfo struct {
 	Cause    error
@@ -16,19 +22,22 @@ type PauseInfo struct {
 
 // PauseRegistry owns paused-topic state and provides immutable snapshots
 // for concurrent readers. Reads (IsPaused, Snapshot) are lock-free via
-// gsync.Value. It does not handle Kafka-level pause operations or offset
-// commits — those belong to Committer and Dispatcher in later steps.
+// gsync.Value. When a topic is paused, PauseFetchTopics is called on
+// pauser to stop fetching from that topic.
 type PauseRegistry struct {
 	snapshot     gsync.Value[map[string]PauseInfo]
 	pausedTopics map[string]PauseInfo
+	pauser       topicPauser
 	now          func() time.Time
 	mu           sync.Mutex
 }
 
 // NewPauseRegistry creates a paused-topic registry with injectable clock.
-func NewPauseRegistry(now func() time.Time) *PauseRegistry {
+// pauser is called to PauseFetchTopics when a topic is paused.
+func NewPauseRegistry(now func() time.Time, pauser topicPauser) *PauseRegistry {
 	pr := &PauseRegistry{
 		pausedTopics: make(map[string]PauseInfo),
+		pauser:       pauser,
 		now:          now,
 		mu:           sync.Mutex{},
 		snapshot:     gsync.Value[map[string]PauseInfo]{},
@@ -52,6 +61,8 @@ func (pr *PauseRegistry) Pause(topic string, cause error) bool {
 		PausedAt: pr.now(),
 	}
 	pr.snapshot.Store(maps.Clone(pr.pausedTopics))
+	pr.pauser.PauseFetchTopics(topic)
+
 	return true
 }
 

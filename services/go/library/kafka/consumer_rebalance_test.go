@@ -43,10 +43,11 @@ func (s *stubFetchClient) ResumeFetchPartitions(partitions map[string][]int32) {
 	s.mu.Unlock()
 }
 
-func (s *stubFetchClient) PauseFetchTopics(topics ...string) {
+func (s *stubFetchClient) PauseFetchTopics(topics ...string) []string {
 	s.mu.Lock()
 	s.pausedTopics = append(s.pausedTopics, topics...)
 	s.mu.Unlock()
+	return nil
 }
 
 func (s *stubFetchClient) CommitOffsetsSync(ctx context.Context, offsets map[string]map[int32]kgo.EpochOffset) error {
@@ -80,7 +81,7 @@ func newTestConsumer(t *testing.T, stub *stubFetchClient) *Consumer {
 	t.Helper()
 
 	router := consumer.NewRouter(nil)
-	pauses := consumer.NewPauseRegistry(time.Now)
+	pauses := consumer.NewPauseRegistry(time.Now, stub)
 	run := consumer.NewRunState()
 	registry := consumer.NewPartitionRegistry(nil)
 

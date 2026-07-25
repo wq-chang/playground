@@ -80,7 +80,7 @@ func newConsumer(cfg *config, kgoClient *kgo.Client, dlqProducer DLQProducer) (*
 	}
 
 	c.router = consumer.NewRouter(kgoClient.AddConsumeTopics)
-	c.pauses = consumer.NewPauseRegistry(time.Now)
+	c.pauses = consumer.NewPauseRegistry(time.Now, kgoClient)
 	c.runState = consumer.NewRunState()
 
 	c.registry = consumer.NewPartitionRegistry(c.log)

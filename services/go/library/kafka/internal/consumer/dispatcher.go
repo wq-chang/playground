@@ -7,9 +7,9 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
-// fetchPauser is the subset of *kgo.Client used by Dispatcher for
-// backpressure.
-type fetchPauser interface {
+// partitionPauser is the subset of *kgo.Client used by Dispatcher for
+// per-partition backpressure.
+type partitionPauser interface {
 	PauseFetchPartitions(topicPartitions map[string][]int32) map[string][]int32
 }
 
@@ -29,13 +29,13 @@ type pendingBatch struct {
 // management. It groups polled records by topic-partition, enqueues them into
 // partition workers, and applies backpressure pauses when queues fill up.
 type Dispatcher struct {
-	router        *Router
-	pauses        *PauseRegistry
-	registry      *PartitionRegistry
-	fetchPauser   fetchPauser
-	startFn       func(*PartitionState)
-	capacityCh    chan struct{}
-	queueCapacity int
+	router          *Router
+	pauses          *PauseRegistry
+	registry        *PartitionRegistry
+	partitionPauser partitionPauser
+	startFn         func(*PartitionState)
+	capacityCh      chan struct{}
+	queueCapacity   int
 }
 
 // NewDispatcher creates a dispatcher with the given dependencies.
@@ -44,19 +44,19 @@ func NewDispatcher(
 	router *Router,
 	pauses *PauseRegistry,
 	registry *PartitionRegistry,
-	fetchPauser fetchPauser,
+	partitionPauser partitionPauser,
 	startFn func(*PartitionState),
 	queueCapacity int,
 	capacityCh chan struct{},
 ) *Dispatcher {
 	return &Dispatcher{
-		router:        router,
-		pauses:        pauses,
-		registry:      registry,
-		fetchPauser:   fetchPauser,
-		startFn:       startFn,
-		queueCapacity: queueCapacity,
-		capacityCh:    capacityCh,
+		router:          router,
+		pauses:          pauses,
+		registry:        registry,
+		partitionPauser: partitionPauser,
+		startFn:         startFn,
+		queueCapacity:   queueCapacity,
+		capacityCh:      capacityCh,
 	}
 }
 
@@ -116,7 +116,7 @@ func (d *Dispatcher) Dispatch(
 
 				// Apply backpressure pause if queue is at high watermark.
 				if state.TryPauseBackpressure() {
-					d.fetchPauser.PauseFetchPartitions(map[string][]int32{
+					d.partitionPauser.PauseFetchPartitions(map[string][]int32{
 						cursor.batch.Key.Topic: {cursor.batch.Key.Partition},
 					})
 				}
