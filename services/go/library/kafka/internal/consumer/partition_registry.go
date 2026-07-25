@@ -42,9 +42,9 @@ func (r *PartitionRegistry) Get(key Key) (*PartitionState, bool) {
 // one atomically under registry ownership. Returns created=true when a new
 // state was created. The caller must start the worker goroutine separately.
 func (r *PartitionRegistry) GetOrCreate(
+	ctx context.Context,
 	key Key,
 	subscription Subscription,
-	parent context.Context,
 	queueCapacity int,
 ) (*PartitionState, bool, error) {
 	r.mu.Lock()
@@ -54,7 +54,7 @@ func (r *PartitionRegistry) GetOrCreate(
 		return existing, false, nil
 	}
 
-	ps := NewPartitionState(parent, r.log, key, subscription, queueCapacity)
+	ps := NewPartitionState(ctx, r.log, key, subscription, queueCapacity)
 	r.partitions[key] = ps
 	return ps, true, nil
 }

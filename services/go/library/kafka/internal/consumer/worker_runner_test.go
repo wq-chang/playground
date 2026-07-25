@@ -83,7 +83,7 @@ func stopWorker(run *consumer.RunState) {
 
 func getPS(t *testing.T, reg *consumer.PartitionRegistry, sub consumer.Subscription, runCtx context.Context) *consumer.PartitionState {
 	t.Helper()
-	ps, _, err := reg.GetOrCreate(consumer.Key{Topic: "t", Partition: 0}, sub, runCtx, 10)
+	ps, _, err := reg.GetOrCreate(runCtx, consumer.Key{Topic: "t", Partition: 0}, sub, 10)
 	require.NoError(t, err, "GetOrCreate should succeed")
 	return ps
 }
@@ -252,7 +252,7 @@ func TestWorkerRunner_FlushResolvedBeforeFatalError(t *testing.T) {
 		AckMode: consumer.AckModeAtLeastOnce,
 	}
 
-	ps, _, err := reg.GetOrCreate(consumer.Key{Topic: "t", Partition: 0}, sub, runCtx, 10)
+	ps, _, err := reg.GetOrCreate(runCtx, consumer.Key{Topic: "t", Partition: 0}, sub, 10)
 	require.NoError(t, err, "GetOrCreate should succeed")
 
 	committer := consumer.NewCommitter(reg, client, consumer.CommitConfig{})
@@ -298,7 +298,7 @@ func TestWorkerRunner_FlushResolvedBeforeContextCancel(t *testing.T) {
 		AckMode:       consumer.AckModeAtLeastOnce,
 	}
 
-	ps, _, err := reg.GetOrCreate(consumer.Key{Topic: "t", Partition: 0}, sub, runCtx, 10)
+	ps, _, err := reg.GetOrCreate(runCtx, consumer.Key{Topic: "t", Partition: 0}, sub, 10)
 	require.NoError(t, err, "GetOrCreate should succeed")
 
 	committer := consumer.NewCommitter(reg, client, consumer.CommitConfig{})

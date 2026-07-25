@@ -33,7 +33,7 @@ func TestPartitionRegistry_Get_Success(t *testing.T) {
 	r := consumer.NewPartitionRegistry(testlogger.NewLogger())
 	key := consumer.Key{Topic: "t", Partition: 0}
 
-	psCreated, _, err := r.GetOrCreate(key, testSub("t"), context.Background(), 10)
+	psCreated, _, err := r.GetOrCreate(context.Background(), key, testSub("t"), 10)
 	require.NoError(t, err, "GetOrCreate should succeed")
 
 	ps, ok := r.Get(key)
@@ -51,7 +51,7 @@ func TestPartitionRegistry_GetOrCreate_Creates(t *testing.T) {
 	r := consumer.NewPartitionRegistry(testlogger.NewLogger())
 	key := consumer.Key{Topic: "t", Partition: 1}
 
-	ps, created, err := r.GetOrCreate(key, testSub("t"), context.Background(), 10)
+	ps, created, err := r.GetOrCreate(context.Background(), key, testSub("t"), 10)
 	require.NoError(t, err, "GetOrCreate should succeed")
 	assert.True(t, created, "should report created=true for new key")
 	assert.NotNil(t, ps, "returned state should not be nil")
@@ -61,11 +61,11 @@ func TestPartitionRegistry_GetOrCreate_ReturnsExisting(t *testing.T) {
 	r := consumer.NewPartitionRegistry(testlogger.NewLogger())
 	key := consumer.Key{Topic: "t", Partition: 1}
 
-	ps1, created1, err := r.GetOrCreate(key, testSub("t"), context.Background(), 10)
+	ps1, created1, err := r.GetOrCreate(context.Background(), key, testSub("t"), 10)
 	require.NoError(t, err, "first GetOrCreate should succeed")
 	assert.True(t, created1, "first GetOrCreate should return created=true")
 
-	ps2, created2, err := r.GetOrCreate(key, testSub("t"), context.Background(), 10)
+	ps2, created2, err := r.GetOrCreate(context.Background(), key, testSub("t"), 10)
 	require.NoError(t, err, "second GetOrCreate should succeed")
 	assert.False(t, created2, "second call should report created=false")
 	assert.True(t, ps1 == ps2, "should return the same state pointer")
@@ -75,7 +75,7 @@ func TestPartitionRegistry_Get_AfterCreate(t *testing.T) {
 	r := consumer.NewPartitionRegistry(testlogger.NewLogger())
 	key := consumer.Key{Topic: "t", Partition: 1}
 
-	_, _, err := r.GetOrCreate(key, testSub("t"), context.Background(), 10)
+	_, _, err := r.GetOrCreate(context.Background(), key, testSub("t"), 10)
 	require.NoError(t, err, "GetOrCreate should succeed")
 	ps, ok := r.Get(key)
 	assert.True(t, ok, "Get should find existing key")
@@ -85,7 +85,7 @@ func TestPartitionRegistry_Get_AfterCreate(t *testing.T) {
 func TestPartitionRegistry_ClearDirty(t *testing.T) {
 	r := consumer.NewPartitionRegistry(testlogger.NewLogger())
 	key := consumer.Key{Topic: "t", Partition: 1}
-	ps, _, errGC := r.GetOrCreate(key, testSub("t"), context.Background(), 10)
+	ps, _, errGC := r.GetOrCreate(context.Background(), key, testSub("t"), 10)
 	require.NoError(t, errGC, "GetOrCreate should succeed")
 	r.AdvanceStateCommitOffset(ps, &kgo.Record{
 		Topic:       ps.Key().Topic,
@@ -104,9 +104,9 @@ func TestPartitionRegistry_ClearDirty(t *testing.T) {
 
 func TestPartitionRegistry_SnapshotDirtyStates(t *testing.T) {
 	r := consumer.NewPartitionRegistry(testlogger.NewLogger())
-	ps1, _, err := r.GetOrCreate(consumer.Key{Topic: "a", Partition: 0}, testSub("a"), context.Background(), 10)
+	ps1, _, err := r.GetOrCreate(context.Background(), consumer.Key{Topic: "a", Partition: 0}, testSub("a"), 10)
 	require.NoError(t, err, "GetOrCreate should succeed")
-	ps2, _, err := r.GetOrCreate(consumer.Key{Topic: "b", Partition: 0}, testSub("b"), context.Background(), 10)
+	ps2, _, err := r.GetOrCreate(context.Background(), consumer.Key{Topic: "b", Partition: 0}, testSub("b"), 10)
 	require.NoError(t, err, "GetOrCreate should succeed")
 
 	r.AdvanceStateCommitOffset(
@@ -125,7 +125,7 @@ func TestPartitionRegistry_SnapshotDirtyStates(t *testing.T) {
 func TestPartitionRegistry_MarkStateCommitted_ClearsWhenClean(t *testing.T) {
 	r := consumer.NewPartitionRegistry(testlogger.NewLogger())
 	key := consumer.Key{Topic: "t", Partition: 0}
-	ps, _, err := r.GetOrCreate(key, testSub("t"), context.Background(), 10)
+	ps, _, err := r.GetOrCreate(context.Background(), key, testSub("t"), 10)
 	require.NoError(t, err, "GetOrCreate should succeed")
 
 	// Advance offset and mark dirty.
@@ -141,7 +141,7 @@ func TestPartitionRegistry_MarkStateCommitted_ClearsWhenClean(t *testing.T) {
 func TestPartitionRegistry_MarkStateCommitted_KeepsWhenStillDirty(t *testing.T) {
 	r := consumer.NewPartitionRegistry(testlogger.NewLogger())
 	key := consumer.Key{Topic: "t", Partition: 0}
-	ps, _, err := r.GetOrCreate(key, testSub("t"), context.Background(), 10)
+	ps, _, err := r.GetOrCreate(context.Background(), key, testSub("t"), 10)
 	require.NoError(t, err, "GetOrCreate should succeed")
 
 	// Advance offset past what we'll commit (simulating worker progress
@@ -159,7 +159,7 @@ func TestPartitionRegistry_MarkStateCommitted_KeepsWhenStillDirty(t *testing.T) 
 func TestPartitionRegistry_MarkStateCommitted_AtomicWithAdvanceStateCommitOffset(t *testing.T) {
 	r := consumer.NewPartitionRegistry(testlogger.NewLogger())
 	key := consumer.Key{Topic: "t", Partition: 0}
-	ps, _, err := r.GetOrCreate(key, testSub("t"), context.Background(), 10)
+	ps, _, err := r.GetOrCreate(context.Background(), key, testSub("t"), 10)
 	require.NoError(t, err, "GetOrCreate should succeed")
 
 	r.AdvanceStateCommitOffset(ps, &kgo.Record{Topic: "t", Partition: 0, Offset: 5, LeaderEpoch: 1})
@@ -195,7 +195,7 @@ func TestPartitionRegistry_MarkStateCommitted_AtomicWithAdvanceStateCommitOffset
 func TestPartitionRegistry_AdvanceStateCommitOffset_AdvancesAndMarks(t *testing.T) {
 	r := consumer.NewPartitionRegistry(testlogger.NewLogger())
 	key := consumer.Key{Topic: "t", Partition: 0}
-	ps, _, err := r.GetOrCreate(key, testSub("t"), context.Background(), 10)
+	ps, _, err := r.GetOrCreate(context.Background(), key, testSub("t"), 10)
 	require.NoError(t, err, "GetOrCreate should succeed")
 
 	advanced := r.AdvanceStateCommitOffset(ps, &kgo.Record{Topic: "t", Partition: 0, Offset: 5, LeaderEpoch: 1})
@@ -208,7 +208,7 @@ func TestPartitionRegistry_AdvanceStateCommitOffset_AdvancesAndMarks(t *testing.
 func TestPartitionRegistry_AdvanceStateCommitOffset_StaleOffset(t *testing.T) {
 	r := consumer.NewPartitionRegistry(testlogger.NewLogger())
 	key := consumer.Key{Topic: "t", Partition: 0}
-	ps, _, err := r.GetOrCreate(key, testSub("t"), context.Background(), 10)
+	ps, _, err := r.GetOrCreate(context.Background(), key, testSub("t"), 10)
 	require.NoError(t, err, "GetOrCreate should succeed")
 
 	r.AdvanceStateCommitOffset(ps, &kgo.Record{Topic: "t", Partition: 0, Offset: 10, LeaderEpoch: 1})
@@ -240,11 +240,11 @@ func TestPartitionRegistry_AdvanceStateCommitOffset_Unregistered(t *testing.T) {
 
 func TestPartitionRegistry_BeginClosing_Selected(t *testing.T) {
 	r := consumer.NewPartitionRegistry(testlogger.NewLogger())
-	ps1, _, errGC := r.GetOrCreate(consumer.Key{Topic: "t", Partition: 0}, testSub("t"), context.Background(), 10)
+	ps1, _, errGC := r.GetOrCreate(context.Background(), consumer.Key{Topic: "t", Partition: 0}, testSub("t"), 10)
 	require.NoError(t, errGC, "GetOrCreate should succeed")
-	ps2, _, errGC := r.GetOrCreate(consumer.Key{Topic: "t", Partition: 1}, testSub("t"), context.Background(), 10)
+	ps2, _, errGC := r.GetOrCreate(context.Background(), consumer.Key{Topic: "t", Partition: 1}, testSub("t"), 10)
 	require.NoError(t, errGC, "GetOrCreate should succeed")
-	ps3, _, errGC := r.GetOrCreate(consumer.Key{Topic: "other", Partition: 0}, testSub("other"), context.Background(), 10)
+	ps3, _, errGC := r.GetOrCreate(context.Background(), consumer.Key{Topic: "other", Partition: 0}, testSub("other"), 10)
 	require.NoError(t, errGC, "GetOrCreate should succeed")
 
 	states := r.BeginClosing(map[string][]int32{"t": {0, 1}})
@@ -259,9 +259,9 @@ func TestPartitionRegistry_BeginClosing_Selected(t *testing.T) {
 
 func TestPartitionRegistry_BeginClosingAll(t *testing.T) {
 	r := consumer.NewPartitionRegistry(testlogger.NewLogger())
-	_, _, errGC := r.GetOrCreate(consumer.Key{Topic: "a", Partition: 0}, testSub("a"), context.Background(), 10)
+	_, _, errGC := r.GetOrCreate(context.Background(), consumer.Key{Topic: "a", Partition: 0}, testSub("a"), 10)
 	require.NoError(t, errGC, "GetOrCreate should succeed")
-	_, _, errGC = r.GetOrCreate(consumer.Key{Topic: "b", Partition: 0}, testSub("b"), context.Background(), 10)
+	_, _, errGC = r.GetOrCreate(context.Background(), consumer.Key{Topic: "b", Partition: 0}, testSub("b"), 10)
 	require.NoError(t, errGC, "GetOrCreate should succeed")
 
 	states := r.BeginClosingAll()
@@ -273,9 +273,9 @@ func TestPartitionRegistry_DropLost(t *testing.T) {
 	lostKey := consumer.Key{Topic: "t", Partition: 0}
 	survivorKey := consumer.Key{Topic: "t", Partition: 1}
 
-	ps, _, errGC := r.GetOrCreate(lostKey, testSub("t"), context.Background(), 10)
+	ps, _, errGC := r.GetOrCreate(context.Background(), lostKey, testSub("t"), 10)
 	require.NoError(t, errGC, "GetOrCreate should succeed")
-	survivor, _, errGC := r.GetOrCreate(survivorKey, testSub("t"), context.Background(), 10)
+	survivor, _, errGC := r.GetOrCreate(context.Background(), survivorKey, testSub("t"), 10)
 	require.NoError(t, errGC, "GetOrCreate should succeed")
 
 	r.AdvanceStateCommitOffset(ps, &kgo.Record{Topic: ps.Key().Topic, Partition: ps.Key().Partition, Offset: 0, LeaderEpoch: 0})
@@ -291,7 +291,7 @@ func TestPartitionRegistry_DropLost(t *testing.T) {
 
 func TestPartitionRegistry_SnapshotOffsets(t *testing.T) {
 	r := consumer.NewPartitionRegistry(testlogger.NewLogger())
-	ps, _, err := r.GetOrCreate(consumer.Key{Topic: "t", Partition: 0}, testSub("t"), context.Background(), 10)
+	ps, _, err := r.GetOrCreate(context.Background(), consumer.Key{Topic: "t", Partition: 0}, testSub("t"), 10)
 	require.NoError(t, err, "GetOrCreate should succeed")
 
 	ps.AdvanceCommitOffset(&kgo.Record{Topic: "t", Partition: 0, Offset: 5, LeaderEpoch: 1})
@@ -309,7 +309,7 @@ func TestPartitionRegistry_SnapshotOffsets_NilAndEmpty(t *testing.T) {
 	assert.Nil(t, offsets, "nil state should produce nil offsets")
 
 	// State with no dirty offset is skipped.
-	ps, _, err := r.GetOrCreate(consumer.Key{Topic: "t", Partition: 0}, testSub("t"), context.Background(), 10)
+	ps, _, err := r.GetOrCreate(context.Background(), consumer.Key{Topic: "t", Partition: 0}, testSub("t"), 10)
 	require.NoError(t, err, "GetOrCreate should succeed")
 	offsets = r.SnapshotOffsets([]*consumer.PartitionState{ps})
 	assert.Nil(t, offsets, "clean state should produce nil offsets")
@@ -318,7 +318,7 @@ func TestPartitionRegistry_SnapshotOffsets_NilAndEmpty(t *testing.T) {
 func TestPartitionRegistry_Cleanup_RemovesStopped(t *testing.T) {
 	r := consumer.NewPartitionRegistry(testlogger.NewLogger())
 	key := consumer.Key{Topic: "t", Partition: 0}
-	ps, _, err := r.GetOrCreate(key, testSub("t"), context.Background(), 10)
+	ps, _, err := r.GetOrCreate(context.Background(), key, testSub("t"), 10)
 	require.NoError(t, err, "GetOrCreate should succeed")
 
 	ps.BeginClosing()
@@ -334,11 +334,11 @@ func TestPartitionRegistry_Cleanup_IgnoresStalePointer(t *testing.T) {
 	r := consumer.NewPartitionRegistry(testlogger.NewLogger())
 	key := consumer.Key{Topic: "t", Partition: 0}
 
-	oldPs, _, errGC := r.GetOrCreate(key, testSub("t"), context.Background(), 10)
+	oldPs, _, errGC := r.GetOrCreate(context.Background(), key, testSub("t"), 10)
 	require.NoError(t, errGC, "GetOrCreate should succeed")
 	r.DropLost(map[string][]int32{"t": {0}})
 
-	newPs, _, errGC := r.GetOrCreate(key, testSub("t"), context.Background(), 10)
+	newPs, _, errGC := r.GetOrCreate(context.Background(), key, testSub("t"), 10)
 	require.NoError(t, errGC, "GetOrCreate should succeed")
 
 	r.Cleanup([]*consumer.PartitionState{oldPs})

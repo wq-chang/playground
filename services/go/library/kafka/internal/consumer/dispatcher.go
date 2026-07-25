@@ -7,11 +7,22 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
+// fetchPauser is the subset of *kgo.Client used by Dispatcher for
+// backpressure.
+type fetchPauser interface {
+	PauseFetchPartitions(topicPartitions map[string][]int32) map[string][]int32
+}
+
 // PartitionBatch groups all polled records for one topic-partition.
 type PartitionBatch struct {
 	Key          Key
 	Records      []*kgo.Record
 	Subscription Subscription
+}
+
+type pendingBatch struct {
+	batch PartitionBatch
+	next  int
 }
 
 // Dispatcher owns partition batching, dispatch coordination, and backpressure
@@ -21,7 +32,7 @@ type Dispatcher struct {
 	router        *Router
 	pauses        *PauseRegistry
 	registry      *PartitionRegistry
-	kgoClient     *kgo.Client
+	fetchPauser   fetchPauser
 	startFn       func(*PartitionState)
 	capacityCh    chan struct{}
 	queueCapacity int
@@ -33,7 +44,7 @@ func NewDispatcher(
 	router *Router,
 	pauses *PauseRegistry,
 	registry *PartitionRegistry,
-	kgoClient *kgo.Client,
+	fetchPauser fetchPauser,
 	startFn func(*PartitionState),
 	queueCapacity int,
 	capacityCh chan struct{},
@@ -42,7 +53,7 @@ func NewDispatcher(
 		router:        router,
 		pauses:        pauses,
 		registry:      registry,
-		kgoClient:     kgoClient,
+		fetchPauser:   fetchPauser,
 		startFn:       startFn,
 		queueCapacity: queueCapacity,
 		capacityCh:    capacityCh,
@@ -66,11 +77,6 @@ func (d *Dispatcher) Dispatch(
 		return nil
 	}
 
-	type pendingBatch struct {
-		batch PartitionBatch
-		next  int
-	}
-
 	pending := make([]pendingBatch, 0, len(batches))
 	for _, batch := range batches {
 		pending = append(pending, pendingBatch{batch: batch, next: 0})
@@ -87,9 +93,9 @@ func (d *Dispatcher) Dispatch(
 			}
 
 			state, created, err := d.registry.GetOrCreate(
+				parentCtx,
 				cursor.batch.Key,
 				cursor.batch.Subscription,
-				parentCtx,
 				d.queueCapacity,
 			)
 			if err != nil {
@@ -110,7 +116,7 @@ func (d *Dispatcher) Dispatch(
 
 				// Apply backpressure pause if queue is at high watermark.
 				if state.TryPauseBackpressure() {
-					d.kgoClient.PauseFetchPartitions(map[string][]int32{
+					d.fetchPauser.PauseFetchPartitions(map[string][]int32{
 						cursor.batch.Key.Topic: {cursor.batch.Key.Partition},
 					})
 				}

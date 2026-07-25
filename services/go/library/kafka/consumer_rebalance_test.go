@@ -129,7 +129,7 @@ func addTestPartition(
 		AckMode:       consumer.AckModeAtLeastOnce,
 	}
 
-	state, _, err := c.registry.GetOrCreate(key, sub, context.Background(), 10)
+	state, _, err := c.registry.GetOrCreate(context.Background(), key, sub, 10)
 	require.NoError(t, err, "GetOrCreate should succeed")
 
 	record := &kgo.Record{
@@ -215,7 +215,7 @@ func TestConsumer_OnPartitionsRevoked_WaitsForDrainBeforeCommit(t *testing.T) {
 		AckMode:       consumer.AckModeAtLeastOnce,
 	}
 
-	state, _, err := c.registry.GetOrCreate(key, sub, context.Background(), 10)
+	state, _, err := c.registry.GetOrCreate(context.Background(), key, sub, 10)
 	require.NoError(t, err, "GetOrCreate should succeed")
 	state.AdvanceCommitOffset(&kgo.Record{Topic: "t", Partition: 0, Offset: 9, LeaderEpoch: 0})
 	c.registry.AdvanceStateCommitOffset(state, &kgo.Record{Topic: state.Key().Topic, Partition: state.Key().Partition, Offset: 0, LeaderEpoch: 0})
@@ -289,7 +289,7 @@ func TestConsumer_OnPartitionsRevoked_StopsWaitingWhenContextCancelled(t *testin
 		AckMode:       consumer.AckModeAtLeastOnce,
 	}
 
-	state, _, err := c.registry.GetOrCreate(key, sub, context.Background(), 10)
+	state, _, err := c.registry.GetOrCreate(context.Background(), key, sub, 10)
 	require.NoError(t, err, "GetOrCreate should succeed")
 	state.AdvanceCommitOffset(&kgo.Record{Topic: "t", Partition: 0, Offset: 9, LeaderEpoch: 0})
 	c.registry.AdvanceStateCommitOffset(state, &kgo.Record{Topic: state.Key().Topic, Partition: state.Key().Partition, Offset: 0, LeaderEpoch: 0})

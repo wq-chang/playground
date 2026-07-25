@@ -63,12 +63,7 @@ func TestCommitter_RequestFlush_TriggersFlush(t *testing.T) {
 	client := &stubOffsetClient{fail: false, mu: sync.Mutex{}, commits: nil, commitCh: make(chan struct{}, 1)}
 	cm := newTestCommitter(t, reg, client)
 
-	ps, _, errGC := reg.GetOrCreate(
-		consumer.Key{Topic: "t", Partition: 0},
-		testSub("t"),
-		context.Background(),
-		10,
-	)
+	ps, _, errGC := reg.GetOrCreate(context.Background(), consumer.Key{Topic: "t", Partition: 0}, testSub("t"), 10)
 	require.NoError(t, errGC, "GetOrCreate should succeed")
 	reg.AdvanceStateCommitOffset(ps, &kgo.Record{Topic: "t", Offset: 5, LeaderEpoch: 0})
 
@@ -126,7 +121,7 @@ func TestCommitter_Flush_CommitsDirtyOffsets(t *testing.T) {
 	client := &stubOffsetClient{}
 	cm := newTestCommitter(t, reg, client)
 
-	ps, _, errGC := reg.GetOrCreate(consumer.Key{Topic: "t", Partition: 0}, testSub("t"), context.Background(), 10)
+	ps, _, errGC := reg.GetOrCreate(context.Background(), consumer.Key{Topic: "t", Partition: 0}, testSub("t"), 10)
 	require.NoError(t, errGC, "GetOrCreate should succeed")
 	reg.AdvanceStateCommitOffset(ps, &kgo.Record{Topic: "t", Offset: 5, LeaderEpoch: 0})
 
@@ -157,7 +152,7 @@ func TestCommitter_Flush_CommitFailure(t *testing.T) {
 	client := &stubOffsetClient{fail: true, mu: sync.Mutex{}, commits: nil, commitCh: nil}
 	cm := newTestCommitter(t, reg, client)
 
-	ps, _, errGC := reg.GetOrCreate(consumer.Key{Topic: "t", Partition: 0}, testSub("t"), context.Background(), 10)
+	ps, _, errGC := reg.GetOrCreate(context.Background(), consumer.Key{Topic: "t", Partition: 0}, testSub("t"), 10)
 	require.NoError(t, errGC, "GetOrCreate should succeed")
 	reg.AdvanceStateCommitOffset(ps, &kgo.Record{Topic: "t", Offset: 5, LeaderEpoch: 0})
 
@@ -182,7 +177,7 @@ func TestCommitter_Run_ReturnsErrorOnCommitFailure(t *testing.T) {
 	client := &stubOffsetClient{fail: true, mu: sync.Mutex{}, commits: nil, commitCh: nil}
 	cm := newTestCommitter(t, reg, client)
 
-	ps, _, errGC := reg.GetOrCreate(consumer.Key{Topic: "t", Partition: 0}, testSub("t"), context.Background(), 10)
+	ps, _, errGC := reg.GetOrCreate(context.Background(), consumer.Key{Topic: "t", Partition: 0}, testSub("t"), 10)
 	require.NoError(t, errGC, "GetOrCreate should succeed")
 	reg.AdvanceStateCommitOffset(ps, &kgo.Record{Topic: "t", Offset: 5, LeaderEpoch: 0})
 
@@ -267,12 +262,7 @@ func TestCommitter_Finalize_WaitsAndCommits(t *testing.T) {
 	client := &stubOffsetClient{}
 	cm := newTestCommitter(t, reg, client)
 
-	ps, _, errGC := reg.GetOrCreate(
-		consumer.Key{Topic: "t", Partition: 0},
-		testSub("t"),
-		context.Background(),
-		10,
-	)
+	ps, _, errGC := reg.GetOrCreate(context.Background(), consumer.Key{Topic: "t", Partition: 0}, testSub("t"), 10)
 	require.NoError(t, errGC, "GetOrCreate should succeed")
 	reg.AdvanceStateCommitOffset(ps, &kgo.Record{Topic: "t", Offset: 5, LeaderEpoch: 0})
 
@@ -306,12 +296,7 @@ func TestCommitter_Finalize_DrainContextTimeout(t *testing.T) {
 	client := &stubOffsetClient{}
 	cm := newTestCommitter(t, reg, client)
 
-	ps, _, errGC := reg.GetOrCreate(
-		consumer.Key{Topic: "t", Partition: 0},
-		testSub("t"),
-		context.Background(),
-		10,
-	)
+	ps, _, errGC := reg.GetOrCreate(context.Background(), consumer.Key{Topic: "t", Partition: 0}, testSub("t"), 10)
 	require.NoError(t, errGC, "GetOrCreate should succeed")
 	ps.BeginClosing()
 	// NOT calling MarkStopped — Done() channel stays open, drain will block forever.
@@ -328,7 +313,7 @@ func TestCommitter_Finalize_NoDirtyOffsets(t *testing.T) {
 	client := &stubOffsetClient{}
 	cm := newTestCommitter(t, reg, client)
 
-	ps, _, errGC := reg.GetOrCreate(consumer.Key{Topic: "t", Partition: 0}, testSub("t"), context.Background(), 10)
+	ps, _, errGC := reg.GetOrCreate(context.Background(), consumer.Key{Topic: "t", Partition: 0}, testSub("t"), 10)
 	require.NoError(t, errGC, "GetOrCreate should succeed")
 	// NOT calling AdvanceStateCommitOffset — no dirty offsets.
 	ps.BeginClosing()
@@ -350,7 +335,7 @@ func TestCommitter_Finalize_CommitFailure(t *testing.T) {
 	client := &stubOffsetClient{fail: true, mu: sync.Mutex{}, commits: nil, commitCh: nil}
 	cm := newTestCommitter(t, reg, client)
 
-	ps, _, errGC := reg.GetOrCreate(consumer.Key{Topic: "t", Partition: 0}, testSub("t"), context.Background(), 10)
+	ps, _, errGC := reg.GetOrCreate(context.Background(), consumer.Key{Topic: "t", Partition: 0}, testSub("t"), 10)
 	require.NoError(t, errGC, "GetOrCreate should succeed")
 	reg.AdvanceStateCommitOffset(ps, &kgo.Record{Topic: "t", Offset: 5, LeaderEpoch: 0})
 	ps.BeginClosing()
