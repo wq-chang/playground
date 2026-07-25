@@ -38,8 +38,8 @@
 // WithQueueCapacity). When a queue fills to its high watermark, the consumer
 // pauses fetching from that partition to apply backpressure. Fetching resumes
 // automatically when the queue drains below the low watermark, providing
-// hysteresis against rapid pause/resume cycles. Use WithDrainTimeout to control
-// how long graceful shutdown waits for in-flight records to finish processing.
+// hysteresis against rapid pause/resume cycles. Use WithShutdownTimeout to control
+// how long graceful shutdown waits for drain + final commit.
 //
 // # Producing
 //

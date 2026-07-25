@@ -42,37 +42,33 @@ type config struct {
 	// fetchMaxRecords is the max number of records returned by a single PollRecords call.
 	// Defaults to 500, matching Apache Kafka's max.poll.records default.
 	fetchMaxRecords int
-	// drainTimeout is the maximum time to wait for partition workers to drain
-	// during graceful shutdown. Defaults to 30 seconds.
-	drainTimeout time.Duration
 	// queueCapacity is the per-partition record queue capacity. Defaults to 64.
 	queueCapacity int
 	// flushInterval is the periodic commit loop interval. Defaults to 500ms.
 	flushInterval time.Duration
 	// debounceInterval is the debounce window for request-flush coalescing. Defaults to 100ms.
 	debounceInterval time.Duration
-	// finalCommitTimeout is the timeout for the final commit during shutdown/rebalance.
-	// Defaults to 30s.
-	finalCommitTimeout time.Duration
+	// shutdownTimeout is the maximum time for drain + final commit during
+	// graceful shutdown. Defaults to 30 seconds.
+	shutdownTimeout time.Duration
 }
 
 // newConfig creates a new kafka onfig with default values.
 func newConfig(brokers []string, groupId string) *config {
 	return &config{
-		groupId:            groupId,
-		subscriptions:      make(map[string]Subscription),
-		workers:            16,
-		defaultAckMode:     AckModeAtLeastOnce,
-		fetchMaxRecords:    500,
-		drainTimeout:       30 * time.Second,
-		queueCapacity:      64,
-		flushInterval:      500 * time.Millisecond,
-		debounceInterval:   100 * time.Millisecond,
-		finalCommitTimeout: 30 * time.Second,
-		logger:             slog.Default(),
-		auth:               nil,
-		brokers:            brokers,
-		kgoOpts:            []kgo.Opt{},
+		groupId:          groupId,
+		subscriptions:    make(map[string]Subscription),
+		workers:          16,
+		defaultAckMode:   AckModeAtLeastOnce,
+		fetchMaxRecords:  500,
+		queueCapacity:    64,
+		flushInterval:    500 * time.Millisecond,
+		debounceInterval: 100 * time.Millisecond,
+		shutdownTimeout:  30 * time.Second,
+		logger:           slog.Default(),
+		auth:             nil,
+		brokers:          brokers,
+		kgoOpts:          []kgo.Opt{},
 	}
 }
 
@@ -181,16 +177,6 @@ func WithFetchMaxRecords(n int) Option {
 	}
 }
 
-// WithDrainTimeout sets the maximum time to wait for partition workers to
-// drain during graceful shutdown. Defaults to 30 seconds.
-func WithDrainTimeout(d time.Duration) Option {
-	return func(c *config) {
-		if d > 0 {
-			c.drainTimeout = d
-		}
-	}
-}
-
 // WithQueueCapacity sets the per-partition record queue capacity.
 // Larger values increase memory usage but reduce backpressure pauses.
 // Defaults to 64.
@@ -221,12 +207,12 @@ func WithDebounceInterval(d time.Duration) Option {
 	}
 }
 
-// WithFinalCommitTimeout sets the timeout for the final commit during
-// shutdown or rebalance. Defaults to 30s.
-func WithFinalCommitTimeout(d time.Duration) Option {
+// WithShutdownTimeout sets the maximum time for drain + final commit during
+// graceful shutdown. Defaults to 30 seconds.
+func WithShutdownTimeout(d time.Duration) Option {
 	return func(c *config) {
 		if d > 0 {
-			c.finalCommitTimeout = d
+			c.shutdownTimeout = d
 		}
 	}
 }

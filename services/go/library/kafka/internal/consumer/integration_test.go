@@ -145,11 +145,9 @@ func TestIntegration_FullPipeline_Success(t *testing.T) {
 
 	// Graceful shutdown.
 	states := registry.BeginClosingAll()
-	drainCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	commitCtx, commitCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer commitCancel()
-	require.NoError(t, committer.Finalize(drainCtx, commitCtx, states,
+	require.NoError(t, committer.Finalize(ctx, states,
 		"failed to commit on shutdown"),
 		"Finalize should succeed")
 
@@ -443,11 +441,9 @@ func TestIntegration_ShutdownFlushesRemaining(t *testing.T) {
 
 	// Trigger shutdown through Finalize.
 	states := registry.BeginClosingAll()
-	drainCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	commitCtx, commitCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer commitCancel()
-	require.NoError(t, committer.Finalize(drainCtx, commitCtx, states,
+	require.NoError(t, committer.Finalize(ctx, states,
 		"failed to commit on shutdown"),
 		"Finalize should succeed")
 

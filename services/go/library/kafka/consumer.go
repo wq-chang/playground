@@ -43,7 +43,6 @@ type Consumer struct {
 	committer    *consumer.Committer
 	dispatcher   *consumer.Dispatcher
 	workerRunner *consumer.WorkerRunner
-	drainTimeout time.Duration
 }
 
 // commitOffsetsSync wraps kgo.Client.CommitOffsetsSync's callback-based API
@@ -78,7 +77,6 @@ func newConsumer(cfg *config, kgoClient *kgo.Client, dlqProducer DLQProducer) (*
 		committer:    nil,
 		dispatcher:   nil,
 		workerRunner: nil,
-		drainTimeout: cfg.drainTimeout,
 	}
 
 	c.router = consumer.NewRouter(kgoClient.AddConsumeTopics)
@@ -190,13 +188,10 @@ func (c *Consumer) Run(ctx context.Context) error {
 	states := c.registry.BeginClosingAll()
 
 	if runErr := c.runState.Err(); runErr == nil {
-		drainCtx, drainCancel := context.WithTimeout(context.Background(), c.drainTimeout)
-		defer drainCancel()
-		commitCtx, commitCancel := context.WithTimeout(context.Background(), c.cfg.finalCommitTimeout)
-		defer commitCancel()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), c.cfg.shutdownTimeout)
+		defer cancel()
 		if shutdownErr := c.committer.Finalize(
-			drainCtx,
-			commitCtx,
+			shutdownCtx,
 			states,
 			"failed to commit processed offsets on shutdown"); shutdownErr != nil {
 			if err == nil {
@@ -265,7 +260,7 @@ func (c *Consumer) onPartitionsRevoked(
 	}
 
 	states := c.registry.BeginClosing(partitions)
-	if err := c.committer.Finalize(ctx, ctx, states, "failed to commit processed offsets on revoke"); err != nil {
+	if err := c.committer.Finalize(ctx, states, "failed to commit processed offsets on revoke"); err != nil {
 		c.log.ErrorContext(ctx, "failed to commit processed offsets on revoke", "err", err)
 		c.runState.Fail(err)
 	}

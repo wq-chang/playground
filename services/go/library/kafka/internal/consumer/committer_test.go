@@ -280,8 +280,7 @@ func TestCommitter_Finalize_WaitsAndCommits(t *testing.T) {
 	ps.MarkStopped()
 
 	drainCtx := context.Background()
-	commitCtx := context.Background()
-	err := cm.Finalize(drainCtx, commitCtx, []*consumer.PartitionState{ps}, "final commit error")
+	err := cm.Finalize(drainCtx, []*consumer.PartitionState{ps}, "final commit error")
 	require.NoError(t, err, "Finalize should succeed")
 
 	client.mu.Lock()
@@ -294,7 +293,7 @@ func TestCommitter_Finalize_EmptyStatesNoOp(t *testing.T) {
 	client := &stubOffsetClient{}
 	cm := newTestCommitter(t, reg, client)
 
-	err := cm.Finalize(context.Background(), context.Background(), nil, "err msg")
+	err := cm.Finalize(context.Background(), nil, "err msg")
 	require.NoError(t, err, "Finalize with empty states should be a no-op")
 
 	client.mu.Lock()
@@ -320,7 +319,7 @@ func TestCommitter_Finalize_DrainContextTimeout(t *testing.T) {
 	drainCtx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	err := cm.Finalize(drainCtx, context.Background(), []*consumer.PartitionState{ps}, "drain failed")
+	err := cm.Finalize(drainCtx, []*consumer.PartitionState{ps}, "drain failed")
 	assert.ErrorContains(t, err, "failed waiting for topic", "Finalize should propagate drain error")
 }
 
@@ -335,7 +334,7 @@ func TestCommitter_Finalize_NoDirtyOffsets(t *testing.T) {
 	ps.BeginClosing()
 	ps.MarkStopped()
 
-	err := cm.Finalize(context.Background(), context.Background(), []*consumer.PartitionState{ps}, "final commit error")
+	err := cm.Finalize(context.Background(), []*consumer.PartitionState{ps}, "final commit error")
 	require.NoError(t, err, "Finalize should succeed without committing")
 
 	client.mu.Lock()
@@ -357,49 +356,7 @@ func TestCommitter_Finalize_CommitFailure(t *testing.T) {
 	ps.BeginClosing()
 	ps.MarkStopped()
 
-	err := cm.Finalize(context.Background(), context.Background(), []*consumer.PartitionState{ps}, "final commit error")
+	err := cm.Finalize(context.Background(), []*consumer.PartitionState{ps}, "final commit error")
 	assert.ErrorContains(t, err, "final commit error", "Finalize should wrap the error message")
 	assert.ErrorContains(t, err, "commit failed", "Finalize should include the underlying error")
-}
-
-func TestCommitter_Finalize_NilCommitCtx(t *testing.T) {
-	reg := consumer.NewPartitionRegistry(testlogger.NewLogger())
-	client := &stubOffsetClient{}
-	cm := newTestCommitter(t, reg, client)
-
-	ps, _, errGC := reg.GetOrCreate(consumer.Key{Topic: "t", Partition: 0}, testSub("t"), context.Background(), 10)
-	require.NoError(t, errGC, "GetOrCreate should succeed")
-	reg.AdvanceStateCommitOffset(ps, &kgo.Record{Topic: "t", Offset: 5, LeaderEpoch: 0})
-	ps.BeginClosing()
-	ps.MarkStopped()
-
-	// intentionally testing nil commitCtx guard
-	// nolint:staticcheck
-	err := cm.Finalize(context.Background(), nil, []*consumer.PartitionState{ps}, "final commit error")
-	assert.ErrorContains(t, err, "commitCtx must not be nil", "Finalize should reject nil commitCtx")
-
-	client.mu.Lock()
-	assert.Equal(t, len(client.commits), 0, "no commit when commitCtx is nil")
-	client.mu.Unlock()
-}
-
-func TestCommitter_Finalize_NilDrainCtx(t *testing.T) {
-	reg := consumer.NewPartitionRegistry(testlogger.NewLogger())
-	client := &stubOffsetClient{}
-	cm := newTestCommitter(t, reg, client)
-
-	ps, _, errGC := reg.GetOrCreate(consumer.Key{Topic: "t", Partition: 0}, testSub("t"), context.Background(), 10)
-	require.NoError(t, errGC, "GetOrCreate should succeed")
-	reg.AdvanceStateCommitOffset(ps, &kgo.Record{Topic: "t", Offset: 5, LeaderEpoch: 0})
-	ps.BeginClosing()
-	ps.MarkStopped()
-
-	// intentionally testing nil drainCtx guard
-	// nolint:staticcheck
-	err := cm.Finalize(nil, context.Background(), []*consumer.PartitionState{ps}, "final commit error")
-	assert.ErrorContains(t, err, "drainCtx must not be nil", "Finalize should reject nil drainCtx")
-
-	client.mu.Lock()
-	assert.Equal(t, len(client.commits), 0, "no commit when drainCtx is nil")
-	client.mu.Unlock()
 }

@@ -226,10 +226,10 @@ func recordsToOffsets(records []*kgo.Record) map[string]map[int32]kgo.EpochOffse
 }
 
 // Finalize waits for the selected states to drain, then commits the final
-// offsets and cleans up the states from the registry.
+// offsets and cleans up the states from the registry. The context governs
+// both the drain wait and the commit call.
 func (cm *Committer) Finalize(
-	drainCtx context.Context,
-	commitCtx context.Context,
+	ctx context.Context,
 	states []*PartitionState,
 	errMessage string,
 ) error {
@@ -237,19 +237,11 @@ func (cm *Committer) Finalize(
 		return nil
 	}
 
-	if drainCtx == nil {
-		return fmt.Errorf("%s: drainCtx must not be nil", errMessage)
-	}
-
-	if err := cm.waitForPartitions(drainCtx, states); err != nil {
+	if err := cm.waitForPartitions(ctx, states); err != nil {
 		return err
 	}
 
-	if commitCtx == nil {
-		return fmt.Errorf("%s: commitCtx must not be nil", errMessage)
-	}
-
-	if err := cm.acquireCommitMu(commitCtx); err != nil {
+	if err := cm.acquireCommitMu(ctx); err != nil {
 		return fmt.Errorf("%s: %w", errMessage, err)
 	}
 	defer cm.releaseCommitMu()
@@ -260,7 +252,7 @@ func (cm *Committer) Finalize(
 		return nil
 	}
 
-	err := cm.client.CommitOffsetsSync(commitCtx, offsets)
+	err := cm.client.CommitOffsetsSync(ctx, offsets)
 	cm.registry.Cleanup(states)
 	if err != nil {
 		return fmt.Errorf("%s: %w", errMessage, err)

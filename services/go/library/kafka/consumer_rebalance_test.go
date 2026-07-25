@@ -105,7 +105,6 @@ func newTestConsumer(t *testing.T, stub *stubFetchClient) *Consumer {
 		committer:    committer,
 		dispatcher:   nil,
 		workerRunner: nil,
-		drainTimeout: 5 * time.Second,
 	}
 }
 
