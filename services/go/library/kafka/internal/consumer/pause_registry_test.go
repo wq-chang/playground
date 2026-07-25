@@ -1,4 +1,3 @@
-// services/go/library/kafka/internal/consumer/pause_registry_test.go
 package consumer_test
 
 import (

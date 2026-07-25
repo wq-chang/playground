@@ -1,4 +1,3 @@
-// services/go/library/kafka/internal/consumer/partition_registry_test.go
 package consumer_test
 
 import (

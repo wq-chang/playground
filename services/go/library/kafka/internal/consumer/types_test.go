@@ -1,4 +1,3 @@
-// services/go/library/kafka/ktype/ktype_test.go
 package consumer_test
 
 import (

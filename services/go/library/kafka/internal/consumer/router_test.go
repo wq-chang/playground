@@ -1,4 +1,3 @@
-// services/go/library/kafka/internal/consumer/router_test.go
 package consumer_test
 
 import (

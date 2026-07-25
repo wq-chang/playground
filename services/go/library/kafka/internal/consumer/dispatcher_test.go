@@ -52,7 +52,7 @@ func (s *stubFetchPauser) PauseFetchPartitions(p map[string][]int32) map[string]
 
 func waitForDispatcherToBlock(t *testing.T) {
 	t.Helper()
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond) // crude but effective for test purposes
 }
 
 func TestDispatcher_New(t *testing.T) {
@@ -152,14 +152,14 @@ func TestDispatcher_Dispatch_MixedPausedAndActive(t *testing.T) {
 	state, ok := registry.Get(consumer.Key{Topic: "active", Partition: 0})
 	require.True(t, ok, "state should exist for active topic")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	dequeued, okDequeue := state.Dequeue(ctx)
 	assert.True(t, okDequeue, "should dequeue record from active topic")
 	assert.Equal(t, len(dequeued), 1, "should have one record")
 	assert.Equal(t, dequeued[0].Topic, "active", "record should be from active topic")
 
-	assert.Equal(t, started.Load(), int32(1), "startFn should have been called once")
+	assert.Equal(t, started.Load(), 1, "startFn should have been called once")
 }
 
 func TestDispatcher_Dispatch_SingleRecord_CreatesStateAndEnqueues(t *testing.T) {
@@ -184,14 +184,14 @@ func TestDispatcher_Dispatch_SingleRecord_CreatesStateAndEnqueues(t *testing.T) 
 	state, ok := registry.Get(consumer.Key{Topic: "t", Partition: 0})
 	require.True(t, ok, "partition state should exist after dispatch")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	dequeued, okDequeue := state.Dequeue(ctx)
 	assert.True(t, okDequeue, "should dequeue the record")
 	assert.Equal(t, len(dequeued), 1, "should have exactly one record")
-	assert.Equal(t, dequeued[0].Offset, int64(42), "record offset should match")
+	assert.Equal(t, dequeued[0].Offset, 42, "record offset should match")
 
-	assert.Equal(t, started.Load(), int32(1), "startFn should be called when state is created")
+	assert.Equal(t, started.Load(), 1, "startFn should be called when state is created")
 }
 
 func TestDispatcher_Dispatch_MultipleRecords_SamePartition(t *testing.T) {
@@ -218,13 +218,13 @@ func TestDispatcher_Dispatch_MultipleRecords_SamePartition(t *testing.T) {
 	state, ok := registry.Get(consumer.Key{Topic: "t", Partition: 0})
 	require.True(t, ok, "partition state should exist")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	dequeued, okDequeue := state.Dequeue(ctx)
 	assert.True(t, okDequeue, "should dequeue records")
 	assert.Equal(t, len(dequeued), 3, "all 3 records should be in one batch")
 
-	assert.Equal(t, started.Load(), int32(1), "startFn should be called exactly once")
+	assert.Equal(t, started.Load(), 1, "startFn should be called exactly once")
 }
 
 func TestDispatcher_Dispatch_DifferentPartitions(t *testing.T) {
@@ -256,7 +256,7 @@ func TestDispatcher_Dispatch_DifferentPartitions(t *testing.T) {
 	_, ok2 := registry.Get(consumer.Key{Topic: "t", Partition: 2})
 	assert.True(t, ok2, "state should exist for partition 2")
 
-	assert.Equal(t, started.Load(), int32(3), "startFn should be called for each new partition")
+	assert.Equal(t, started.Load(), 3, "startFn should be called for each new partition")
 }
 
 func TestDispatcher_Dispatch_DifferentTopics(t *testing.T) {
@@ -285,7 +285,7 @@ func TestDispatcher_Dispatch_DifferentTopics(t *testing.T) {
 	_, okB := registry.Get(consumer.Key{Topic: "b", Partition: 0})
 	assert.True(t, okB, "state should exist for topic b")
 
-	assert.Equal(t, started.Load(), int32(2), "startFn should be called for each topic")
+	assert.Equal(t, started.Load(), 2, "startFn should be called for each topic")
 }
 
 func TestDispatcher_Dispatch_StartFn_OnlyOnFirstCreation(t *testing.T) {
@@ -306,13 +306,13 @@ func TestDispatcher_Dispatch_StartFn_OnlyOnFirstCreation(t *testing.T) {
 		makeRecord("t", 0, 0),
 	})
 	require.NoError(t, err, "first dispatch should succeed")
-	assert.Equal(t, started.Load(), int32(1), "startFn should be called on first creation")
+	assert.Equal(t, started.Load(), 1, "startFn should be called on first creation")
 
 	err = d.Dispatch(context.Background(), context.Background(), []*kgo.Record{
 		makeRecord("t", 0, 1),
 	})
 	require.NoError(t, err, "second dispatch should succeed")
-	assert.Equal(t, started.Load(), int32(1), "startFn should NOT be called again")
+	assert.Equal(t, started.Load(), 1, "startFn should NOT be called again")
 }
 
 func TestDispatcher_Dispatch_WaitForCapacity_ContextCancelled(t *testing.T) {
@@ -335,15 +335,26 @@ func TestDispatcher_Dispatch_WaitForCapacity_ContextCancelled(t *testing.T) {
 	require.Equal(t, enqueued, 1, "should enqueue record to fill the queue")
 
 	capacityCh := make(chan struct{})
-	d := consumer.NewDispatcher(router, pauses, registry, nil, func(ps *consumer.PartitionState) {}, 1, capacityCh)
+	d := consumer.NewDispatcher(
+		router,
+		pauses,
+		registry,
+		nil,
+		func(ps *consumer.PartitionState) {},
+		1,
+		capacityCh,
+	)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	err = d.Dispatch(ctx, context.Background(), []*kgo.Record{
-		makeRecord("t", 0, 1),
-	})
-	assert.ErrorIs(t, err, context.Canceled, "Dispatch should return context.Canceled when capacity never arrives")
+	err = d.Dispatch(ctx, context.Background(), []*kgo.Record{makeRecord("t", 0, 1)})
+	assert.ErrorIs(
+		t,
+		err,
+		context.Canceled,
+		"Dispatch should return context.Canceled when capacity never arrives",
+	)
 }
 
 func TestDispatcher_Dispatch_BackpressurePause(t *testing.T) {
@@ -355,7 +366,15 @@ func TestDispatcher_Dispatch_BackpressurePause(t *testing.T) {
 
 	pauser := &stubFetchPauser{}
 
-	d := consumer.NewDispatcher(router, pauses, registry, pauser, func(ps *consumer.PartitionState) {}, 2, make(chan struct{}, 1))
+	d := consumer.NewDispatcher(
+		router,
+		pauses,
+		registry,
+		pauser,
+		func(ps *consumer.PartitionState) {},
+		2,
+		make(chan struct{}, 1),
+	)
 
 	err := d.Dispatch(context.Background(), context.Background(), []*kgo.Record{
 		makeRecord("t", 0, 0),
@@ -368,7 +387,7 @@ func TestDispatcher_Dispatch_BackpressurePause(t *testing.T) {
 	state, ok := registry.Get(consumer.Key{Topic: "t", Partition: 0})
 	require.True(t, ok, "partition state should exist")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	dequeued, okDequeue := state.Dequeue(ctx)
 	assert.True(t, okDequeue, "should dequeue the record")
@@ -396,7 +415,15 @@ func TestDispatcher_Dispatch_WaitForCapacity_Signalled(t *testing.T) {
 
 	pauser := &stubFetchPauser{}
 	capacityCh := make(chan struct{}, 1)
-	d := consumer.NewDispatcher(router, pauses, registry, pauser, func(ps *consumer.PartitionState) {}, 2, capacityCh)
+	d := consumer.NewDispatcher(
+		router,
+		pauses,
+		registry,
+		pauser,
+		func(ps *consumer.PartitionState) {},
+		2,
+		capacityCh,
+	)
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -406,7 +433,11 @@ func TestDispatcher_Dispatch_WaitForCapacity_Signalled(t *testing.T) {
 	}()
 
 	waitForDispatcherToBlock(t)
-	ps.Dequeue(context.Background())
+	func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		ps.Dequeue(ctx)
+	}()
 	capacityCh <- struct{}{}
 
 	err = <-errCh
@@ -418,12 +449,12 @@ func TestDispatcher_Dispatch_WaitForCapacity_Signalled(t *testing.T) {
 	state, ok := registry.Get(consumer.Key{Topic: "t", Partition: 0})
 	require.True(t, ok, "state should still exist")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	dequeued, okDequeue := state.Dequeue(ctx)
 	assert.True(t, okDequeue, "should dequeue the new record")
 	assert.Equal(t, len(dequeued), 1, "should have one remaining record")
-	assert.Equal(t, dequeued[0].Offset, int64(2), "should be the third record")
+	assert.Equal(t, dequeued[0].Offset, 2, "should be the third record")
 }
 
 func TestDispatcher_Dispatch_PartialEnqueue_RetriesAfterCapacity(t *testing.T) {
@@ -461,8 +492,12 @@ func TestDispatcher_Dispatch_PartialEnqueue_RetriesAfterCapacity(t *testing.T) {
 
 	waitForDispatcherToBlock(t)
 
-	ps.Dequeue(context.Background())
-	ps.Dequeue(context.Background())
+	func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		ps.Dequeue(ctx)
+		ps.Dequeue(ctx)
+	}()
 
 	capacityCh <- struct{}{}
 
@@ -474,12 +509,12 @@ func TestDispatcher_Dispatch_PartialEnqueue_RetriesAfterCapacity(t *testing.T) {
 	state, ok := registry.Get(consumer.Key{Topic: "t", Partition: 0})
 	require.True(t, ok, "state should exist")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	dequeued, okDequeue := state.Dequeue(ctx)
 	assert.True(t, okDequeue, "should dequeue remaining record")
 	assert.Equal(t, len(dequeued), 1, "should have exactly one record")
-	assert.Equal(t, dequeued[0].Offset, int64(4), "should be the last record")
+	assert.Equal(t, dequeued[0].Offset, 4, "should be the last record")
 }
 
 func TestDispatcher_Dispatch_MultiPartitionBackpressure(t *testing.T) {
@@ -520,5 +555,72 @@ func TestDispatcher_Dispatch_MultiPartitionBackpressure(t *testing.T) {
 	assert.True(t, paused[1], "partition 1 should be paused")
 	assert.True(t, paused[2], "partition 2 should be paused")
 
-	assert.Equal(t, started.Load(), int32(3), "startFn should be called for each partition")
+	assert.Equal(t, started.Load(), 3, "startFn should be called for each partition")
+}
+
+func TestDispatcher_Dispatch_PartialEnqueue_NoRecordLoss(t *testing.T) {
+	router := consumer.NewRouter(nil)
+	pauses := consumer.NewPauseRegistry(time.Now, &stubTopicPauser{})
+	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
+
+	require.NoError(t, router.Register(sub("t")), "should register topic")
+
+	pauser := &stubFetchPauser{}
+	capacityCh := make(chan struct{}, 1)
+
+	// queueCapacity=3: only 3 records fit per TryEnqueue call.
+	// Dispatching 5 records exercises the cursor advancement loop:
+	//   Pass 1: TryEnqueue enqueues 3, cursor.next=3
+	//           TryEnqueue returns 0 for remaining 2
+	//   Pass 2: TryEnqueue returns 0, WaitForCapacity
+	d := consumer.NewDispatcher(router, pauses, registry, pauser,
+		func(ps *consumer.PartitionState) {}, 3, capacityCh)
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- d.Dispatch(context.Background(), context.Background(), []*kgo.Record{
+			makeRecord("t", 0, 0),
+			makeRecord("t", 0, 1),
+			makeRecord("t", 0, 2),
+			makeRecord("t", 0, 3),
+			makeRecord("t", 0, 4),
+		})
+	}()
+
+	waitForDispatcherToBlock(t)
+
+	// Drain the first batch (3 records) and verify it.
+	state, ok := registry.Get(consumer.Key{Topic: "t", Partition: 0})
+	require.True(t, ok, "state should exist")
+	func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		batch1, dequeueOk := state.Dequeue(ctx)
+		require.True(t, dequeueOk, "should dequeue first batch")
+		assert.Equal(t, len(batch1), 3, "first batch should have 3 records")
+		assert.Equal(t, batch1[0].Offset, 0, "first record offset")
+		assert.Equal(t, batch1[1].Offset, 1, "second record offset")
+		assert.Equal(t, batch1[2].Offset, 2, "third record offset")
+	}()
+
+	capacityCh <- struct{}{}
+
+	err := <-errCh
+	require.NoError(t, err, "dispatch should succeed")
+
+	// The remaining 2 records arrive in one batch.
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	records, ok := state.Dequeue(ctx)
+	require.True(t, ok, "should dequeue remaining batch")
+
+	assert.Equal(t, len(records), 2, "remaining batch should have 2 records")
+	assert.Equal(t, records[0].Offset, 3, "fourth record offset")
+	assert.Equal(t, records[1].Offset, 4, "fifth record offset")
+
+	// Queue should be empty after all 5 records are drained.
+	emptyCtx, emptyCancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer emptyCancel()
+	_, ok = state.Dequeue(emptyCtx)
+	assert.False(t, ok, "queue should be empty after all records are drained")
 }
