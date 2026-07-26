@@ -18,10 +18,6 @@ const (
 
 // PartitionState owns the per-partition runtime state: a buffered record queue,
 // backpressure flags, commit-progress tracking, and lifecycle management.
-//
-// The queue and lifecycle transitions are thread-safe under a private mutex.
-// The done channel is exposed read-only via Done() — closing it is the
-// responsibility of the worker runner.
 type PartitionState struct {
 	ctx                context.Context
 	log                *slog.Logger
