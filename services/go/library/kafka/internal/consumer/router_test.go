@@ -57,7 +57,7 @@ func TestRouter_Register_Duplicate(t *testing.T) {
 }
 
 func TestRouter_Lookup_Missing(t *testing.T) {
-	r := consumer.NewRouter(nil)
+	r := consumer.NewRouter(func(...string) {})
 
 	_, ok := r.Lookup("nonexistent")
 	assert.False(t, ok, "missing topic should return false")
@@ -92,6 +92,13 @@ func TestRouter_Snapshot_Immutable(t *testing.T) {
 	require.NoError(t, r.Register(sub2), "second register should succeed")
 
 	assert.Equal(t, len(snap), 1, "old snapshot should still have 1 entry (immutable)")
+}
+
+func TestRouter_Snapshot_Empty(t *testing.T) {
+	r := consumer.NewRouter(func(...string) {})
+
+	snap := r.Snapshot()
+	assert.Equal(t, len(snap), 0, "snapshot should be empty on a fresh router")
 }
 
 func TestRouter_RegisterQuietBatch_SkipsClient(t *testing.T) {
@@ -133,7 +140,7 @@ func TestRouter_RegisterQuietBatch_SkipsClient(t *testing.T) {
 }
 
 func TestRouter_RegisterQuietBatch_Duplicate(t *testing.T) {
-	r := consumer.NewRouter(nil)
+	r := consumer.NewRouter(func(...string) {})
 
 	sub1 := consumer.Subscription{
 		Topic:         "topic-a",
@@ -152,6 +159,36 @@ func TestRouter_RegisterQuietBatch_Duplicate(t *testing.T) {
 
 	err := r.RegisterQuietBatch([]consumer.Subscription{sub1, sub2})
 	assert.ErrorContains(t, err, "duplicate topic", "duplicate in batch should error")
+}
+
+func TestRouter_RegisterQuietBatch_DuplicateAgainstExisting(t *testing.T) {
+	r := consumer.NewRouter(func(...string) {})
+
+	sub := consumer.Subscription{
+		Topic:         "topic-a",
+		Handler:       func(_ context.Context, _ *kgo.Record) error { return nil },
+		BatchHandler:  nil,
+		FailurePolicy: consumer.FailurePolicy{},
+		AckMode:       consumer.AckModeAtLeastOnce,
+	}
+
+	// Register via Register first.
+	require.NoError(t, r.Register(sub), "register should succeed")
+
+	// RegisterQuietBatch with the same topic should fail.
+	err := r.RegisterQuietBatch([]consumer.Subscription{sub})
+	assert.ErrorContains(t, err, "already registered", "duplicate against existing should error")
+}
+
+func TestRouter_RegisterQuietBatch_EmptyBatch(t *testing.T) {
+	r := consumer.NewRouter(func(...string) {})
+
+	err := r.RegisterQuietBatch([]consumer.Subscription{})
+	require.NoError(t, err, "empty batch should succeed (no-op)")
+
+	// Router should still be empty.
+	snap := r.Snapshot()
+	assert.Equal(t, len(snap), 0, "snapshot should remain empty after empty batch")
 }
 
 func TestRouter_AddConsumeTopics_Called(t *testing.T) {
@@ -177,7 +214,7 @@ func TestRouter_AddConsumeTopics_Called(t *testing.T) {
 }
 
 func TestRouter_Concurrent_NoRace(t *testing.T) {
-	r := consumer.NewRouter(nil)
+	r := consumer.NewRouter(func(...string) {})
 
 	// Pre-register some topics.
 	for i := range 50 {

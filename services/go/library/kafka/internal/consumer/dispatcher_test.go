@@ -56,7 +56,7 @@ func waitForDispatcherToBlock(t *testing.T) {
 }
 
 func TestDispatcher_New(t *testing.T) {
-	router := consumer.NewRouter(nil)
+	router := consumer.NewRouter(func(...string) {})
 	pauses := consumer.NewPauseRegistry(time.Now, &stubTopicPauser{})
 	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
 	d := consumer.NewDispatcher(router, pauses, registry, nil, nil, 64, make(chan struct{}, 1))
@@ -64,7 +64,7 @@ func TestDispatcher_New(t *testing.T) {
 }
 
 func TestDispatcher_Dispatch_EmptyRecords(t *testing.T) {
-	router := consumer.NewRouter(nil)
+	router := consumer.NewRouter(func(...string) {})
 	pauses := consumer.NewPauseRegistry(time.Now, &stubTopicPauser{})
 	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
 	d := consumer.NewDispatcher(router, pauses, registry, nil, nil, 64, make(chan struct{}, 1))
@@ -77,7 +77,7 @@ func TestDispatcher_Dispatch_EmptyRecords(t *testing.T) {
 }
 
 func TestDispatcher_Dispatch_UnregisteredTopic_Error(t *testing.T) {
-	router := consumer.NewRouter(nil)
+	router := consumer.NewRouter(func(...string) {})
 	pauses := consumer.NewPauseRegistry(time.Now, &stubTopicPauser{})
 	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
 	d := consumer.NewDispatcher(router, pauses, registry, nil, nil, 64, make(chan struct{}, 1))
@@ -89,7 +89,7 @@ func TestDispatcher_Dispatch_UnregisteredTopic_Error(t *testing.T) {
 }
 
 func TestDispatcher_Dispatch_UnregisteredTopic_AmongValid(t *testing.T) {
-	router := consumer.NewRouter(nil)
+	router := consumer.NewRouter(func(...string) {})
 	pauses := consumer.NewPauseRegistry(time.Now, &stubTopicPauser{})
 	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
 
@@ -105,7 +105,7 @@ func TestDispatcher_Dispatch_UnregisteredTopic_AmongValid(t *testing.T) {
 }
 
 func TestDispatcher_Dispatch_PausedTopic_SkipsAllRecords(t *testing.T) {
-	router := consumer.NewRouter(nil)
+	router := consumer.NewRouter(func(...string) {})
 	pauses := consumer.NewPauseRegistry(time.Now, &stubTopicPauser{})
 	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
 
@@ -125,7 +125,7 @@ func TestDispatcher_Dispatch_PausedTopic_SkipsAllRecords(t *testing.T) {
 }
 
 func TestDispatcher_Dispatch_MixedPausedAndActive(t *testing.T) {
-	router := consumer.NewRouter(nil)
+	router := consumer.NewRouter(func(...string) {})
 	pauses := consumer.NewPauseRegistry(time.Now, &stubTopicPauser{})
 	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
 
@@ -163,7 +163,7 @@ func TestDispatcher_Dispatch_MixedPausedAndActive(t *testing.T) {
 }
 
 func TestDispatcher_Dispatch_SingleRecord_CreatesStateAndEnqueues(t *testing.T) {
-	router := consumer.NewRouter(nil)
+	router := consumer.NewRouter(func(...string) {})
 	pauses := consumer.NewPauseRegistry(time.Now, &stubTopicPauser{})
 	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
 
@@ -195,7 +195,7 @@ func TestDispatcher_Dispatch_SingleRecord_CreatesStateAndEnqueues(t *testing.T) 
 }
 
 func TestDispatcher_Dispatch_MultipleRecords_SamePartition(t *testing.T) {
-	router := consumer.NewRouter(nil)
+	router := consumer.NewRouter(func(...string) {})
 	pauses := consumer.NewPauseRegistry(time.Now, &stubTopicPauser{})
 	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
 
@@ -228,7 +228,7 @@ func TestDispatcher_Dispatch_MultipleRecords_SamePartition(t *testing.T) {
 }
 
 func TestDispatcher_Dispatch_DifferentPartitions(t *testing.T) {
-	router := consumer.NewRouter(nil)
+	router := consumer.NewRouter(func(...string) {})
 	pauses := consumer.NewPauseRegistry(time.Now, &stubTopicPauser{})
 	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
 
@@ -260,7 +260,7 @@ func TestDispatcher_Dispatch_DifferentPartitions(t *testing.T) {
 }
 
 func TestDispatcher_Dispatch_DifferentTopics(t *testing.T) {
-	router := consumer.NewRouter(nil)
+	router := consumer.NewRouter(func(...string) {})
 	pauses := consumer.NewPauseRegistry(time.Now, &stubTopicPauser{})
 	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
 
@@ -289,7 +289,7 @@ func TestDispatcher_Dispatch_DifferentTopics(t *testing.T) {
 }
 
 func TestDispatcher_Dispatch_StartFn_OnlyOnFirstCreation(t *testing.T) {
-	router := consumer.NewRouter(nil)
+	router := consumer.NewRouter(func(...string) {})
 	pauses := consumer.NewPauseRegistry(time.Now, &stubTopicPauser{})
 	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
 
@@ -316,7 +316,7 @@ func TestDispatcher_Dispatch_StartFn_OnlyOnFirstCreation(t *testing.T) {
 }
 
 func TestDispatcher_Dispatch_WaitForCapacity_ContextCancelled(t *testing.T) {
-	router := consumer.NewRouter(nil)
+	router := consumer.NewRouter(func(...string) {})
 	pauses := consumer.NewPauseRegistry(time.Now, &stubTopicPauser{})
 	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
 
@@ -358,7 +358,7 @@ func TestDispatcher_Dispatch_WaitForCapacity_ContextCancelled(t *testing.T) {
 }
 
 func TestDispatcher_Dispatch_BackpressurePause(t *testing.T) {
-	router := consumer.NewRouter(nil)
+	router := consumer.NewRouter(func(...string) {})
 	pauses := consumer.NewPauseRegistry(time.Now, &stubTopicPauser{})
 	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
 
@@ -395,7 +395,7 @@ func TestDispatcher_Dispatch_BackpressurePause(t *testing.T) {
 }
 
 func TestDispatcher_Dispatch_WaitForCapacity_Signalled(t *testing.T) {
-	router := consumer.NewRouter(nil)
+	router := consumer.NewRouter(func(...string) {})
 	pauses := consumer.NewPauseRegistry(time.Now, &stubTopicPauser{})
 	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
 
@@ -458,7 +458,7 @@ func TestDispatcher_Dispatch_WaitForCapacity_Signalled(t *testing.T) {
 }
 
 func TestDispatcher_Dispatch_PartialEnqueue_RetriesAfterCapacity(t *testing.T) {
-	router := consumer.NewRouter(nil)
+	router := consumer.NewRouter(func(...string) {})
 	pauses := consumer.NewPauseRegistry(time.Now, &stubTopicPauser{})
 	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
 
@@ -518,7 +518,7 @@ func TestDispatcher_Dispatch_PartialEnqueue_RetriesAfterCapacity(t *testing.T) {
 }
 
 func TestDispatcher_Dispatch_MultiPartitionBackpressure(t *testing.T) {
-	router := consumer.NewRouter(nil)
+	router := consumer.NewRouter(func(...string) {})
 	pauses := consumer.NewPauseRegistry(time.Now, &stubTopicPauser{})
 	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
 
@@ -559,7 +559,7 @@ func TestDispatcher_Dispatch_MultiPartitionBackpressure(t *testing.T) {
 }
 
 func TestDispatcher_Dispatch_PartialEnqueue_NoRecordLoss(t *testing.T) {
-	router := consumer.NewRouter(nil)
+	router := consumer.NewRouter(func(...string) {})
 	pauses := consumer.NewPauseRegistry(time.Now, &stubTopicPauser{})
 	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
 
