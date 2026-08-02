@@ -163,21 +163,23 @@ func TestPartitionRegistry_MarkStateCommitted_AtomicWithAdvanceStateCommitOffset
 
 	r.AdvanceStateCommitOffset(ps, &kgo.Record{Topic: "t", Partition: 0, Offset: 5, LeaderEpoch: 1})
 
-	var markDirtyDone, commitDone sync.WaitGroup
+	var markDirtyDone, commitDone, workerDone sync.WaitGroup
 	markDirtyDone.Add(1)
 	commitDone.Add(1)
+	workerDone.Add(1)
 
-	// Worker goroutine: wait until commit starts, then sneak in a MarksDirty.
+	// Worker goroutine: wait for the commit to fully finish, then advance the
+	// offset past the committed position. This runs strictly after
+	// MarkStateCommitted's critical section, so it re-marks the partition
+	// dirty after the commit already cleared it.
 	go func() {
+		defer workerDone.Done()
 		markDirtyDone.Done() // signal readiness
-		commitDone.Wait()    // wait for commit to enter the locked region
-		// This AdvanceStateCommitOffset will block until MarkStateCommitted releases r.mu.
-		// After it acquires the lock, the dirty map has already been inspected.
+		commitDone.Wait()    // wait for the commit to fully complete
 		r.AdvanceStateCommitOffset(ps, &kgo.Record{Topic: "t", Partition: 0, Offset: 6, LeaderEpoch: 1})
 	}()
 
-	// Commit goroutine: commit offset 6, then verify the worker's progress
-	// wasn't lost even though it arrived mid-commit.
+	// Commit goroutine: commit offset 6, then release the worker.
 	go func() {
 		markDirtyDone.Wait() // ensure worker is ready
 		r.MarkStateCommitted(ps, kgo.EpochOffset{Epoch: 1, Offset: 6})
@@ -185,6 +187,7 @@ func TestPartitionRegistry_MarkStateCommitted_AtomicWithAdvanceStateCommitOffset
 	}()
 
 	commitDone.Wait()
+	workerDone.Wait() // ensure the worker's dirty re-mark is visible before the snapshot
 
 	// After commit + worker update, there should still be dirty progress.
 	snap := r.SnapshotDirtyStates()

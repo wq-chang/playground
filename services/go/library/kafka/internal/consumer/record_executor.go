@@ -193,8 +193,9 @@ func (e *RecordExecutor) publishDLQ(
 //   - Stop: returns resolvedCount with pauseTopic=true (does NOT commit past
 //     the failed record).
 //   - Commit: drops the failed record and continues with remaining records.
-//   - DLQThenCommit: publishes to DLQ, then continues. If DLQ write fails,
-//     returns the error without pausing (caller should fail).
+//   - DLQThenCommit: publishes to DLQ, then continues. If the DLQ write
+//     fails after retries, the topic is paused (PauseTopic=true) so the
+//     consumer stays healthy instead of crashing.
 func (e *RecordExecutor) ExecuteBatch(
 	ctx context.Context,
 	sub Subscription,

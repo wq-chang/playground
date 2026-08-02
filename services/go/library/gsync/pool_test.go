@@ -1,6 +1,8 @@
 package gsync_test
 
 import (
+	"runtime"
+	"runtime/debug"
 	"testing"
 
 	"go-services/library/assert"
@@ -18,10 +20,19 @@ func TestPool(t *testing.T) {
 	})
 
 	t.Run("get should get the value from put", func(t *testing.T) {
+		// sync.Pool may drop or clear values at any time — under the race
+		// detector, Put randomly discards 1 in 4 values (see sync/pool.go) —
+		// so the round-trip test bulk-Puts many values and pins GC + a single
+		// P to stay deterministic. Same pattern as the stdlib's sync/pool_test.go.
+		defer debug.SetGCPercent(debug.SetGCPercent(-1))
+		defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(1))
+
 		p := gsync.Pool[string]{}
 		input := "hello generic world"
 
-		p.Put(input)
+		for range 100 {
+			p.Put(input)
+		}
 		val := p.Get()
 
 		assert.Equal(t, val, input, "value get from pool")

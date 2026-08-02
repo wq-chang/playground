@@ -25,6 +25,7 @@ tasks:
         - 'testname'
         - '--'
         - '-tags=integration'
+        - '-race'
         - '-v'
         - './...'
     deps:
