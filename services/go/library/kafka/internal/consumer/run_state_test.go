@@ -3,6 +3,7 @@ package consumer_test
 import (
 	"context"
 	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -124,4 +125,87 @@ func TestRunState_Begin_AfterReset_AllowsNewRun(t *testing.T) {
 	require.NoError(t, err, "Begin after Reset should succeed")
 	assert.NotNil(t, ctx2, "should get a new context")
 	assert.True(t, ctx1 != ctx2, "should be a different context")
+}
+
+func TestRunState_Fail_NoopOnNilError(t *testing.T) {
+	rs := consumer.NewRunState()
+	ctx, err := rs.Begin()
+	require.NoError(t, err, "Begin should succeed")
+
+	rs.Fail(nil)
+
+	assert.NoError(t, rs.Err(), "Err should be nil when Fail(nil) was called")
+	assert.NoError(t, ctx.Err(), "context should not be cancelled")
+}
+
+func TestRunState_Stop_Idempotent(t *testing.T) {
+	rs := consumer.NewRunState()
+	ctx, err := rs.Begin()
+	require.NoError(t, err, "Begin should succeed")
+
+	rs.Stop()
+	rs.Stop() // must not panic
+
+	assert.ErrorIs(t, ctx.Err(), context.Canceled, "context should be cancelled")
+}
+
+func TestRunState_Err_ReturnsNilByDefault(t *testing.T) {
+	rs := consumer.NewRunState()
+	assert.NoError(t, rs.Err(), "Err before Begin should be nil")
+
+	_, err := rs.Begin()
+	require.NoError(t, err, "Begin should succeed")
+	assert.NoError(t, rs.Err(), "Err after Begin (before Fail) should be nil")
+
+	rs.Stop()
+	rs.Wait()
+	rs.Reset()
+	assert.NoError(t, rs.Err(), "Err after Reset should be nil")
+}
+
+func TestRunState_ErrOnceFresh_AfterResetAndBegin(t *testing.T) {
+	rs := consumer.NewRunState()
+
+	// First run: record an error.
+	_, err := rs.Begin()
+	require.NoError(t, err, "first Begin should succeed")
+	rs.Fail(errors.New("first error"))
+	rs.Stop()
+	rs.Wait()
+	rs.Reset()
+
+	// Second run: errOnce must be fresh so Fail records this error.
+	_, err = rs.Begin()
+	require.NoError(t, err, "second Begin should succeed")
+	rs.Fail(errors.New("second error"))
+
+	assert.ErrorContains(t, rs.Err(), "second error", "Err should return error from second run, not first")
+}
+
+func TestRunState_Stop_BeforeBegin_Noop(t *testing.T) {
+	rs := consumer.NewRunState()
+	rs.Stop() // must not panic
+}
+
+func TestRunState_Concurrent_FailAndStop(t *testing.T) {
+	rs := consumer.NewRunState()
+	ctx, err := rs.Begin()
+	require.NoError(t, err, "Begin should succeed")
+
+	sentinel := errors.New("concurrent error")
+	var wg sync.WaitGroup
+
+	// Launch several goroutines that call Fail and Stop concurrently.
+	for i := 0; i < 10; i++ {
+		wg.Go(func() {
+			rs.Fail(sentinel)
+			rs.Stop()
+		})
+	}
+
+	wg.Wait()
+
+	// State must be consistent: error recorded and context cancelled.
+	assert.ErrorIs(t, rs.Err(), sentinel, "Err should contain the sentinel error")
+	assert.ErrorIs(t, ctx.Err(), context.Canceled, "context should be cancelled")
 }

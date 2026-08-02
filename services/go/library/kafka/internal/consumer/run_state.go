@@ -87,11 +87,7 @@ func (rs *RunState) Stop() {
 
 // Go runs a function in a new goroutine tracked by the run's wait group.
 func (rs *RunState) Go(fn func()) {
-	rs.wg.Add(1)
-	go func() {
-		defer rs.wg.Done()
-		fn()
-	}()
+	rs.wg.Go(fn)
 }
 
 // Wait blocks until all goroutines started via Go have completed.
