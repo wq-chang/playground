@@ -58,7 +58,12 @@ func TestNormalizeFailurePolicy_DLQDefaultsToDLQThenCommit(t *testing.T) {
 	assert.NoError(t, err, "should normalize without error")
 
 	assert.Equal(t, policy.MaxAttempts, 1, "default attempts should be 1")
-	assert.Equal(t, policy.OnExhausted, consumer.ExhaustedActionDLQThenCommit, "with DLQ should default to DLQThenCommit")
+	assert.Equal(
+		t,
+		policy.OnExhausted,
+		consumer.ExhaustedActionDLQThenCommit,
+		"with DLQ should default to DLQThenCommit",
+	)
 }
 
 func TestNormalizeFailurePolicy_RejectsInvalidValues(t *testing.T) {
@@ -161,4 +166,110 @@ func TestBatchResult(t *testing.T) {
 	r2 := consumer.BatchResult{Err: sentinel, FailedAt: 2}
 	assert.NotNil(t, r2.Err, "error should be set")
 	assert.Equal(t, r2.FailedAt, 2, "FailedAt should match")
+}
+
+func TestNormalizeFailurePolicy_DLQThenCommitWithoutDLQ(t *testing.T) {
+	_, err := consumer.NormalizeFailurePolicy(consumer.FailurePolicy{
+		MaxAttempts:  0,
+		RetryBackoff: 0,
+		DLQ:          nil,
+		OnExhausted:  consumer.ExhaustedActionDLQThenCommit,
+	})
+	assert.ErrorContains(t, err, "dlq config is required for dlq exhausted action", "dlq action without dlq config rejected")
+}
+
+func TestNormalizeFailurePolicy_DLQThenCommitWithDLQ(t *testing.T) {
+	policy, err := consumer.NormalizeFailurePolicy(consumer.FailurePolicy{
+		MaxAttempts:  0,
+		RetryBackoff: time.Second,
+		DLQ:          &consumer.DLQConfig{Topic: "dead-letter"},
+		OnExhausted:  consumer.ExhaustedActionDLQThenCommit,
+	})
+	assert.NoError(t, err, "dlq action with dlq config should succeed")
+	assert.Equal(t, policy.MaxAttempts, 1, "default attempts should be 1")
+	assert.Equal(t, policy.OnExhausted, consumer.ExhaustedActionDLQThenCommit, "action should be preserved")
+	assert.Equal(t, policy.RetryBackoff, time.Second, "backoff should be preserved")
+	assert.NotNil(t, policy.DLQ, "dlq should be preserved")
+	assert.Equal(t, policy.DLQ.Topic, "dead-letter", "dlq topic should be preserved")
+}
+
+func TestNormalizeFailurePolicy_RejectsUnsupportedAction(t *testing.T) {
+	_, err := consumer.NormalizeFailurePolicy(consumer.FailurePolicy{
+		MaxAttempts:  0,
+		RetryBackoff: 0,
+		DLQ:          nil,
+		OnExhausted:  consumer.ExhaustedAction(99),
+	})
+	assert.ErrorContains(t, err, "unsupported exhausted action", "unsupported action rejected")
+}
+
+func TestSubscriptionNormalize_ValidHandler(t *testing.T) {
+	handler := func(_ context.Context, _ *kgo.Record) error { return nil }
+	sub, err := consumer.Subscription{
+		Topic:         "topic-a",
+		Handler:       handler,
+		BatchHandler:  nil,
+		FailurePolicy: consumer.FailurePolicy{},
+		AckMode:       consumer.AckModeAtLeastOnce,
+	}.Normalize()
+
+	assert.NoError(t, err, "valid subscription should normalize")
+	assert.Equal(t, sub.Topic, "topic-a", "topic should be preserved")
+	assert.NotNil(t, sub.Handler, "handler should be preserved")
+	assert.Nil(t, sub.BatchHandler, "batch handler should stay nil")
+	assert.Equal(t, sub.AckMode, consumer.AckModeAtLeastOnce, "ack mode should be preserved")
+	assert.Equal(t, sub.FailurePolicy.MaxAttempts, 1, "failure policy defaults should be filled")
+	assert.Equal(
+		t,
+		sub.FailurePolicy.OnExhausted,
+		consumer.ExhaustedActionStop,
+		"failure policy default action should be Stop",
+	)
+}
+
+func TestSubscriptionNormalize_ValidBatchHandler(t *testing.T) {
+	batchHandler := func(_ context.Context, _ []*kgo.Record) consumer.BatchResult { return consumer.BatchResult{} }
+	sub, err := consumer.Subscription{
+		Topic:         "topic-b",
+		Handler:       nil,
+		BatchHandler:  batchHandler,
+		FailurePolicy: consumer.FailurePolicy{},
+		AckMode:       consumer.AckModeAtLeastOnce,
+	}.Normalize()
+
+	assert.NoError(t, err, "valid batch subscription should normalize")
+	assert.Equal(t, sub.Topic, "topic-b", "topic should be preserved")
+	assert.Nil(t, sub.Handler, "handler should stay nil")
+	assert.NotNil(t, sub.BatchHandler, "batch handler should be preserved")
+	assert.Equal(t, sub.FailurePolicy.MaxAttempts, 1, "failure policy defaults should be filled")
+}
+
+func TestSubscriptionNormalize_AtMostOnceAckMode(t *testing.T) {
+	sub, err := consumer.Subscription{
+		Topic:         "topic-c",
+		Handler:       func(_ context.Context, _ *kgo.Record) error { return nil },
+		BatchHandler:  nil,
+		FailurePolicy: consumer.FailurePolicy{},
+		AckMode:       consumer.AckModeAtMostOnce,
+	}.Normalize()
+
+	assert.NoError(t, err, "at-most-once ack mode should be accepted")
+	assert.Equal(t, sub.AckMode, consumer.AckModeAtMostOnce, "ack mode should be preserved")
+}
+
+func TestSubscriptionNormalize_PropagatesPolicyError(t *testing.T) {
+	_, err := consumer.Subscription{
+		Topic:        "topic-d",
+		Handler:      func(_ context.Context, _ *kgo.Record) error { return nil },
+		BatchHandler: nil,
+		FailurePolicy: consumer.FailurePolicy{
+			MaxAttempts:  -1,
+			RetryBackoff: 0,
+			DLQ:          nil,
+			OnExhausted:  consumer.ExhaustedActionUnspecified,
+		},
+		AckMode: consumer.AckModeAtLeastOnce,
+	}.Normalize()
+
+	assert.ErrorContains(t, err, "max attempts must not be negative", "policy error should propagate")
 }
