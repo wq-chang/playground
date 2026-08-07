@@ -7,6 +7,12 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
+// partitionResumer is the subset of *kgo.Client used by WorkerRunner to
+// resume Kafka fetches for a partition when backpressure clears.
+type partitionResumer interface {
+	ResumeFetchPartitions(topicPartitions map[string][]int32)
+}
+
 // WorkerRunner manages per-partition worker goroutines and their lifecycle.
 // It owns the process semaphore for bounding concurrent handler execution.
 type WorkerRunner struct {
@@ -19,7 +25,7 @@ type WorkerRunner struct {
 	processSem chan struct{}
 	capacityCh chan struct{}
 	dlqWriter  func(ctx context.Context, record *kgo.Record) error
-	kgoClient  *kgo.Client
+	resumer    partitionResumer
 }
 
 // NewWorkerRunner creates a worker runner with the given dependencies.
@@ -36,7 +42,7 @@ func NewWorkerRunner(
 	maxConcurrent int,
 	capacityCh chan struct{},
 	dlqWriter func(ctx context.Context, record *kgo.Record) error,
-	kgoClient *kgo.Client,
+	resumer partitionResumer,
 ) *WorkerRunner {
 	if maxConcurrent < 1 {
 		maxConcurrent = 1
@@ -51,7 +57,7 @@ func NewWorkerRunner(
 		processSem: make(chan struct{}, maxConcurrent),
 		capacityCh: capacityCh,
 		dlqWriter:  dlqWriter,
-		kgoClient:  kgoClient,
+		resumer:    resumer,
 	}
 }
 
@@ -81,7 +87,7 @@ func (wr *WorkerRunner) partitionLoop(state *PartitionState) {
 		// provide hysteresis against rapid pause/resume cycles.
 		if !wr.pauses.IsPaused(state.Key().Topic) {
 			if state.TryResumeBackpressure() {
-				wr.kgoClient.ResumeFetchPartitions(map[string][]int32{
+				wr.resumer.ResumeFetchPartitions(map[string][]int32{
 					state.Key().Topic: {state.Key().Partition},
 				})
 			}
@@ -109,6 +115,11 @@ func (wr *WorkerRunner) processRecords(
 
 		if state.Subscription().AckMode == AckModeAtMostOnce {
 			if err := wr.committer.CommitRecords(ctx, record); err != nil {
+				if ctx.Err() != nil {
+					// Partition is closing (rebalance revoke or shutdown) — the
+					// commit failed because of cancellation, not Kafka.
+					return
+				}
 				wr.run.Fail(err)
 				return
 			}
@@ -137,6 +148,12 @@ func (wr *WorkerRunner) processRecords(
 		if result.Cause != nil {
 			if lastResolved != nil && wr.registry.AdvanceStateCommitOffset(state, lastResolved) {
 				wr.committer.RequestFlush()
+			}
+			if ctx.Err() != nil {
+				// Partition is closing (rebalance revoke or shutdown); abort
+				// the partition loop without failing the run so Finalize can
+				// commit and the consumer keeps running.
+				return
 			}
 			wr.run.Fail(result.Cause)
 			return
@@ -167,6 +184,11 @@ func (wr *WorkerRunner) processBatch(
 
 	if state.Subscription().AckMode == AckModeAtMostOnce {
 		if err := wr.committer.CommitRecords(ctx, records...); err != nil {
+			if ctx.Err() != nil {
+				// Partition is closing (rebalance revoke or shutdown) — the
+				// commit failed because of cancellation, not Kafka.
+				return
+			}
 			wr.run.Fail(err)
 			return
 		}
@@ -186,19 +208,39 @@ func (wr *WorkerRunner) processBatch(
 			"err", cause,
 		)
 		wr.pauses.Pause(records[0].Topic, cause)
+		wr.commitResolvedPrefix(state, records, resolvedCount)
 		return
 	}
 
 	if cause != nil {
+		wr.commitResolvedPrefix(state, records, resolvedCount)
+		if ctx.Err() != nil {
+			// Partition is closing (rebalance revoke or shutdown); abort
+			// the partition loop without failing the run so Finalize can
+			// commit and the consumer keeps running.
+			return
+		}
 		wr.run.Fail(cause)
 		return
 	}
 
-	if state.Subscription().AckMode == AckModeAtLeastOnce && resolvedCount > 0 {
-		lastResolved := records[resolvedCount-1]
-		if wr.registry.AdvanceStateCommitOffset(state, lastResolved) {
-			wr.committer.RequestFlush()
-		}
+	wr.commitResolvedPrefix(state, records, resolvedCount)
+}
+
+// commitResolvedPrefix advances the commit offset for a successfully handled
+// prefix of a batch, mirroring the single-record path's lastResolved handling.
+// No-op outside at-least-once mode (at-most-once commits before processing).
+func (wr *WorkerRunner) commitResolvedPrefix(
+	state *PartitionState,
+	records []*kgo.Record,
+	resolvedCount int,
+) {
+	if resolvedCount <= 0 || state.Subscription().AckMode != AckModeAtLeastOnce {
+		return
+	}
+	lastResolved := records[resolvedCount-1]
+	if wr.registry.AdvanceStateCommitOffset(state, lastResolved) {
+		wr.committer.RequestFlush()
 	}
 }
 
