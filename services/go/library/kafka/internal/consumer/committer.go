@@ -172,9 +172,6 @@ func (cm *Committer) markCommittedOffsets(offsets map[string]map[int32]kgo.Epoch
 }
 
 func (cm *Committer) acquireCommitMu(ctx context.Context) error {
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
