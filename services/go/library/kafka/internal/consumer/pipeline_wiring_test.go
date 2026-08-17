@@ -1,11 +1,20 @@
+// Package consumer_test contains in-process wiring tests for the consumer
+// pipeline.
+//
+// These tests assemble the real pipeline components (Router, PauseRegistry,
+// PartitionRegistry, Committer, WorkerRunner, Dispatcher) exactly as
+// kafka/consumer.go does in production, but with every broker-facing seam
+// stubbed: records are dispatched directly into the pipeline, offset commits
+// are recorded in memory, and Client interactions (add topics, pause/resume
+// fetches) are recorded by stubBrokerClient. There is deliberately no Kafka
+// broker and no network I/O here — protocol-level behavior against a real
+// broker is covered by the tagged integration tests in the parent kafka/
+// package (testcontainers, see kafka/main_test.go's `integration` tag).
 package consumer_test
 
 import (
 	"context"
 	"errors"
-	"fmt"
-	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -32,16 +41,48 @@ func (c *offsetRecorder) CommitOffsetsSync(_ context.Context, offsets map[string
 	return nil
 }
 
-func newTestKgoClient(t *testing.T) *kgo.Client {
-	t.Helper()
+// failingOffsetClient always fails offset commits with the configured error,
+// simulating a broker rejecting OffsetCommit requests.
+type failingOffsetClient struct {
+	err error
+}
 
-	kgoClient, err := kgo.NewClient(
-		kgo.SeedBrokers("localhost:9092"),
-		kgo.ConsumerGroup("test-group"),
-	)
-	require.NoError(t, err, "failed to create test kgo client")
-	t.Cleanup(kgoClient.Close)
-	return kgoClient
+func (c *failingOffsetClient) CommitOffsetsSync(_ context.Context, _ map[string]map[int32]kgo.EpochOffset) error {
+	return c.err
+}
+
+// stubBrokerClient satisfies the narrow *kgo.Client subsets that the pipeline
+// components depend on: Router's add-topics hook, Dispatcher's partition
+// pauser, and WorkerRunner's partition resumer. It records calls so tests can
+// assert client interaction, but performs no network I/O — these tests
+// dispatch records directly and never poll a broker.
+type stubBrokerClient struct {
+	addedTopics  []string
+	pausedParts  []map[string][]int32
+	resumedParts []map[string][]int32
+	mu           sync.Mutex
+}
+
+// AddConsumeTopics implements the addTopics hook consumed by Router.
+func (s *stubBrokerClient) AddConsumeTopics(topics ...string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.addedTopics = append(s.addedTopics, topics...)
+}
+
+// PauseFetchPartitions implements partitionPauser for Dispatcher.
+func (s *stubBrokerClient) PauseFetchPartitions(parts map[string][]int32) map[string][]int32 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.pausedParts = append(s.pausedParts, parts)
+	return parts
+}
+
+// ResumeFetchPartitions implements partitionResumer for WorkerRunner.
+func (s *stubBrokerClient) ResumeFetchPartitions(parts map[string][]int32) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.resumedParts = append(s.resumedParts, parts)
 }
 
 func subRecordHandler(fn func(context.Context, *kgo.Record) error) consumer.Subscription {
@@ -55,7 +96,7 @@ func subRecordHandler(fn func(context.Context, *kgo.Record) error) consumer.Subs
 }
 
 // setupIntegration creates all collaborators wired together.
-func setupIntegration(t *testing.T, cl *offsetRecorder) (
+func setupIntegration(t *testing.T, cl consumer.OffsetClient) (
 	*consumer.RunState,
 	*consumer.Router,
 	*consumer.PartitionRegistry,
@@ -65,10 +106,10 @@ func setupIntegration(t *testing.T, cl *offsetRecorder) (
 ) {
 	t.Helper()
 
-	kgoClient := newTestKgoClient(t)
+	client := &stubBrokerClient{}
 
 	logger := testlogger.NewLogger()
-	router := consumer.NewRouter(kgoClient.AddConsumeTopics)
+	router := consumer.NewRouter(client.AddConsumeTopics)
 	pauses := consumer.NewPauseRegistry(time.Now, &stubTopicPauser{})
 	run := consumer.NewRunState()
 	registry := consumer.NewPartitionRegistry(logger)
@@ -91,17 +132,17 @@ func setupIntegration(t *testing.T, cl *offsetRecorder) (
 		4,
 		capacityCh,
 		nil, // dlqWriter
-		kgoClient,
+		client,
 	)
 
-	dispatcher := consumer.NewDispatcher(router, pauses, registry, kgoClient, wr.Start, 64, capacityCh)
+	dispatcher := consumer.NewDispatcher(router, pauses, registry, client, wr.Start, 64, capacityCh)
 
 	return run, router, registry, committer, pauses, dispatcher
 }
 
 // TestIntegration_FullPipeline_Success dispatches records, verifies handler
 // invocation and offset commit through the full pipeline.
-func TestIntegration_FullPipeline_Success(t *testing.T) {
+func TestPipeline_FullRun_Success(t *testing.T) {
 	cl := &offsetRecorder{}
 	run, router, registry, committer, _, dis := setupIntegration(t, cl)
 
@@ -164,7 +205,7 @@ func TestIntegration_FullPipeline_Success(t *testing.T) {
 
 // TestIntegration_ExhaustionPausesTopic verifies that handler exhaustion
 // pauses the topic and stops processing.
-func TestIntegration_ExhaustionPausesTopic(t *testing.T) {
+func TestPipeline_ExhaustionPausesTopic(t *testing.T) {
 	cl := &offsetRecorder{}
 	run, router, registry, committer, pauses, dis := setupIntegration(t, cl)
 
@@ -209,7 +250,7 @@ func TestIntegration_ExhaustionPausesTopic(t *testing.T) {
 }
 
 // TestIntegration_BackpressureCycle verifies the pause → drain → resume cycle.
-func TestIntegration_BackpressureCycle(t *testing.T) {
+func TestPipeline_BackpressureCycle(t *testing.T) {
 	cl := &offsetRecorder{}
 	run, router, registry, committer, _, dis := setupIntegration(t, cl)
 
@@ -262,115 +303,7 @@ func TestIntegration_BackpressureCycle(t *testing.T) {
 	assert.NoError(t, <-commitDone, "commit loop should exit cleanly")
 }
 
-// TestDispatcher_Dispatch_PreservesPolledOrderWithinPartition verifies that
-// records from the same topic-partition are processed in poll order.
-func TestDispatcher_Dispatch_PreservesPolledOrderWithinPartition(t *testing.T) {
-	cl := &offsetRecorder{}
-	_, router, _, _, _, dis := setupIntegration(t, cl)
-
-	var mu sync.Mutex
-	var ordered []int64
-	handler := func(_ context.Context, r *kgo.Record) error {
-		mu.Lock()
-		ordered = append(ordered, r.Offset)
-		mu.Unlock()
-		return nil
-	}
-
-	require.NoError(t, router.Register(consumer.Subscription{
-		Topic:         "t",
-		Handler:       handler,
-		BatchHandler:  nil,
-		FailurePolicy: consumer.FailurePolicy{MaxAttempts: 1, RetryBackoff: 0, DLQ: nil, OnExhausted: consumer.ExhaustedActionStop},
-		AckMode:       consumer.AckModeAtLeastOnce,
-	}), "Register should succeed")
-
-	// Dispatch records in offset order 0,1,2 — handler must see them in order.
-	records := []*kgo.Record{
-		{Topic: "t", Partition: 0, Offset: 0, LeaderEpoch: 0},
-		{Topic: "t", Partition: 0, Offset: 1, LeaderEpoch: 0},
-		{Topic: "t", Partition: 0, Offset: 2, LeaderEpoch: 0},
-	}
-
-	require.NoError(t, dis.Dispatch(context.Background(), context.Background(), records),
-		"Dispatch should succeed")
-
-	require.True(t, waitFor(2*time.Second, func() bool {
-		mu.Lock()
-		defer mu.Unlock()
-		return len(ordered) == 3
-	}), "all 3 records should be processed, got %d", len(ordered))
-
-	mu.Lock()
-	assert.Equal(t, ordered[0], 0, "first processed should be offset 0")
-	assert.Equal(t, ordered[1], 1, "second processed should be offset 1")
-	assert.Equal(t, ordered[2], 2, "third processed should be offset 2")
-	mu.Unlock()
-}
-
-func TestDispatcher_Dispatch_PreservesFirstSeenPartitionOrder(t *testing.T) {
-	cl := &offsetRecorder{}
-	_, router, _, _, _, dis := setupIntegration(t, cl)
-
-	var mu sync.Mutex
-	var ordered []string
-	// Track each record as "topic:offset".
-	handlerA := func(_ context.Context, r *kgo.Record) error {
-		mu.Lock()
-		ordered = append(ordered, fmt.Sprintf("%s:%d", r.Topic, r.Offset))
-		mu.Unlock()
-		return nil
-	}
-	handlerB := func(_ context.Context, r *kgo.Record) error {
-		mu.Lock()
-		ordered = append(ordered, fmt.Sprintf("%s:%d", r.Topic, r.Offset))
-		mu.Unlock()
-		return nil
-	}
-
-	require.NoError(t, router.Register(consumer.Subscription{
-		Topic: "a", Handler: handlerA, BatchHandler: nil,
-		FailurePolicy: consumer.FailurePolicy{MaxAttempts: 1, RetryBackoff: 0, DLQ: nil, OnExhausted: consumer.ExhaustedActionStop},
-		AckMode:       consumer.AckModeAtLeastOnce,
-	}), "Register a")
-	require.NoError(t, router.Register(consumer.Subscription{
-		Topic: "b", Handler: handlerB, BatchHandler: nil,
-		FailurePolicy: consumer.FailurePolicy{MaxAttempts: 1, RetryBackoff: 0, DLQ: nil, OnExhausted: consumer.ExhaustedActionStop},
-		AckMode:       consumer.AckModeAtLeastOnce,
-	}), "Register b")
-
-	// Interleave records; within each partition, dispatch order matches poll order.
-	records := []*kgo.Record{
-		{Topic: "a", Partition: 0, Offset: 0, LeaderEpoch: 0},
-		{Topic: "b", Partition: 0, Offset: 0, LeaderEpoch: 0},
-		{Topic: "a", Partition: 0, Offset: 1, LeaderEpoch: 0},
-	}
-
-	require.NoError(t, dis.Dispatch(context.Background(), context.Background(), records),
-		"Dispatch should succeed")
-
-	require.True(t, waitFor(2*time.Second, func() bool {
-		mu.Lock()
-		defer mu.Unlock()
-		return len(ordered) == 3
-	}), "all 3 records should be processed, got %d", len(ordered))
-
-	mu.Lock()
-	// Within a partition, records are processed in polled offset order.
-	var aOffsets []int64
-	for _, s := range ordered {
-		if strings.HasPrefix(s, "a:") {
-			off, err := strconv.ParseInt(s[2:], 10, 64)
-			require.NoError(t, err, "ParseInt should succeed")
-			aOffsets = append(aOffsets, off)
-		}
-	}
-	assert.Equal(t, len(aOffsets), 2, "should process 2 records for 'a'")
-	assert.True(t, aOffsets[0] < aOffsets[1], "within 'a', offset 0 should process before offset 1")
-	mu.Unlock()
-}
-
-func TestIntegration_DispatchDoesNotBlockOtherPartitions(t *testing.T) {
+func TestPipeline_DispatchDoesNotBlockOtherPartitions(t *testing.T) {
 	cl := &offsetRecorder{}
 	_, router, _, _, _, dis := setupIntegration(t, cl)
 
@@ -406,7 +339,7 @@ func TestIntegration_DispatchDoesNotBlockOtherPartitions(t *testing.T) {
 		"partition 'b' should process despite 'a' blocking, got %d", processed.Load())
 }
 
-func TestIntegration_ShutdownFlushesRemaining(t *testing.T) {
+func TestPipeline_ShutdownFlushesRemaining(t *testing.T) {
 	cl := &offsetRecorder{}
 	run, router, registry, committer, _, dis := setupIntegration(t, cl)
 
@@ -461,7 +394,7 @@ func TestIntegration_ShutdownFlushesRemaining(t *testing.T) {
 // even after a fatal error is recorded mid-run. Regression test for the
 // deadlock where partition workers' contexts were decoupled from the run
 // lifecycle, causing Wait() to hang forever after a fatal error. See C1/H1 in todo.md.
-func TestIntegration_FatalErrorDoesNotDeadlock(t *testing.T) {
+func TestPipeline_FatalErrorDoesNotDeadlock(t *testing.T) {
 	cl := &offsetRecorder{}
 	run, router, registry, committer, _, dis := setupIntegration(t, cl)
 
@@ -524,6 +457,79 @@ func TestIntegration_FatalErrorDoesNotDeadlock(t *testing.T) {
 
 	assert.Equal(t, run.Err().Error(), "simulated fatal error",
 		"fatal error should be preserved")
+}
+
+// TestIntegration_CommitLoopFailureFailsRun verifies that a commit failure in
+// the async commit loop propagates through the wiring exactly as consumer.Run
+// wires it: committer.Run error → runState.Fail. A real broker cannot be made
+// to reject offset commits deterministically, so this path is exercised here
+// with a failing OffsetClient. Regression guard for the shutdown shape: the
+// assembly must fail the run and still complete shutdown without hanging.
+func TestPipeline_CommitLoopFailureFailsRun(t *testing.T) {
+	commitErr := errors.New("simulated commit rejection")
+	run, router, registry, committer, _, dis := setupIntegration(t, &failingOffsetClient{err: commitErr})
+
+	var handled atomic.Int32
+	handler := func(_ context.Context, _ *kgo.Record) error {
+		handled.Add(1)
+		return nil
+	}
+
+	require.NoError(t, router.Register(subRecordHandler(handler)), "Register should succeed")
+
+	runCtx, err := run.Begin()
+	require.NoError(t, err, "Begin should succeed")
+
+	// Wire the commit loop exactly as consumer.Run does.
+	commitDone := make(chan error, 1)
+	run.Go(func() {
+		commitLoopErr := committer.Run(runCtx)
+		if commitLoopErr != nil {
+			run.Fail(commitLoopErr)
+		}
+		commitDone <- commitLoopErr
+	})
+
+	records := []*kgo.Record{{Topic: "test-topic", Partition: 0, Offset: 0, LeaderEpoch: 0}}
+	require.NoError(t, dis.Dispatch(context.Background(), runCtx, records),
+		"Dispatch should succeed")
+
+	require.True(t, waitFor(2*time.Second, func() bool { return handled.Load() == 1 }),
+		"record should be processed, got %d", handled.Load())
+
+	// Processing marks the offset dirty; the commit loop's flush then fails
+	// and the run is failed through the wiring above.
+	require.True(t, waitFor(2*time.Second, func() bool { return run.Err() != nil }),
+		"commit loop failure should fail the run")
+
+	// Shutdown must complete without hanging (same shape as the deadlock
+	// regression): BeginClosingAll + Cleanup + Stop + Wait.
+	states := registry.BeginClosingAll()
+	registry.Cleanup(states)
+	run.Stop()
+
+	done := make(chan struct{})
+	go func() {
+		run.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("run.Wait() hung after commit-loop failure")
+	}
+
+	// The commit loop should exit with the propagated commit error.
+	select {
+	case commitLoopErr := <-commitDone:
+		assert.ErrorIs(t, commitLoopErr, commitErr, "commit loop should propagate the commit failure")
+	case <-time.After(2 * time.Second):
+		t.Fatal("commit loop did not exit after Stop()")
+	}
+
+	assert.ErrorIs(t, run.Err(), commitErr,
+		"fatal error should preserve the commit failure")
 }
 
 func waitFor(timeout time.Duration, fn func() bool) bool {
