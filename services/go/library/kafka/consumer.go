@@ -65,27 +65,15 @@ func commitOffsetsSync(kcl *kgo.Client) consumer.OffsetClient {
 // newConsumer creates a Consumer from the shared config, kgo client, and
 // optional DLQ producer.
 func newConsumer(cfg *config, kgoClient *kgo.Client, dlqProducer DLQProducer) (*Consumer, error) {
-	c := &Consumer{
-		cfg:          cfg,
-		kgoClient:    kgoClient,
-		dlqProducer:  dlqProducer,
-		log:          cfg.logger,
-		router:       nil,
-		pauses:       nil,
-		runState:     nil,
-		registry:     nil,
-		committer:    nil,
-		dispatcher:   nil,
-		workerRunner: nil,
-	}
+	logger := cfg.logger
 
-	c.router = consumer.NewRouter(kgoClient.AddConsumeTopics)
-	c.pauses = consumer.NewPauseRegistry(time.Now, kgoClient)
-	c.runState = consumer.NewRunState()
+	router := consumer.NewRouter(kgoClient.AddConsumeTopics)
+	pauses := consumer.NewPauseRegistry(time.Now, kgoClient)
+	runState := consumer.NewRunState()
 
-	c.registry = consumer.NewPartitionRegistry(c.log)
-	c.committer = consumer.NewCommitter(
-		c.registry,
+	registry := consumer.NewPartitionRegistry(logger)
+	committer := consumer.NewCommitter(
+		registry,
 		commitOffsetsSync(kgoClient),
 		consumer.CommitConfig{
 			FlushInterval:    cfg.flushInterval,
@@ -93,7 +81,7 @@ func newConsumer(cfg *config, kgoClient *kgo.Client, dlqProducer DLQProducer) (*
 		},
 	)
 
-	executor := consumer.NewRecordExecutor(c.log)
+	executor := consumer.NewRecordExecutor(logger)
 
 	dlqWriter := func(ctx context.Context, record *kgo.Record) error {
 		if dlqProducer != nil {
@@ -104,25 +92,25 @@ func newConsumer(cfg *config, kgoClient *kgo.Client, dlqProducer DLQProducer) (*
 
 	capacityCh := make(chan struct{}, 1)
 
-	c.workerRunner = consumer.NewWorkerRunner(
-		c.log,
-		c.runState,
-		c.committer,
+	workerRunner := consumer.NewWorkerRunner(
+		logger,
+		runState,
+		committer,
 		executor,
-		c.registry,
-		c.pauses,
-		c.cfg.workers,
+		registry,
+		pauses,
+		cfg.workers,
 		capacityCh,
 		dlqWriter,
 		kgoClient,
 	)
 
-	c.dispatcher = consumer.NewDispatcher(
-		c.router,
-		c.pauses,
-		c.registry,
+	dispatcher := consumer.NewDispatcher(
+		router,
+		pauses,
+		registry,
 		kgoClient,
-		c.workerRunner.Start,
+		workerRunner.Start,
 		cfg.queueCapacity,
 		capacityCh,
 	)
@@ -132,12 +120,24 @@ func newConsumer(cfg *config, kgoClient *kgo.Client, dlqProducer DLQProducer) (*
 		subs = append(subs, sub)
 	}
 	if len(subs) > 0 {
-		if err := c.router.RegisterQuietBatch(subs); err != nil {
+		if err := router.RegisterQuietBatch(subs); err != nil {
 			return nil, fmt.Errorf("subscription init: %w", err)
 		}
 	}
 
-	return c, nil
+	return &Consumer{
+		cfg:          cfg,
+		kgoClient:    kgoClient,
+		dlqProducer:  dlqProducer,
+		log:          logger,
+		router:       router,
+		pauses:       pauses,
+		runState:     runState,
+		registry:     registry,
+		committer:    committer,
+		dispatcher:   dispatcher,
+		workerRunner: workerRunner,
+	}, nil
 }
 
 // AddSubscription registers a new topic subscription.
@@ -161,6 +161,10 @@ func (c *Consumer) AddBatchTopic(topic string, handler BatchHandler) error {
 
 // Run starts the consumer loop.
 func (c *Consumer) Run(ctx context.Context) error {
+	if c.kgoClient == nil {
+		return fmt.Errorf("consumer client is not initialized")
+	}
+
 	runCtx, err := c.runState.Begin()
 	if err != nil {
 		return err
@@ -168,10 +172,6 @@ func (c *Consumer) Run(ctx context.Context) error {
 
 	pollCtx, stopPolling := mergeRunContexts(ctx, runCtx)
 	defer stopPolling()
-
-	if c.kgoClient == nil {
-		return fmt.Errorf("consumer client is not initialized")
-	}
 
 	// Start commit loop.
 	c.runState.Go(func() {
@@ -203,7 +203,22 @@ func (c *Consumer) Run(ctx context.Context) error {
 	}
 
 	c.runState.Stop()
-	c.runState.Wait()
+
+	// Bound the worker wait with the shutdown timeout. Finalize honors the
+	// timeout, but a handler that ignores context cancellation can pin a
+	// partition worker forever, and an unbounded wait would hang Run
+	// regardless. On timeout the consumer is left in an unusable state
+	// (no Reset), so it cannot be recycled.
+	if !c.waitForWorkersToStop(ctx) {
+		if cause := c.runState.Err(); cause != nil {
+			return fmt.Errorf(
+				"consumer shutdown exceeded %s while handling fatal error: %w; consumer left in unusable state",
+				c.cfg.shutdownTimeout,
+				cause,
+			)
+		}
+		return fmt.Errorf("consumer shutdown exceeded %s; consumer left in unusable state", c.cfg.shutdownTimeout)
+	}
 
 	fatalErr := c.runState.Err()
 	c.runState.Reset()
@@ -216,6 +231,33 @@ func (c *Consumer) Run(ctx context.Context) error {
 		return ctx.Err()
 	default:
 		return err
+	}
+}
+
+// waitForWorkersToStop waits for all pipeline goroutines to stop, bounded by
+// the configured shutdown timeout. Returns true when all goroutines exited;
+// false when the timeout elapsed first (the remaining goroutines are
+// abandoned and logged as an error).
+func (c *Consumer) waitForWorkersToStop(ctx context.Context) bool {
+	done := make(chan struct{})
+	go func() {
+		c.runState.Wait()
+		close(done)
+	}()
+
+	timer := time.NewTimer(c.cfg.shutdownTimeout)
+	defer timer.Stop()
+
+	select {
+	case <-done:
+		return true
+	case <-timer.C:
+		c.log.ErrorContext(
+			ctx,
+			"consumer shutdown exceeded shutdownTimeout; abandoning pipeline goroutines",
+			"timeout", c.cfg.shutdownTimeout,
+		)
+		return false
 	}
 }
 
