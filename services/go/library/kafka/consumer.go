@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/twmb/franz-go/pkg/kerr"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/kmsg"
 
@@ -53,13 +54,42 @@ func commitOffsetsSync(kcl *kgo.Client) consumer.OffsetClient {
 		kcl.CommitOffsetsSync(ctx, offsets, func(
 			_ *kgo.Client,
 			_ *kmsg.OffsetCommitRequest,
-			_ *kmsg.OffsetCommitResponse,
+			resp *kmsg.OffsetCommitResponse,
 			err error,
 		) {
-			commitErr = err
+			commitErr = errors.Join(err, commitResponseError(resp))
 		})
 		return commitErr
 	})
+}
+
+// commitResponseError folds per-partition OffsetCommit response error codes
+// into a single error. kgo surfaces only transport errors through the sync
+// callback's error; per-partition codes (e.g. IllegalGeneration, which occur
+// when a commit races a rebalance) live in the response and are documented to
+// be checked by the caller.
+//
+// RebalanceInProgress is intentionally skipped: kgo synthesizes that code for
+// partitions it filtered out of the wire request when a commit crossed a
+// generation change, and at this layer it is a benign "rejoin and retry"
+// signal, not a failure of the offsets we still own.
+func commitResponseError(resp *kmsg.OffsetCommitResponse) error {
+	if resp == nil {
+		return nil
+	}
+	var errs []error
+	for _, topic := range resp.Topics {
+		for _, p := range topic.Partitions {
+			if p.ErrorCode == 0 || p.ErrorCode == kerr.RebalanceInProgress.Code {
+				continue
+			}
+			errs = append(errs, fmt.Errorf(
+				"offset commit failed for topic %q partition %d: %w",
+				topic.Topic, p.Partition, kerr.ErrorForCode(p.ErrorCode),
+			))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // newConsumer creates a Consumer from the shared config, kgo client, and

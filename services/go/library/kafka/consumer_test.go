@@ -8,7 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/twmb/franz-go/pkg/kerr"
 	"github.com/twmb/franz-go/pkg/kgo"
+	"github.com/twmb/franz-go/pkg/kmsg"
 
 	"go-services/library/assert"
 	"go-services/library/kafka/internal/consumer"
@@ -560,4 +562,33 @@ func TestConsumer_WaitForWorkersToStop_Completes(t *testing.T) {
 	c.runState.Reset()
 	_, beginErr := c.runState.Begin()
 	require.NoError(t, beginErr, "run state should be reusable after clean shutdown")
+}
+
+func TestCommitResponseError_IgnoresCleanAndRebalanceResponses(t *testing.T) {
+	require.NoError(t, commitResponseError(nil), "nil response should be clean")
+
+	resp := &kmsg.OffsetCommitResponse{Topics: []kmsg.OffsetCommitResponseTopic{{
+		Topic: "t",
+		Partitions: []kmsg.OffsetCommitResponseTopicPartition{
+			{Partition: 0, ErrorCode: 0},
+			{Partition: 1, ErrorCode: kerr.RebalanceInProgress.Code},
+		},
+	}}}
+	require.NoError(t, commitResponseError(resp),
+		"zero codes and RebalanceInProgress are benign")
+}
+
+func TestCommitResponseError_ReportsPartitionFailures(t *testing.T) {
+	resp := &kmsg.OffsetCommitResponse{Topics: []kmsg.OffsetCommitResponseTopic{{
+		Topic: "t",
+		Partitions: []kmsg.OffsetCommitResponseTopicPartition{
+			{Partition: 2, ErrorCode: kerr.IllegalGeneration.Code},
+			{Partition: 3, ErrorCode: 0},
+		},
+	}}}
+
+	err := commitResponseError(resp)
+	require.Error(t, err, "partition failure must surface")
+	assert.ErrorIs(t, err, kerr.IllegalGeneration, "should wrap kerr error")
+	assert.ErrorContains(t, err, `topic "t" partition 2`, "should identify the partition")
 }
