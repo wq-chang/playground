@@ -249,7 +249,8 @@ func (c *Consumer) Run(ctx context.Context) error {
 		if shutdownErr := c.committer.Finalize(
 			shutdownCtx,
 			states,
-			"failed to commit processed offsets on shutdown"); shutdownErr != nil {
+			"failed to commit processed offsets on shutdown",
+		); shutdownErr != nil {
 			if err == nil {
 				err = shutdownErr
 			}

@@ -12,19 +12,14 @@ import (
 //
 // Use: Begin → Go(...) / Fail(...) → Stop → Wait → Reset.
 type RunState struct {
-	ctx     context.Context
-	err     error
-	cancel  context.CancelFunc
-	errOnce sync.Once
-
-	// Goroutine tracking: an active count plus a channel closed exactly once
-	// when the count transitions to zero. The consumer uses Done() to wait
-	// for drain without spawning a shadow goroutine (a sync.WaitGroup offers
-	// no selectable signal).
-	mu       sync.Mutex
-	n        int
+	ctx      context.Context
+	err      error
+	cancel   context.CancelFunc
 	doneCh   chan struct{}
+	n        int
+	errOnce  sync.Once
 	doneOnce sync.Once
+	mu       sync.Mutex
 }
 
 // NewRunState creates a run-lifecycle owner in the idle state.

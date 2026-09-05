@@ -668,7 +668,7 @@ func TestRecordExecutor_ExecuteBatch_RetryFailedAtIsRelativeToPassedSlice(t *tes
 			return consumer.BatchResult{Err: errors.New("fail again"), FailedAt: 0}
 		},
 		consumer.AckModeAtLeastOnce,
-		consumer.FailurePolicy{MaxAttempts: 2, RetryBackoff: 0, OnExhausted: consumer.ExhaustedActionStop},
+		consumer.FailurePolicy{DLQ: nil, RetryBackoff: 0, MaxAttempts: 2, OnExhausted: consumer.ExhaustedActionStop},
 	)
 
 	records := []*kgo.Record{{Topic: "t", Offset: 0}, {Topic: "t", Offset: 1}}

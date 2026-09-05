@@ -122,7 +122,7 @@ func formatRecursive(cfg *config, b *strings.Builder, visited map[uintptr]bool, 
 			b.WriteString(strconv.FormatBool(t))
 			return
 		case []byte:
-			(formatBytes(b, t, cfg.maxBytes))
+			formatBytes(b, t, cfg.maxBytes)
 			return
 		case error:
 			b.WriteString(t.Error())

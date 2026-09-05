@@ -274,7 +274,9 @@ func (s *stubFetchClient) CommitOffsetsSync(ctx context.Context, offsets map[str
 
 // newTestConsumer creates a Consumer with stubbed collaborators for rebalance tests.
 func newTestConsumer(t *testing.T, stub *stubFetchClient) *Consumer {
-	return newTestConsumerWithConfig(t, stub, &config{shutdownTimeout: time.Second})
+	cfg := newConfig([]string{"localhost:9092"}, "test-group")
+	WithShutdownTimeout(time.Second)(cfg)
+	return newTestConsumerWithConfig(t, stub, cfg)
 }
 
 func newTestConsumerWithConfig(t *testing.T, stub *stubFetchClient, cfg *config) *Consumer {
@@ -616,15 +618,22 @@ func TestConsumer_OnPartitionsRevoked_BoundedDrain(t *testing.T) {
 	// A drain that never completes (state never MarkStopped) must be cut off
 	// by the shutdown timeout instead of hanging the rebalance callback.
 	stub := &stubFetchClient{}
-	c := newTestConsumerWithConfig(t, stub, &config{shutdownTimeout: 30 * time.Millisecond})
+	cfg := newConfig([]string{"localhost:9092"}, "test-group")
+	WithShutdownTimeout(30 * time.Millisecond)(cfg)
+	c := newTestConsumerWithConfig(t, stub, cfg)
 
 	key := consumer.Key{Topic: "t", Partition: 0}
 	sub := consumer.Subscription{
-		Topic:         "t",
-		Handler:       func(_ context.Context, _ *kgo.Record) error { return nil },
-		BatchHandler:  nil,
-		FailurePolicy: consumer.FailurePolicy{MaxAttempts: 1},
-		AckMode:       consumer.AckModeAtLeastOnce,
+		Topic:        "t",
+		Handler:      func(_ context.Context, _ *kgo.Record) error { return nil },
+		BatchHandler: nil,
+		FailurePolicy: consumer.FailurePolicy{
+			DLQ:          nil,
+			RetryBackoff: 0,
+			MaxAttempts:  1,
+			OnExhausted:  consumer.ExhaustedActionUnspecified,
+		},
+		AckMode: consumer.AckModeAtLeastOnce,
 	}
 	state, _, err := c.registry.GetOrCreate(context.Background(), key, sub, 10)
 	require.NoError(t, err, "GetOrCreate should succeed")
