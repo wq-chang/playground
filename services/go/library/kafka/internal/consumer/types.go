@@ -42,14 +42,21 @@ type Handler func(ctx context.Context, record *kgo.Record) error
 //
 // Returning a zero-value BatchResult marks the whole batch as successfully
 // handled. To report a failure after successfully handling a contiguous prefix,
-// set Err and FailedAt to the index of the first failed record in the input
-// slice.
+// set Err and FailedAt to the index of the first failed record in the slice
+// passed to the handler on that attempt.
 type BatchHandler func(ctx context.Context, records []*kgo.Record) BatchResult
 
 // BatchResult reports the outcome of a BatchHandler invocation.
 //
-// The zero value means the whole input batch succeeded. FailedAt is only used
-// when Err is non-nil, and must point at the first failed record in the batch.
+// The zero value means the whole input slice succeeded. FailedAt is only used
+// when Err is non-nil and is the 0-based index of the first failed record in
+// the slice passed to the handler on that attempt: the full batch on the
+// first attempt, and records[resolvedCount:] (starting at the first
+// unresolved record) on each retry. The natural `for i, r := range records`
+// pattern is correct without bookkeeping; do not carry original-batch indices
+// between attempts. To identify a record across attempts, use its Kafka
+// offset (record.Offset), which is stable. Out-of-range values are a loud
+// error (fail-fast) rather than a silent mis-position.
 type BatchResult struct {
 	Err      error
 	FailedAt int

@@ -11,6 +11,7 @@ import (
 
 	"go-services/library/assert"
 	"go-services/library/kafka/internal/consumer"
+	"go-services/library/require"
 	"go-services/library/testlogger"
 )
 
@@ -646,4 +647,40 @@ func TestRecordExecutor_ExecuteBatch_UnsupportedExhaustedAction(t *testing.T) {
 	assert.Equal(t, resolved, 0, "should not resolve with unsupported action")
 	assert.NotNil(t, cause, "should return error for unsupported exhausted action")
 	assert.False(t, pauseTopic, "should not pause on unsupported action")
+}
+
+func TestRecordExecutor_ExecuteBatch_RetryFailedAtIsRelativeToPassedSlice(t *testing.T) {
+	exec := consumer.NewRecordExecutor(testlogger.NewLogger())
+	var handlerCalls atomic.Int32
+	var seenSlices [][]*kgo.Record
+
+	sub := testSubBatch(
+		func(ctx context.Context, records []*kgo.Record) consumer.BatchResult {
+			n := handlerCalls.Add(1)
+			seenSlices = append(seenSlices, records)
+			if n == 1 {
+				// Attempt 1 receives the full batch [A, B]; A succeeded and B
+				// failed — FailedAt 1 is the 0-based index into THIS slice.
+				return consumer.BatchResult{Err: errors.New("fail"), FailedAt: 1}
+			}
+			// Retry receives only the unresolved suffix [B]; B is index 0 of
+			// this slice. Returning 1 here would be out of range (clamp error).
+			return consumer.BatchResult{Err: errors.New("fail again"), FailedAt: 0}
+		},
+		consumer.AckModeAtLeastOnce,
+		consumer.FailurePolicy{MaxAttempts: 2, RetryBackoff: 0, OnExhausted: consumer.ExhaustedActionStop},
+	)
+
+	records := []*kgo.Record{{Topic: "t", Offset: 0}, {Topic: "t", Offset: 1}}
+	resolvedCount, cause, pauseTopic := exec.ExecuteBatch(context.Background(), sub, records, nil)
+
+	assert.Equal(t, 2, handlerCalls.Load(), "handler should be retried on the suffix")
+	require.SliceLen(t, seenSlices, 2, "should see two invocations")
+	assert.Equal(t, 2, len(seenSlices[0]), "first attempt gets the full batch")
+	require.SliceLen(t, seenSlices[1], 1, "retry gets only the unresolved suffix")
+	assert.Equal(t, 1, seenSlices[1][0].Offset, "retry slice starts at the first unresolved record")
+
+	assert.Equal(t, 1, resolvedCount, "first record stays resolved across retries")
+	assert.NotNil(t, cause, "exhaustion on the retry should surface an error")
+	assert.True(t, pauseTopic, "stop exhaustion should pause the topic")
 }
