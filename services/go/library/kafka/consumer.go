@@ -282,17 +282,11 @@ func (c *Consumer) Run(ctx context.Context) error {
 // false when the timeout elapsed first (the remaining goroutines are
 // abandoned and logged as an error).
 func (c *Consumer) waitForWorkersToStop(ctx context.Context) bool {
-	done := make(chan struct{})
-	go func() {
-		c.runState.Wait()
-		close(done)
-	}()
-
 	timer := time.NewTimer(c.cfg.shutdownTimeout)
 	defer timer.Stop()
 
 	select {
-	case <-done:
+	case <-c.runState.Done():
 		return true
 	case <-timer.C:
 		c.log.ErrorContext(

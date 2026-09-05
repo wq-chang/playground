@@ -209,3 +209,66 @@ func TestRunState_Concurrent_FailAndStop(t *testing.T) {
 	assert.ErrorIs(t, rs.Err(), sentinel, "Err should contain the sentinel error")
 	assert.ErrorIs(t, ctx.Err(), context.Canceled, "context should be cancelled")
 }
+
+func TestRunState_Done_ClosesWhenAllGoroutinesExit(t *testing.T) {
+	rs := consumer.NewRunState()
+	_, err := rs.Begin()
+	require.NoError(t, err, "Begin should succeed")
+
+	rs.Go(func() { time.Sleep(10 * time.Millisecond) })
+	rs.Go(func() { time.Sleep(20 * time.Millisecond) })
+
+	select {
+	case <-rs.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("Done should close after all goroutines exit")
+	}
+}
+
+func TestRunState_Done_FreshPerRun(t *testing.T) {
+	rs := consumer.NewRunState()
+
+	ctx1, err := rs.Begin()
+	require.NoError(t, err, "first Begin should succeed")
+	assert.NotNil(t, ctx1, "first run should have a context")
+	rs.Go(func() {})
+	rs.Wait()
+	done1 := rs.Done()
+	select {
+	case <-done1:
+	default:
+		t.Fatal("run 1 Done should be closed after Wait")
+	}
+
+	rs.Stop()
+	rs.Reset()
+
+	ctx2, err := rs.Begin()
+	require.NoError(t, err, "second Begin should succeed")
+	done2 := rs.Done()
+	if done1 == done2 {
+		t.Fatal("Done channel must be fresh per run")
+	}
+	select {
+	case <-done2:
+		t.Fatal("run 2 Done must not be closed before its goroutines exit")
+	default:
+	}
+	assert.NotNil(t, ctx2, "second run should have a context")
+}
+
+func TestRunState_Wait_ReturnsImmediatelyWithoutGoroutines(t *testing.T) {
+	rs := consumer.NewRunState()
+	_, err := rs.Begin()
+	require.NoError(t, err, "Begin should succeed")
+
+	done := make(chan struct{})
+	go func() { rs.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Wait with zero goroutines must return immediately")
+	}
+	rs.Stop()
+	rs.Reset()
+}

@@ -15,9 +15,16 @@ type RunState struct {
 	ctx     context.Context
 	err     error
 	cancel  context.CancelFunc
-	wg      sync.WaitGroup
 	errOnce sync.Once
-	mu      sync.Mutex
+
+	// Goroutine tracking: an active count plus a channel closed exactly once
+	// when the count transitions to zero. The consumer uses Done() to wait
+	// for drain without spawning a shadow goroutine (a sync.WaitGroup offers
+	// no selectable signal).
+	mu       sync.Mutex
+	n        int
+	doneCh   chan struct{}
+	doneOnce sync.Once
 }
 
 // NewRunState creates a run-lifecycle owner in the idle state.
@@ -40,8 +47,19 @@ func (rs *RunState) Begin() (context.Context, error) {
 	rs.cancel = cancel
 	rs.err = nil
 	rs.errOnce = sync.Once{}
-	rs.wg = sync.WaitGroup{}
+	rs.n = 0
+	rs.doneCh = make(chan struct{})
+	rs.doneOnce = sync.Once{}
 	return ctx, nil
+}
+
+// Done returns a channel that is closed when all goroutines started via Go
+// have completed. Returns nil before Begin. The channel is per-run: Begin
+// allocates a fresh one.
+func (rs *RunState) Done() <-chan struct{} {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	return rs.doneCh
 }
 
 // Context returns the current run context, or nil if no run is active.
@@ -85,14 +103,46 @@ func (rs *RunState) Stop() {
 	}
 }
 
-// Go runs a function in a new goroutine tracked by the run's wait group.
+// Go runs a function in a new goroutine tracked by the run. Like
+// sync.WaitGroup, it must not be called after the run's wait has begun.
 func (rs *RunState) Go(fn func()) {
-	rs.wg.Go(fn)
+	rs.mu.Lock()
+	rs.n++
+	rs.mu.Unlock()
+
+	go func() {
+		defer rs.doneGoroutine()
+		fn()
+	}()
 }
 
-// Wait blocks until all goroutines started via Go have completed.
+// doneGoroutine decrements the active count and closes Done when the count
+// reaches zero. The close happens under the mutex so it cannot race Begin's
+// per-run doneOnce reset.
+func (rs *RunState) doneGoroutine() {
+	rs.mu.Lock()
+	rs.n--
+	zero := rs.n == 0
+	if zero && rs.doneCh != nil {
+		rs.doneOnce.Do(func() { close(rs.doneCh) })
+	}
+	rs.mu.Unlock()
+}
+
+// Wait blocks until all goroutines started via Go have completed. Returns
+// immediately if none are active.
 func (rs *RunState) Wait() {
-	rs.wg.Wait()
+	rs.mu.Lock()
+	ch := rs.doneCh
+	if rs.n == 0 && ch != nil {
+		// No goroutines to wait for — close the signal synchronously so a
+		// zero-work run still completes its Wait (mirrors wg.Wait).
+		rs.doneOnce.Do(func() { close(ch) })
+	}
+	rs.mu.Unlock()
+	if ch != nil {
+		<-ch
+	}
 }
 
 // Reset clears the run state so a new run can begin. errOnce is reset by
