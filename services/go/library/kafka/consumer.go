@@ -44,6 +44,18 @@ type Consumer struct {
 	committer    *consumer.Committer
 	dispatcher   *consumer.Dispatcher
 	workerRunner *consumer.WorkerRunner
+	// fetchResumer clears stale partition-level pauses in the kgo client when
+	// partitions are revoked. The full client satisfies this interface; it is
+	// an interface so rebalance behavior is unit-testable.
+	fetchResumer fetchResumer
+}
+
+// fetchResumer is the subset of *kgo.Client used to clear stale
+// partition-level pauses when partitions are revoked. kgo's pause set is
+// sticky and survives rebalances, so a leftover pause must be cleared
+// explicitly. The full client satisfies this interface.
+type fetchResumer interface {
+	ResumeFetchPartitions(topicPartitions map[string][]int32)
 }
 
 // commitOffsetsSync wraps kgo.Client.CommitOffsetsSync's callback-based API
@@ -167,6 +179,7 @@ func newConsumer(cfg *config, kgoClient *kgo.Client, dlqProducer DLQProducer) (*
 		committer:    committer,
 		dispatcher:   dispatcher,
 		workerRunner: workerRunner,
+		fetchResumer: kgoClient,
 	}, nil
 }
 
@@ -327,8 +340,25 @@ func (c *Consumer) onPartitionsRevoked(
 		return
 	}
 
-	if cl != nil {
-		cl.PauseFetchPartitions(partitions)
+	// Why resume and not pause: kgo's pause set is sticky — revoking a
+	// partition does NOT clear a partition-level pause (verified in
+	// franz-go v1.21.1: the paused set is only mutated by the public
+	// Pause*/Resume* methods; the join/sync/revoke machinery never touches
+	// it), and fetch-request building skips any cursor where
+	// paused.has(topic, partition). A leftover pause — from the dispatcher's
+	// backpressure pause, or a previous revoke — would therefore silently
+	// starve the partition if it is ever re-assigned to this member.
+	// Pausing revoked partitions is also unnecessary: with
+	// BlockRebalanceOnPoll, franz-go guarantees that no subsequent poll
+	// returns records for revoked partitions once this callback completes.
+	// So instead of pausing, we resume — clearing stale partition-level
+	// pauses exactly when the partition leaves us. Topic-level pauses from
+	// the stop-on-exhausted policy (PauseFetchTopics) are a separate kgo
+	// pause set and are not affected.
+	if c.fetchResumer != nil {
+		c.fetchResumer.ResumeFetchPartitions(partitions)
+	} else if cl != nil {
+		cl.ResumeFetchPartitions(partitions)
 	}
 
 	states := c.registry.BeginClosing(partitions)

@@ -302,6 +302,7 @@ func newTestConsumer(t *testing.T, stub *stubFetchClient) *Consumer {
 		committer:    committer,
 		dispatcher:   nil,
 		workerRunner: nil,
+		fetchResumer: stub,
 	}
 }
 
@@ -591,4 +592,18 @@ func TestCommitResponseError_ReportsPartitionFailures(t *testing.T) {
 	require.Error(t, err, "partition failure must surface")
 	assert.ErrorIs(t, err, kerr.IllegalGeneration, "should wrap kerr error")
 	assert.ErrorContains(t, err, `topic "t" partition 2`, "should identify the partition")
+}
+
+func TestConsumer_OnPartitionsRevoked_ResumesNotPauses(t *testing.T) {
+	stub := &stubFetchClient{}
+	c := newTestConsumer(t, stub)
+
+	c.onPartitionsRevoked(context.Background(), nil, map[string][]int32{"t": {0, 1}})
+
+	stub.mu.Lock()
+	defer stub.mu.Unlock()
+	assert.Equal(t, 0, len(stub.pausedParts), "revoke must not pause partitions")
+	require.Equal(t, 1, len(stub.resumedParts), "revoke must resume the revoked partitions")
+	assert.Equal(t, map[string][]int32{"t": {0, 1}}, stub.resumedParts[0],
+		"should resume exactly the revoked set")
 }
