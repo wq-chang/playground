@@ -183,6 +183,12 @@ func newConsumer(cfg *config, kgoClient *kgo.Client, dlqProducer DLQProducer) (*
 	}, nil
 }
 
+// errClientClosed is returned by runDispatch when the underlying kgo client
+// was closed (Client.Close) while Run was active. Run converts it into a clean
+// end signal with an info log: no commit is possible against a closed client,
+// and attempting one would surface a spurious shutdown error.
+var errClientClosed = errors.New("consumer client closed")
+
 // AddSubscription registers a new topic subscription.
 func (c *Consumer) AddSubscription(subscription Subscription) error {
 	normalized, err := subscription.Normalize()
@@ -203,6 +209,12 @@ func (c *Consumer) AddBatchTopic(topic string, handler BatchHandler) error {
 }
 
 // Run starts the consumer loop.
+//
+// Return contract: a non-nil error means a problem (fatal handler error,
+// caller context cancellation, or a shutdown/commit failure). A nil return
+// uniquely means the underlying kgo client was closed externally
+// (Client.Close) while the consumer was running; a clean stop is logged as
+// "consumer stopped: client closed while running".
 func (c *Consumer) Run(ctx context.Context) error {
 	if c.kgoClient == nil {
 		return fmt.Errorf("consumer client is not initialized")
@@ -225,12 +237,13 @@ func (c *Consumer) Run(ctx context.Context) error {
 
 	// Dispatch loop.
 	err = c.runDispatch(pollCtx)
+	clientClosed := errors.Is(err, errClientClosed)
 
 	// Shut down all partition workers unconditionally so that Wait() can
 	// complete even when a fatal error has been recorded.
 	states := c.registry.BeginClosingAll()
 
-	if runErr := c.runState.Err(); runErr == nil {
+	if runErr := c.runState.Err(); runErr == nil && !clientClosed {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), c.cfg.shutdownTimeout)
 		defer cancel()
 		if shutdownErr := c.committer.Finalize(
@@ -242,6 +255,9 @@ func (c *Consumer) Run(ctx context.Context) error {
 			}
 		}
 	} else {
+		// Skip the final commit when the client was closed externally: the
+		// commit is guaranteed to fail against a closed client, and the
+		// failure would otherwise surface as a spurious shutdown error.
 		c.registry.Cleanup(states)
 	}
 
@@ -270,6 +286,9 @@ func (c *Consumer) Run(ctx context.Context) error {
 	switch {
 	case fatalErr != nil:
 		return fatalErr
+	case errors.Is(err, errClientClosed):
+		c.log.InfoContext(ctx, "consumer stopped: client closed while running")
+		return nil
 	case err == nil || errors.Is(err, context.Canceled):
 		return ctx.Err()
 	default:
@@ -304,7 +323,7 @@ func (c *Consumer) runDispatch(ctx context.Context) error {
 	for {
 		fetches := cl.PollRecords(ctx, maxRecords)
 		if fetches.IsClientClosed() {
-			return nil
+			return errClientClosed
 		}
 		if err := fetches.Err(); err != nil {
 			cl.AllowRebalance()

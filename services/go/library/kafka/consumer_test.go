@@ -637,3 +637,32 @@ func TestConsumer_OnPartitionsRevoked_BoundedDrain(t *testing.T) {
 	require.Error(t, err, "blocked drain should fail the revoke after the timeout")
 	assert.ErrorIs(t, err, context.DeadlineExceeded, "drain should abort with deadline exceeded")
 }
+
+func TestConsumer_Run_ExternalClientClose_ReturnsCleanSignal(t *testing.T) {
+	kgoClient := newTestKgoClient(t)
+	logger, capture := testlogger.New()
+	cfg := newConfig([]string{"localhost:9092"}, "test-group")
+	WithShutdownTimeout(100 * time.Millisecond)(cfg)
+	// A long flush interval keeps the commit loop's ticker out of the test
+	// window so the outcome is deterministic.
+	WithFlushInterval(time.Hour)(cfg)
+	cfg.logger = logger
+	c, err := newConsumer(cfg, kgoClient, nil)
+	require.NoError(t, err, "newConsumer should succeed")
+
+	// A dirty partition makes the shutdown finalize attempt a real commit,
+	// which cannot succeed against a closed client.
+	addTestPartition(t, c, "t", 0, 5, 4, true)
+
+	kgoClient.Close()
+
+	err = c.Run(context.Background())
+	require.NoError(t, err, "external client close should end Run cleanly")
+
+	var msgs []string
+	for _, e := range capture.GetOutput() {
+		msgs = append(msgs, e.Msg)
+	}
+	assert.SliceContains(t, msgs, "consumer stopped: client closed while running",
+		"external close should be signaled with a clean, logged stop")
+}
