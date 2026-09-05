@@ -83,6 +83,8 @@ hs_e_
 .envrc.local
 .direnv/
 volume/
+.pi-memories/
+.pi-subagents/
 
 
 # ====================

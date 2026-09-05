@@ -17,7 +17,7 @@ pipeline:
   syncWorkspace: false
 
 telemetry: false
-versionConstraint: '2.2.3'
+versionConstraint: '2.5.3'
 
 vcs:
   client: 'git'

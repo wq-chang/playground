@@ -6,20 +6,22 @@ formatters:
   settings:
     gofumpt:
       module-path: go-services
-      extra-rules: true
+      extra:
+        group-params: true
     goimports:
       local-prefixes:
         - go-services
 linters:
   enable:
-    - exhaustruct
+    - exhaustruct_v5
   settings:
     errcheck:
       check-type-assertions: true
       check-blank: true
       verbose: true
-    exhaustruct:
-      include:
+    exhaustruct_v5:
+      explicit-mode: true
+      enforce-patterns:
         - "go-services/.*"
       allow-empty: true
       allow-empty-returns: true
