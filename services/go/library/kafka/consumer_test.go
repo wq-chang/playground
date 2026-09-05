@@ -274,6 +274,10 @@ func (s *stubFetchClient) CommitOffsetsSync(ctx context.Context, offsets map[str
 
 // newTestConsumer creates a Consumer with stubbed collaborators for rebalance tests.
 func newTestConsumer(t *testing.T, stub *stubFetchClient) *Consumer {
+	return newTestConsumerWithConfig(t, stub, &config{shutdownTimeout: time.Second})
+}
+
+func newTestConsumerWithConfig(t *testing.T, stub *stubFetchClient, cfg *config) *Consumer {
 	t.Helper()
 
 	router := consumer.NewRouter(nil)
@@ -291,7 +295,7 @@ func newTestConsumer(t *testing.T, stub *stubFetchClient) *Consumer {
 	)
 
 	return &Consumer{
-		cfg:          nil,
+		cfg:          cfg,
 		kgoClient:    nil,
 		dlqProducer:  nil,
 		log:          testlogger.NewLogger(),
@@ -606,4 +610,30 @@ func TestConsumer_OnPartitionsRevoked_ResumesNotPauses(t *testing.T) {
 	require.Equal(t, 1, len(stub.resumedParts), "revoke must resume the revoked partitions")
 	assert.Equal(t, map[string][]int32{"t": {0, 1}}, stub.resumedParts[0],
 		"should resume exactly the revoked set")
+}
+
+func TestConsumer_OnPartitionsRevoked_BoundedDrain(t *testing.T) {
+	// A drain that never completes (state never MarkStopped) must be cut off
+	// by the shutdown timeout instead of hanging the rebalance callback.
+	stub := &stubFetchClient{}
+	c := newTestConsumerWithConfig(t, stub, &config{shutdownTimeout: 30 * time.Millisecond})
+
+	key := consumer.Key{Topic: "t", Partition: 0}
+	sub := consumer.Subscription{
+		Topic:         "t",
+		Handler:       func(_ context.Context, _ *kgo.Record) error { return nil },
+		BatchHandler:  nil,
+		FailurePolicy: consumer.FailurePolicy{MaxAttempts: 1},
+		AckMode:       consumer.AckModeAtLeastOnce,
+	}
+	state, _, err := c.registry.GetOrCreate(context.Background(), key, sub, 10)
+	require.NoError(t, err, "GetOrCreate should succeed")
+	state.AdvanceCommitOffset(&kgo.Record{Topic: "t", Partition: 0, Offset: 9, LeaderEpoch: 0})
+	// Do NOT call MarkStopped — the drain wait must hit the timeout.
+
+	c.onPartitionsRevoked(context.Background(), nil, map[string][]int32{"t": {0}})
+
+	err = c.runState.Err()
+	require.Error(t, err, "blocked drain should fail the revoke after the timeout")
+	assert.ErrorIs(t, err, context.DeadlineExceeded, "drain should abort with deadline exceeded")
 }

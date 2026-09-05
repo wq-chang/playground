@@ -362,7 +362,18 @@ func (c *Consumer) onPartitionsRevoked(
 	}
 
 	states := c.registry.BeginClosing(partitions)
-	if err := c.committer.Finalize(ctx, states, "failed to commit processed offsets on revoke"); err != nil {
+
+	// The rebalance hook's context is the client's context with no deadline,
+	// so bound the drain + final commit ourselves: draining past the group's
+	// rebalance timeout gets this member kicked and stalls the whole group's
+	// rebalance. A bounded timeout converts that hang into runState.Fail and
+	// a restart, mirroring the graceful-shutdown path. Deriving from the
+	// hook context (not context.Background) preserves the existing
+	// "callback context cancellation aborts the revoke" semantics.
+	revokeCtx, cancel := context.WithTimeout(ctx, c.cfg.shutdownTimeout)
+	defer cancel()
+
+	if err := c.committer.Finalize(revokeCtx, states, "failed to commit processed offsets on revoke"); err != nil {
 		c.log.ErrorContext(ctx, "failed to commit processed offsets on revoke", "err", err)
 		c.runState.Fail(err)
 	}
