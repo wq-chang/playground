@@ -87,6 +87,16 @@ func (s *PartitionState) Subscription() Subscription {
 	return s.subscription
 }
 
+// IsAccepting reports whether the state is still accepting new work (not yet
+// closing/stopped). The dispatcher uses it after applying a kgo pause to
+// detect a revoke that raced the pause: the undo-resume must follow the kgo
+// call, not the earlier flag set.
+func (s *PartitionState) IsAccepting() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.accepting
+}
+
 // Done returns a read-only channel that is closed when the worker runner
 // has finished processing this partition.
 func (s *PartitionState) Done() <-chan struct{} {

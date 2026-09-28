@@ -29,13 +29,14 @@ type pendingBatch struct {
 // management. It groups polled records by topic-partition, enqueues them into
 // partition workers, and applies backpressure pauses when queues fill up.
 type Dispatcher struct {
-	router          *Router
-	pauses          *PauseRegistry
-	registry        *PartitionRegistry
-	partitionPauser partitionPauser
-	startFn         func(*PartitionState)
-	capacityCh      chan struct{}
-	queueCapacity   int
+	router           *Router
+	pauses           *PauseRegistry
+	registry         *PartitionRegistry
+	partitionPauser  partitionPauser
+	partitionResumer partitionResumer // clears sticky kgo pauses when a pause raced a revoke
+	startFn          func(*PartitionState)
+	capacityCh       chan struct{}
+	queueCapacity    int
 }
 
 // NewDispatcher creates a dispatcher with the given dependencies.
@@ -45,18 +46,20 @@ func NewDispatcher(
 	pauses *PauseRegistry,
 	registry *PartitionRegistry,
 	partitionPauser partitionPauser,
+	partitionResumer partitionResumer,
 	startFn func(*PartitionState),
 	queueCapacity int,
 	capacityCh chan struct{},
 ) *Dispatcher {
 	return &Dispatcher{
-		router:          router,
-		pauses:          pauses,
-		registry:        registry,
-		partitionPauser: partitionPauser,
-		startFn:         startFn,
-		queueCapacity:   queueCapacity,
-		capacityCh:      capacityCh,
+		router:           router,
+		pauses:           pauses,
+		registry:         registry,
+		partitionPauser:  partitionPauser,
+		partitionResumer: partitionResumer,
+		startFn:          startFn,
+		queueCapacity:    queueCapacity,
+		capacityCh:       capacityCh,
 	}
 }
 
@@ -116,9 +119,23 @@ func (d *Dispatcher) Dispatch(
 
 				// Apply backpressure pause if queue is at high watermark.
 				if state.TryPauseBackpressure() {
+					key := cursor.batch.Key
 					d.partitionPauser.PauseFetchPartitions(map[string][]int32{
-						cursor.batch.Key.Topic: {cursor.batch.Key.Partition},
+						key.Topic: {key.Partition},
 					})
+					// A revoke (or partition loss) can complete between
+					// TryPauseBackpressure and the kgo pause above. kgo's pause
+					// set is sticky — it survives rebalances — so if the revoke's
+					// resume ran before the pause landed, the pause would silently
+					// starve the partition when it is re-assigned to this member.
+					// Undo it if the partition is already closing. Any revoke that
+					// races the check still resumes unconditionally in
+					// onPartitionsRevoked.
+					if !state.IsAccepting() && d.partitionResumer != nil {
+						d.partitionResumer.ResumeFetchPartitions(map[string][]int32{
+							key.Topic: {key.Partition},
+						})
+					}
 				}
 			}
 		}

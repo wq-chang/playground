@@ -152,6 +152,7 @@ func newConsumer(cfg *config, kgoClient *kgo.Client, dlqProducer DLQProducer) (*
 		pauses,
 		registry,
 		kgoClient,
+		kgoClient,
 		workerRunner.Start,
 		cfg.queueCapacity,
 		capacityCh,
@@ -188,6 +189,38 @@ func newConsumer(cfg *config, kgoClient *kgo.Client, dlqProducer DLQProducer) (*
 // end signal with an info log: no commit is possible against a closed client,
 // and attempting one would surface a spurious shutdown error.
 var errClientClosed = errors.New("consumer client closed")
+
+// resolveRunError maps shutdown outcomes to the Run return value.
+//
+// The documented Run contract: a non-nil error means a problem (fatal handler
+// error, caller context cancellation, or a shutdown/commit failure); nil
+// uniquely means the underlying kgo client was closed externally
+// (Client.Close). A fatal error whose root cause is kgo.ErrClientClosed
+// (e.g. a periodic/debounced commit that was in flight when the client
+// closed) is that same clean-close signal, not a consumer failure — the
+// commit could not have succeeded against a closed client.
+func resolveRunError(
+	fatalErr error,
+	dispatchErr error,
+	ctx context.Context,
+	log *slog.Logger,
+) error {
+	switch {
+	case fatalErr != nil:
+		if errors.Is(fatalErr, kgo.ErrClientClosed) {
+			log.InfoContext(ctx, "consumer stopped: client closed while running")
+			return nil
+		}
+		return fatalErr
+	case errors.Is(dispatchErr, errClientClosed):
+		log.InfoContext(ctx, "consumer stopped: client closed while running")
+		return nil
+	case dispatchErr == nil || errors.Is(dispatchErr, context.Canceled):
+		return ctx.Err()
+	default:
+		return dispatchErr
+	}
+}
 
 // AddSubscription registers a new topic subscription.
 func (c *Consumer) AddSubscription(subscription Subscription) error {
@@ -283,18 +316,7 @@ func (c *Consumer) Run(ctx context.Context) error {
 	fatalErr := c.runState.Err()
 	c.runState.Reset()
 
-	// Error priority.
-	switch {
-	case fatalErr != nil:
-		return fatalErr
-	case errors.Is(err, errClientClosed):
-		c.log.InfoContext(ctx, "consumer stopped: client closed while running")
-		return nil
-	case err == nil || errors.Is(err, context.Canceled):
-		return ctx.Err()
-	default:
-		return err
-	}
+	return resolveRunError(fatalErr, err, ctx, c.log)
 }
 
 // waitForWorkersToStop waits for all pipeline goroutines to stop, bounded by
@@ -400,6 +422,12 @@ func (c *Consumer) onPartitionsLost(
 ) {
 	c.log.WarnContext(ctx, "partitions lost; dropping in-memory commit progress", "partitions", partitions)
 	c.registry.DropLost(partitions)
+	// kgo's pause set is sticky: drop the state but clear any partition-level
+	// pause left on the lost partitions, or a later re-assignment would
+	// silently starve them.
+	if c.fetchResumer != nil {
+		c.fetchResumer.ResumeFetchPartitions(partitions)
+	}
 }
 
 // mergeRunContexts combines the parent context with the run context so that

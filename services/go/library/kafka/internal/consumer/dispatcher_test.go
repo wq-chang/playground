@@ -3,6 +3,8 @@ package consumer_test
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -50,6 +52,101 @@ func (s *stubFetchPauser) PauseFetchPartitions(p map[string][]int32) map[string]
 	return nil
 }
 
+// fetchStub records pause/resume calls in order and can inject a revoke the
+// moment a pause is about to be recorded — emulating the revoke callback
+// landing between TryPauseBackpressure (flag set) and the kgo pause.
+type fetchStub struct {
+	onPause func()
+	calls   []string // "pause:<topic>:<partition>" / "resume:<topic>:<partition>"
+	mu      sync.Mutex
+}
+
+func (s *fetchStub) PauseFetchPartitions(parts map[string][]int32) map[string][]int32 {
+	if s.onPause != nil {
+		s.onPause() // run before taking the lock to avoid self-deadlock
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for t, ps := range parts {
+		for _, p := range ps {
+			s.calls = append(s.calls, fmt.Sprintf("pause:%s:%d", t, p))
+		}
+	}
+	return nil
+}
+
+func (s *fetchStub) ResumeFetchPartitions(parts map[string][]int32) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for t, ps := range parts {
+		for _, p := range ps {
+			s.calls = append(s.calls, fmt.Sprintf("resume:%s:%d", t, p))
+		}
+	}
+}
+
+// TestDispatcher_RevokeRacingPauseDoesNotLeaveStalePause reproduces the
+// ordering race: the dispatcher's TryPauseBackpressure sets the flag, the
+// revoke callback runs BeginClosing (flag reset) + ResumeFetchPartitions, and
+// only then the dispatcher's kgo PauseFetchPartitions lands. kgo's pause set
+// is sticky — it survives rebalances — so the racing pause must be undone by a
+// follow-up resume, or the partition silently starves when re-assigned to
+// this member.
+func TestDispatcher_RevokeRacingPauseDoesNotLeaveStalePause(t *testing.T) {
+	stub := &fetchStub{}
+	router := consumer.NewRouter(func(...string) {})
+	require.NoError(t, router.Register(sub("t")), "register subscription")
+	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
+
+	capacityCh := make(chan struct{}, 1)
+	d := consumer.NewDispatcher(router, consumer.NewPauseRegistry(time.Now, nil), registry, stub, stub, func(*consumer.PartitionState) {}, 64, capacityCh)
+
+	// A full-capacity single batch forces the backpressure pause on first dispatch.
+	records := make([]*kgo.Record, 64)
+	for i := range records {
+		records[i] = makeRecord("t", 0, int64(i))
+	}
+
+	// Simulate the revoke landing between the flag set and the kgo pause:
+	// the revoke callback closes the partition and resumes it right when the
+	// dispatcher is about to record its pause.
+	stub.onPause = func() {
+		registry.BeginClosing(map[string][]int32{"t": {0}})
+		stub.ResumeFetchPartitions(map[string][]int32{"t": {0}})
+	}
+
+	err := d.Dispatch(context.Background(), context.Background(), records)
+	require.NoError(t, err, "dispatch should succeed")
+
+	// Unfixed code leaves the racing pause in force: [resume, pause].
+	// Fixed code undoes it: [resume, pause, resume].
+	assert.Equal(t, []string{"resume:t:0", "pause:t:0", "resume:t:0"}, stub.calls,
+		"pause applied during a revoke must be undone by a follow-up resume")
+}
+
+// TestDispatcher_BackpressurePauseNotUndoneWithoutRevoke guards the normal
+// path: a clean backpressure pause must NOT be immediately resumed.
+func TestDispatcher_BackpressurePauseNotUndoneWithoutRevoke(t *testing.T) {
+	stub := &fetchStub{}
+	router := consumer.NewRouter(func(...string) {})
+	require.NoError(t, router.Register(sub("t")), "register subscription")
+	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
+
+	capacityCh := make(chan struct{}, 1)
+	d := consumer.NewDispatcher(router, consumer.NewPauseRegistry(time.Now, nil), registry, stub, stub, func(*consumer.PartitionState) {}, 64, capacityCh)
+
+	records := make([]*kgo.Record, 64)
+	for i := range records {
+		records[i] = makeRecord("t", 0, int64(i))
+	}
+
+	err := d.Dispatch(context.Background(), context.Background(), records)
+	require.NoError(t, err, "dispatch should succeed")
+
+	assert.Equal(t, []string{"pause:t:0"}, stub.calls,
+		"a clean backpressure pause must stay in force")
+}
+
 func waitForDispatcherToBlock(t *testing.T) {
 	t.Helper()
 	time.Sleep(50 * time.Millisecond) // crude but effective for test purposes
@@ -59,7 +156,7 @@ func TestDispatcher_New(t *testing.T) {
 	router := consumer.NewRouter(func(...string) {})
 	pauses := consumer.NewPauseRegistry(time.Now, &stubTopicPauser{})
 	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
-	d := consumer.NewDispatcher(router, pauses, registry, nil, nil, 64, make(chan struct{}, 1))
+	d := consumer.NewDispatcher(router, pauses, registry, nil, nil, nil, 64, make(chan struct{}, 1))
 	assert.NotNil(t, d, "NewDispatcher should not return nil")
 }
 
@@ -67,7 +164,7 @@ func TestDispatcher_Dispatch_EmptyRecords(t *testing.T) {
 	router := consumer.NewRouter(func(...string) {})
 	pauses := consumer.NewPauseRegistry(time.Now, &stubTopicPauser{})
 	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
-	d := consumer.NewDispatcher(router, pauses, registry, nil, nil, 64, make(chan struct{}, 1))
+	d := consumer.NewDispatcher(router, pauses, registry, nil, nil, nil, 64, make(chan struct{}, 1))
 
 	err := d.Dispatch(context.Background(), context.Background(), nil)
 	assert.NoError(t, err, "Dispatch nil records should succeed")
@@ -80,7 +177,7 @@ func TestDispatcher_Dispatch_UnregisteredTopic_Error(t *testing.T) {
 	router := consumer.NewRouter(func(...string) {})
 	pauses := consumer.NewPauseRegistry(time.Now, &stubTopicPauser{})
 	registry := consumer.NewPartitionRegistry(testlogger.NewLogger())
-	d := consumer.NewDispatcher(router, pauses, registry, nil, nil, 64, make(chan struct{}, 1))
+	d := consumer.NewDispatcher(router, pauses, registry, nil, nil, nil, 64, make(chan struct{}, 1))
 
 	err := d.Dispatch(context.Background(), context.Background(), []*kgo.Record{
 		makeRecord("no-such-topic", 0, 0),
@@ -95,7 +192,7 @@ func TestDispatcher_Dispatch_UnregisteredTopic_AmongValid(t *testing.T) {
 
 	require.NoError(t, router.Register(sub("valid")), "should register valid topic")
 
-	d := consumer.NewDispatcher(router, pauses, registry, nil, nil, 64, make(chan struct{}, 1))
+	d := consumer.NewDispatcher(router, pauses, registry, nil, nil, nil, 64, make(chan struct{}, 1))
 
 	err := d.Dispatch(context.Background(), context.Background(), []*kgo.Record{
 		makeRecord("valid", 0, 0),
@@ -112,7 +209,7 @@ func TestDispatcher_Dispatch_PausedTopic_SkipsAllRecords(t *testing.T) {
 	require.NoError(t, router.Register(sub("t")), "should register topic")
 	pauses.Pause("t", nil)
 
-	d := consumer.NewDispatcher(router, pauses, registry, nil, nil, 64, make(chan struct{}, 1))
+	d := consumer.NewDispatcher(router, pauses, registry, nil, nil, nil, 64, make(chan struct{}, 1))
 
 	err := d.Dispatch(context.Background(), context.Background(), []*kgo.Record{
 		makeRecord("t", 0, 0),
@@ -138,7 +235,7 @@ func TestDispatcher_Dispatch_MixedPausedAndActive(t *testing.T) {
 		started.Add(1)
 	}
 
-	d := consumer.NewDispatcher(router, pauses, registry, nil, startFn, 64, make(chan struct{}, 1))
+	d := consumer.NewDispatcher(router, pauses, registry, nil, nil, startFn, 64, make(chan struct{}, 1))
 
 	err := d.Dispatch(context.Background(), context.Background(), []*kgo.Record{
 		makeRecord("paused", 0, 0),
@@ -174,7 +271,7 @@ func TestDispatcher_Dispatch_SingleRecord_CreatesStateAndEnqueues(t *testing.T) 
 		started.Add(1)
 	}
 
-	d := consumer.NewDispatcher(router, pauses, registry, nil, startFn, 64, make(chan struct{}, 1))
+	d := consumer.NewDispatcher(router, pauses, registry, nil, nil, startFn, 64, make(chan struct{}, 1))
 
 	err := d.Dispatch(context.Background(), context.Background(), []*kgo.Record{
 		makeRecord("t", 0, 42),
@@ -206,7 +303,7 @@ func TestDispatcher_Dispatch_MultipleRecords_SamePartition(t *testing.T) {
 		started.Add(1)
 	}
 
-	d := consumer.NewDispatcher(router, pauses, registry, nil, startFn, 64, make(chan struct{}, 1))
+	d := consumer.NewDispatcher(router, pauses, registry, nil, nil, startFn, 64, make(chan struct{}, 1))
 
 	err := d.Dispatch(context.Background(), context.Background(), []*kgo.Record{
 		makeRecord("t", 0, 0),
@@ -239,7 +336,7 @@ func TestDispatcher_Dispatch_DifferentPartitions(t *testing.T) {
 		started.Add(1)
 	}
 
-	d := consumer.NewDispatcher(router, pauses, registry, nil, startFn, 64, make(chan struct{}, 1))
+	d := consumer.NewDispatcher(router, pauses, registry, nil, nil, startFn, 64, make(chan struct{}, 1))
 
 	err := d.Dispatch(context.Background(), context.Background(), []*kgo.Record{
 		makeRecord("t", 0, 0),
@@ -272,7 +369,7 @@ func TestDispatcher_Dispatch_DifferentTopics(t *testing.T) {
 		started.Add(1)
 	}
 
-	d := consumer.NewDispatcher(router, pauses, registry, nil, startFn, 64, make(chan struct{}, 1))
+	d := consumer.NewDispatcher(router, pauses, registry, nil, nil, startFn, 64, make(chan struct{}, 1))
 
 	err := d.Dispatch(context.Background(), context.Background(), []*kgo.Record{
 		makeRecord("a", 0, 0),
@@ -300,7 +397,7 @@ func TestDispatcher_Dispatch_StartFn_OnlyOnFirstCreation(t *testing.T) {
 		started.Add(1)
 	}
 
-	d := consumer.NewDispatcher(router, pauses, registry, nil, startFn, 64, make(chan struct{}, 1))
+	d := consumer.NewDispatcher(router, pauses, registry, nil, nil, startFn, 64, make(chan struct{}, 1))
 
 	err := d.Dispatch(context.Background(), context.Background(), []*kgo.Record{
 		makeRecord("t", 0, 0),
@@ -340,6 +437,7 @@ func TestDispatcher_Dispatch_WaitForCapacity_ContextCancelled(t *testing.T) {
 		pauses,
 		registry,
 		nil,
+		nil,
 		func(ps *consumer.PartitionState) {},
 		1,
 		capacityCh,
@@ -371,6 +469,7 @@ func TestDispatcher_Dispatch_BackpressurePause(t *testing.T) {
 		pauses,
 		registry,
 		pauser,
+		nil,
 		func(ps *consumer.PartitionState) {},
 		2,
 		make(chan struct{}, 1),
@@ -420,6 +519,7 @@ func TestDispatcher_Dispatch_WaitForCapacity_Signalled(t *testing.T) {
 		pauses,
 		registry,
 		pauser,
+		nil,
 		func(ps *consumer.PartitionState) {},
 		2,
 		capacityCh,
@@ -478,7 +578,7 @@ func TestDispatcher_Dispatch_PartialEnqueue_RetriesAfterCapacity(t *testing.T) {
 
 	pauser := &stubFetchPauser{}
 	capacityCh := make(chan struct{}, 1)
-	d := consumer.NewDispatcher(router, pauses, registry, pauser,
+	d := consumer.NewDispatcher(router, pauses, registry, pauser, nil,
 		func(ps *consumer.PartitionState) {}, 4, capacityCh)
 
 	errCh := make(chan error, 1)
@@ -531,7 +631,7 @@ func TestDispatcher_Dispatch_MultiPartitionBackpressure(t *testing.T) {
 		started.Add(1)
 	}
 
-	d := consumer.NewDispatcher(router, pauses, registry, pauser, startFn, 2, make(chan struct{}, 1))
+	d := consumer.NewDispatcher(router, pauses, registry, pauser, nil, startFn, 2, make(chan struct{}, 1))
 
 	err := d.Dispatch(context.Background(), context.Background(), []*kgo.Record{
 		makeRecord("t", 0, 0),
@@ -573,7 +673,7 @@ func TestDispatcher_Dispatch_PartialEnqueue_NoRecordLoss(t *testing.T) {
 	//   Pass 1: TryEnqueue enqueues 3, cursor.next=3
 	//           TryEnqueue returns 0 for remaining 2
 	//   Pass 2: TryEnqueue returns 0, WaitForCapacity
-	d := consumer.NewDispatcher(router, pauses, registry, pauser,
+	d := consumer.NewDispatcher(router, pauses, registry, pauser, nil,
 		func(ps *consumer.PartitionState) {}, 3, capacityCh)
 
 	errCh := make(chan error, 1)

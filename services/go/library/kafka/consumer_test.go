@@ -4,6 +4,8 @@ package kafka
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
 	"sync"
 	"testing"
 	"time"
@@ -458,6 +460,12 @@ func TestConsumer_OnPartitionsLost_DropsSelectedOffsets(t *testing.T) {
 
 	_, topicBExists := c.registry.Get(consumer.Key{Topic: "topic-b", Partition: 0})
 	assert.True(t, topicBExists, "unlost partition should remain")
+
+	stub.mu.Lock()
+	defer stub.mu.Unlock()
+	require.Equal(t, 1, len(stub.resumedParts), "lost partitions must be resumed")
+	assert.Equal(t, map[string][]int32{"topic-a": {1}}, stub.resumedParts[0],
+		"should resume exactly the lost set (sticky kgo pause must be cleared)")
 }
 
 func TestConsumer_OnPartitionsRevoked_UsesCallbackContextForFinalCommit(t *testing.T) {
@@ -598,6 +606,38 @@ func TestCommitResponseError_ReportsPartitionFailures(t *testing.T) {
 	require.Error(t, err, "partition failure must surface")
 	assert.ErrorIs(t, err, kerr.IllegalGeneration, "should wrap kerr error")
 	assert.ErrorContains(t, err, `topic "t" partition 2`, "should identify the partition")
+}
+
+func TestResolveRunError_ClientClosedCommitFailureIsCleanSignal(t *testing.T) {
+	// An in-flight periodic/debounced flush that fails because Client.Close
+	// closed the underlying client surfaces as kgo.ErrClientClosed.
+	fatal := fmt.Errorf("failed to commit processed offsets: %w", kgo.ErrClientClosed)
+	require.NoError(t, resolveRunError(fatal, nil, context.Background(), slog.Default()),
+		"client-closed commit failure must be the documented clean-close signal")
+}
+
+func TestResolveRunError_ClientClosedDispatchIsCleanSignal(t *testing.T) {
+	require.NoError(t, resolveRunError(nil, errClientClosed, context.Background(), slog.Default()),
+		"dispatch loop seeing a closed client is the clean-close signal")
+}
+
+func TestResolveRunError_RealFatalErrorPassesThrough(t *testing.T) {
+	cause := errors.New("handler boom")
+	require.ErrorIs(t, resolveRunError(cause, nil, context.Background(), slog.Default()), cause,
+		"real fatal errors must propagate")
+}
+
+func TestResolveRunError_CallerContextCancelReturned(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	require.ErrorIs(t, resolveRunError(nil, context.Canceled, ctx, slog.Default()), context.Canceled,
+		"caller context cancellation maps to ctx.Err()")
+}
+
+func TestResolveRunError_PlainDispatchErrorPropagates(t *testing.T) {
+	dispatchErr := errors.New("dispatch failure")
+	require.ErrorIs(t, resolveRunError(nil, dispatchErr, context.Background(), slog.Default()), dispatchErr,
+		"unexpected dispatch errors must propagate")
 }
 
 func TestConsumer_OnPartitionsRevoked_ResumesNotPauses(t *testing.T) {

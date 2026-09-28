@@ -16,7 +16,7 @@ var (
 )
 
 func TestMain(m *testing.M) {
-	te = testenv.New("library_transactor")
+	te = testenv.New("library_kafka")
 
 	var err error
 	testKafka, err = testenv.SetupKafka(te)

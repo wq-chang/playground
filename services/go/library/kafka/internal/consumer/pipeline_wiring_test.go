@@ -135,7 +135,7 @@ func setupIntegration(t *testing.T, cl consumer.OffsetClient) (
 		client,
 	)
 
-	dispatcher := consumer.NewDispatcher(router, pauses, registry, client, wr.Start, 64, capacityCh)
+	dispatcher := consumer.NewDispatcher(router, pauses, registry, client, nil, wr.Start, 64, capacityCh)
 
 	return run, router, registry, committer, pauses, dispatcher
 }

@@ -32,6 +32,18 @@ func dequeueCtx(t *testing.T) context.Context {
 	return ctx
 }
 
+func TestPartitionState_IsAccepting(t *testing.T) {
+	ps := consumer.NewPartitionState(context.Background(), testlogger.NewLogger(), consumer.Key{Topic: "t", Partition: 0}, testSubscription(), 64)
+	assert.True(t, ps.IsAccepting(), "fresh state accepts work")
+
+	ps.BeginClosing()
+	assert.False(t, ps.IsAccepting(), "closing state rejects work")
+
+	stopped := consumer.NewPartitionState(context.Background(), testlogger.NewLogger(), consumer.Key{Topic: "t", Partition: 1}, testSubscription(), 64)
+	stopped.MarkStopped()
+	assert.False(t, stopped.IsAccepting(), "stopped state rejects work")
+}
+
 func TestPartitionState_New(t *testing.T) {
 	ps := consumer.NewPartitionState(
 		context.Background(),
