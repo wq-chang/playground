@@ -364,12 +364,12 @@ func TestKafkaConsumerStopPausesTopicOnly(t *testing.T) {
 
 // partitionTracker records the highest message sequence observed per partition.
 type partitionTracker struct {
-	mu   sync.Mutex
 	last map[int32]int
+	mu   sync.Mutex
 }
 
 func newPartitionTracker() *partitionTracker {
-	return &partitionTracker{last: make(map[int32]int)}
+	return &partitionTracker{last: make(map[int32]int), mu: sync.Mutex{}}
 }
 
 func (t *partitionTracker) record(partition int32, seq int) {
@@ -401,10 +401,10 @@ func (t *partitionTracker) maxOf() int {
 
 // rebalanceMember is one consumer in the shared consumer group.
 type rebalanceMember struct {
-	label  string
 	client *kafka.Client
 	runErr chan error
 	seen   *partitionTracker
+	label  string
 }
 
 // startRebalanceMember starts a member consuming topic in group. It records
