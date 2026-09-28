@@ -5,7 +5,7 @@ package kafka_test
 import (
 	"context"
 	"fmt"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -471,7 +471,7 @@ func waitForPartitionProgress(
 				result = append(result, p)
 			}
 		}
-		sort.Slice(result, func(i, j int) bool { return result[i] < result[j] })
+		slices.Sort(result)
 		return result
 	}
 
@@ -483,7 +483,7 @@ func waitForPartitionProgress(
 			for p := range expected {
 				parts = append(parts, p)
 			}
-			sort.Slice(parts, func(i, j int) bool { return parts[i] < parts[j] })
+			slices.Sort(parts)
 			var got []string
 			var perMember []string
 			for _, p := range parts {
@@ -569,7 +569,7 @@ func TestKafkaConsumerGroupRebalance(t *testing.T) {
 	// returns the highest sequence produced to each partition.
 	produce := func(offset, count int) map[int32]int {
 		expected := make(map[int32]int)
-		for i := 0; i < count; i++ {
+		for i := range count {
 			seq := offset + i
 			partition := int32(i % partitions)
 			require.NoError(t, producer.Producer.ProduceSync(ctx, &kgo.Record{
