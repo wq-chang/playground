@@ -5,6 +5,10 @@ package kafka_test
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -356,4 +360,274 @@ func TestKafkaConsumerStopPausesTopicOnly(t *testing.T) {
 		}
 	default:
 	}
+}
+
+// partitionTracker records the highest message sequence observed per partition.
+type partitionTracker struct {
+	mu   sync.Mutex
+	last map[int32]int
+}
+
+func newPartitionTracker() *partitionTracker {
+	return &partitionTracker{last: make(map[int32]int)}
+}
+
+func (t *partitionTracker) record(partition int32, seq int) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if seq > t.last[partition] {
+		t.last[partition] = seq
+	}
+}
+
+func (t *partitionTracker) lastOf(partition int32) int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.last[partition]
+}
+
+// maxOf returns the highest sequence seen on any partition, or -1 if none.
+func (t *partitionTracker) maxOf() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	max := -1
+	for _, s := range t.last {
+		if s > max {
+			max = s
+		}
+	}
+	return max
+}
+
+// rebalanceMember is one consumer in the shared consumer group.
+type rebalanceMember struct {
+	label  string
+	client *kafka.Client
+	runErr chan error
+	seen   *partitionTracker
+}
+
+// startRebalanceMember starts a member consuming topic in group. It records
+// every delivered message's sequence into its own tracker.
+func startRebalanceMember(t *testing.T, group, topic, label string) *rebalanceMember {
+	t.Helper()
+
+	seen := newPartitionTracker()
+	client, err := kafka.New(
+		testKafka.PlainBrokers,
+		group,
+		kafka.WithSubscription(kafka.Subscription{
+			Topic: topic,
+			Handler: func(_ context.Context, record *kgo.Record) error {
+				seq, err := strconv.Atoi(string(record.Value))
+				if err != nil {
+					return fmt.Errorf("parse seq %q: %w", record.Value, err)
+				}
+				seen.record(record.Partition, seq)
+				return nil
+			},
+			BatchHandler:  nil,
+			AckMode:       kafka.AckModeAtLeastOnce,
+			FailurePolicy: kafka.FailurePolicy{},
+		}),
+		kafka.WithKgoOptions(kgo.ConsumeResetOffset(kgo.NewOffset().AtStart())),
+	)
+	require.NoError(t, err, "failed to create rebalance member client")
+	t.Cleanup(client.Close)
+
+	m := &rebalanceMember{label: label, client: client, runErr: make(chan error, 1), seen: seen}
+	go func() { m.runErr <- client.Consumer.Run(context.Background()) }()
+	return m
+}
+
+// combinedProgress returns the highest sequence any of the members observed
+// for partition, i.e. 0 if none of them have consumed that partition at all.
+func combinedProgress(members []*rebalanceMember, partition int32) int {
+	max := 0
+	for _, m := range members {
+		if v := m.seen.lastOf(partition); v > max {
+			max = v
+		}
+	}
+	return max
+}
+
+// waitForPartitionProgress polls until every partition in expected has been
+// consumed up to the expected sequence by some member of the group.
+func waitForPartitionProgress(
+	t *testing.T,
+	members []*rebalanceMember,
+	expected map[int32]int,
+	timeout time.Duration,
+	phase string,
+) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	stuck := func() []int32 {
+		var result []int32
+		for p, want := range expected {
+			if combinedProgress(members, p) < want {
+				result = append(result, p)
+			}
+		}
+		sort.Slice(result, func(i, j int) bool { return result[i] < result[j] })
+		return result
+	}
+
+	for {
+		if s := stuck(); len(s) == 0 {
+			return
+		} else if time.Now().After(deadline) {
+			parts := make([]int32, 0, len(expected))
+			for p := range expected {
+				parts = append(parts, p)
+			}
+			sort.Slice(parts, func(i, j int) bool { return parts[i] < parts[j] })
+			var got []string
+			var perMember []string
+			for _, p := range parts {
+				got = append(got, fmt.Sprintf("p%d=%d/%d", p, combinedProgress(members, p), expected[p]))
+			}
+			for _, m := range members {
+				var mparts []string
+				for _, p := range parts {
+					mparts = append(mparts, fmt.Sprintf("p%d=%d", p, m.seen.lastOf(p)))
+				}
+				perMember = append(perMember, fmt.Sprintf("%s[%s]", m.label, strings.Join(mparts, " ")))
+			}
+			t.Fatalf("%s: partitions stuck after %s: %v (combined %s; per member %s)",
+				phase, timeout, s, strings.Join(got, ", "), strings.Join(perMember, " "))
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// assertRebalanceMemberRunning fails if the member's Run ended before the
+// assertion.
+func assertRebalanceMemberRunning(t *testing.T, m *rebalanceMember, phase string) {
+	t.Helper()
+	select {
+	case err := <-m.runErr:
+		t.Fatalf("%s: member %s run ended: %v", phase, m.label, err)
+	default:
+	}
+}
+
+// waitForMemberProgress waits until the member has consumed at least one
+// message, proving it received a partition assignment.
+func waitForMemberProgress(t *testing.T, m *rebalanceMember, timeout time.Duration, phase string) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for m.seen.maxOf() < 0 {
+		if time.Now().After(deadline) {
+			t.Fatalf("%s: member %s consumed nothing within %s", phase, m.label, timeout)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// waitForMemberCleanStop expects the member's Run to have returned nil after
+// its client was closed (the external-close clean signal).
+func waitForMemberCleanStop(t *testing.T, m *rebalanceMember, timeout time.Duration, phase string) {
+	t.Helper()
+	select {
+	case err := <-m.runErr:
+		require.NoError(t, err, "%s: member %s should stop cleanly on close", phase, m.label)
+	case <-time.After(timeout):
+		t.Fatalf("%s: member %s did not stop within %s", phase, m.label, timeout)
+	}
+}
+
+// TestKafkaConsumerGroupRebalance drives real rebalances (partition revoke and
+// reassignment) within one consumer group and verifies delivery keeps flowing
+// to every partition. It is the end-to-end regression for revoke handling:
+// a stale partition-level pause left by a revocation would strand a partition
+// when it is reassigned, which the per-partition progress waits detect.
+func TestKafkaConsumerGroupRebalance(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	topic := fmt.Sprintf("test-rebalance-%d", time.Now().UnixNano())
+	const partitions = 3
+	require.NoError(t, testKafka.CreateTopic(ctx, topic, partitions), "failed to create rebalance topic")
+
+	group := fmt.Sprintf("test-group-rebalance-%d", time.Now().UnixNano())
+
+	// franz-go's default partitioner hashes the record key and ignores
+	// Record.Partition; ManualPartitioner makes the explicit partition field
+	// authoritative so the per-partition sequence expectations are exact.
+	producer, err := kafka.New(
+		testKafka.PlainBrokers,
+		"rebalance-producer-"+group,
+		kafka.WithKgoOptions(kgo.RecordPartitioner(kgo.ManualPartitioner())),
+	)
+	require.NoError(t, err, "failed to create producer client")
+	defer producer.Close()
+
+	// produce emits count sequential messages cycling across the partitions and
+	// returns the highest sequence produced to each partition.
+	produce := func(offset, count int) map[int32]int {
+		expected := make(map[int32]int)
+		for i := 0; i < count; i++ {
+			seq := offset + i
+			partition := int32(i % partitions)
+			require.NoError(t, producer.Producer.ProduceSync(ctx, &kgo.Record{
+				Topic:     topic,
+				Partition: partition,
+				Value:     []byte(strconv.Itoa(seq)),
+			}), "failed to produce message %d", seq)
+			expected[partition] = seq
+		}
+		return expected
+	}
+
+	// Phase 1: two members join and collectively consume all three partitions.
+	a := startRebalanceMember(t, group, topic, "a")
+	b := startRebalanceMember(t, group, topic, "b")
+	initial := produce(0, 30)
+	waitForPartitionProgress(t, []*rebalanceMember{a, b}, initial, 30*time.Second, "initial assignment")
+	assertRebalanceMemberRunning(t, a, "phase 1")
+	assertRebalanceMemberRunning(t, b, "phase 1")
+
+	// Phase 2: steady-state delivery with two members.
+	steady := produce(30, 30)
+	waitForPartitionProgress(t, []*rebalanceMember{a, b}, steady, 30*time.Second, "two-member steady state")
+
+	// Phase 3: a third member joins. With 3 partitions / 3 members the
+	// coordinator must revoke a partition from an existing member and assign
+	// it to the newcomer. Cooperative rebalancing assigns the newcomer in a
+	// later round, and until it lands the previous owners still consume the
+	// moving partition — so production must overlap with the wait, or the
+	// newcomer's partition arrives empty. Produce batches until the newcomer
+	// has consumed at least one message; once it owns a partition, only it can
+	// advance that partition's combined progress.
+	c := startRebalanceMember(t, group, topic, "c")
+	all := []*rebalanceMember{a, b, c}
+	next := 60
+	deadline := time.Now().Add(30 * time.Second)
+	for ; time.Now().Before(deadline) && c.seen.maxOf() < 0; next += 30 {
+		expected := produce(next, 30)
+		waitForPartitionProgress(t, all, expected, 20*time.Second, "phase 3 stream")
+	}
+	waitForMemberProgress(t, c, 5*time.Second, "joined member consumes its reassigned partition")
+	assertRebalanceMemberRunning(t, a, "phase 3")
+	assertRebalanceMemberRunning(t, b, "phase 3")
+
+	// Phase 4: the third member leaves. Its partition is reassigned back —
+	// with the sticky assignor, most likely to the member that originally
+	// owned it. Every partition must keep progressing; a stale partition-level
+	// pause from the revocation would strand the returning partition, which is
+	// the regression this phase detects (fix: resume-on-revoke).
+	c.client.Close()
+	waitForMemberCleanStop(t, c, 10*time.Second, "third member leaves cleanly")
+	afterLeave := produce(next, 30)
+	waitForPartitionProgress(t, []*rebalanceMember{a, b}, afterLeave, 30*time.Second, "after third member leaves")
+
+	// Phase 5: closing the remaining members must end their Run cleanly
+	// (external-close clean signal).
+	a.client.Close()
+	b.client.Close()
+	waitForMemberCleanStop(t, a, 10*time.Second, "member a close")
+	waitForMemberCleanStop(t, b, 10*time.Second, "member b close")
 }

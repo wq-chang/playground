@@ -20,7 +20,8 @@ type Kafka struct {
 	// Cleanup is a function to stop the container, though usually managed by Ryuk.
 	Cleanup func()
 	// CreateTopic is a helper function to provision new topics in the test cluster.
-	CreateTopic func(context.Context, string) error
+	// An optional second argument sets the partition count (default 1).
+	CreateTopic func(context.Context, string, ...int) error
 	// Username is the default SCRAM-SHA-512 username.
 	Username string
 	// Password is the default SCRAM-SHA-512 password.
@@ -163,8 +164,12 @@ func NewKafka(ctx context.Context, imageName string) (*Kafka, error) {
 		return nil, fmt.Errorf("kafka client init failed: %w", err)
 	}
 	admin := kadm.NewClient(client)
-	createTopic := func(testCtx context.Context, topic string) error {
-		resp, err := admin.CreateTopics(testCtx, 1, 1, nil, topic)
+	createTopic := func(testCtx context.Context, topic string, partitions ...int) error {
+		n := 1
+		if len(partitions) > 0 {
+			n = partitions[0]
+		}
+		resp, err := admin.CreateTopics(testCtx, int32(n), 1, nil, topic)
 		if err != nil {
 			return fmt.Errorf("failed to create topic: %w", err)
 		}
